@@ -7,14 +7,11 @@ const network = networks.opnetTestnet;
 const RPC = 'https://testnet.opnet.org';
 const CONTRACT = 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj';
 
-const ABI = {
-  functions: [
-    { name: 'createMarket', inputs: [{ name: 'endBlock', type: 'UINT256' }], outputs: [{ name: 'marketId', type: 'UINT256' }], type: 'function' },
-    { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'yesReserve', type: 'UINT256' }], type: 'function' },
-    { name: 'getPrice', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'yesPriceBps', type: 'UINT256' }], type: 'function' },
-  ],
-  events: [],
-};
+const ABI = [
+  { name: 'createMarket', inputs: [{ name: 'endBlock', type: 'UINT256' }], outputs: [{ name: 'marketId', type: 'UINT256' }], type: 'function' },
+  { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'yesReserve', type: 'UINT256' }], type: 'function' },
+  { name: 'getPrice', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'yesPriceBps', type: 'UINT256' }], type: 'function' },
+];
 
 const provider = new JSONRpcProvider({ url: RPC, network });
 const m = new Mnemonic(SEED, '', network, MLDSASecurityLevel.LEVEL2);

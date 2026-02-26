@@ -227,11 +227,14 @@ export class PredictionMarket extends OP_NET {
       throw new Revert('Market already resolved');
     }
 
-    // 2% fee
-    const fee: u256 = SafeMath.div(
-      SafeMath.mul(amount, u256.fromU64(MARKET_FEE_BPS)),
-      u256.fromU64(BPS_BASE),
-    );
+    // 2% fee — round UP to favor protocol (ATK-13 audit fix)
+    const numerator: u256 = SafeMath.mul(amount, u256.fromU64(MARKET_FEE_BPS));
+    const base: u256 = u256.fromU64(BPS_BASE);
+    const remainder: u256 = SafeMath.mod(numerator, base);
+    let fee: u256 = SafeMath.div(numerator, base);
+    if (!u256.eq(remainder, u256.Zero)) {
+      fee = SafeMath.add(fee, u256.One);
+    }
     const netAmount: u256 = SafeMath.sub(amount, fee);
 
     const yesReserve: u256 = this.yesReserves.get(marketKey);
@@ -313,7 +316,7 @@ export class PredictionMarket extends OP_NET {
     this.resolvedFlags.set(marketKey, u256.One);
     this.outcomes.set(marketKey, outcome ? u256.One : u256.Zero);
 
-    this.emitEvent(new MarketResolvedEvent(marketId, outcome, Blockchain.tx.origin));
+    this.emitEvent(new MarketResolvedEvent(marketId, outcome, Blockchain.tx.sender));
 
     return new BytesWriter(0);
   }
