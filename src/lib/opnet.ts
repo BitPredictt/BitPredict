@@ -243,11 +243,16 @@ export function isValidOPNetAddress(address: string): boolean {
  */
 export async function fetchBlockHeight(): Promise<number | null> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(OPNET_CONFIG.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'btc_blockNumber', params: [] }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
     const data = await res.json();
     if (data.result) return Number(data.result);
     return null;
