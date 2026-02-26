@@ -2,11 +2,23 @@
     "targets": {
         "debug": {
             "outFile": "build/PredictionMarket.wasm",
-            "textFile": "build/PredictionMarket.wat"
+            "textFile": "build/PredictionMarket.wat",
+            "use": ["abort=src/index/abort"]
         },
         "release": {
             "outFile": "build/PredictionMarket.wasm",
-            "textFile": "build/PredictionMarket.wat"
+            "textFile": "build/PredictionMarket.wat",
+            "use": ["abort=src/index/abort"]
+        },
+        "pred-debug": {
+            "outFile": "build/PredToken.wasm",
+            "textFile": "build/PredToken.wat",
+            "use": ["abort=src/pred-index/abort"]
+        },
+        "pred-release": {
+            "outFile": "build/PredToken.wasm",
+            "textFile": "build/PredToken.wat",
+            "use": ["abort=src/pred-index/abort"]
         }
     },
     "options": {
@@ -29,8 +41,6 @@
         "memoryBase": 0,
         "initialMemory": 1,
         "exportStart": "start",
-        "use": [
-            "abort=src/index/abort"
-        ]
+        "use": []
     }
 }

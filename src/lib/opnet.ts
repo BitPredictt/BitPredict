@@ -20,7 +20,8 @@ export const OPNET_CONFIG = {
   explorerUrl: 'https://opscan.org',
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: 'opt1sqzv3pnzsgfughexslplfyjg8s0engxpv3ge3lqn5', // Deployed PredictionMarket
+  contractAddress: 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj', // Deployed PredictionMarket
+  predTokenAddress: 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph', // $PRED OP-20 Token
 };
 
 // Official OP_NET SDK usage:

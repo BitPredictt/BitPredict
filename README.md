@@ -11,9 +11,11 @@
 
 ## What is BitPredict?
 
-BitPredict is a **fully functional prediction market platform** built natively on **Bitcoin Layer 1** using **OP_NET's smart contract infrastructure**. Users can trade binary outcomes (YES/NO) on real-world events — crypto prices, politics, sports, tech — using regtest Bitcoin.
+BitPredict is a **fully functional prediction market platform** built natively on **Bitcoin Layer 1** using **OP_NET's smart contract infrastructure**. Users can trade binary outcomes (YES/NO) on real-world events — crypto prices, politics, sports, tech — using OPNet testnet Bitcoin.
 
 Unlike traditional prediction markets that rely on Ethereum or L2 rollups, BitPredict operates directly on Bitcoin's base layer, inheriting its unmatched security and decentralization while adding programmable market logic through OP_NET.
+
+![BitPredict Screenshot](public/screen.png)
 
 ### Why This Matters
 
@@ -95,7 +97,8 @@ This entire project was vibecoded — every line of code was generated through A
 ```
 BitPredict
 ├── contracts/                    # OP_NET Smart Contracts
-│   └── PredictionMarket.ts       # AssemblyScript contract (btc-runtime)
+│   ├── PredictionMarket.ts       # Prediction market AMM contract
+│   ├── PredToken.ts              # $PRED OP-20 token contract
 │       ├── createMarket()        # Create binary outcome market
 │       ├── buyShares()           # Purchase YES/NO shares via AMM
 │       ├── resolveMarket()       # Admin resolves with outcome
@@ -115,7 +118,8 @@ BitPredict
 │   │   ├── AIAnalysis.tsx        # AI market analysis
 │   │   └── Toast.tsx             # Notification system
 │   ├── hooks/
-│   │   └── useWallet.ts          # OP_WALLET + demo wallet logic
+│   │   ├── useWallet.ts          # OP_WALLET + demo wallet logic
+│   │   └── useContractData.ts    # Live RPC reads from deployed contracts
 │   ├── lib/
 │   │   └── opnet.ts              # OP_NET integration layer
 │   │       ├── calculatePrice()  # AMM price calculation
@@ -202,7 +206,7 @@ This provides:
 - Node.js >= 18
 - npm >= 9
 - [OP_WALLET](https://opnet.org) browser extension
-- Regtest BTC from [faucet.opnet.org](https://faucet.opnet.org)
+- Testnet BTC from [faucet.opnet.org](https://faucet.opnet.org)
 
 ### Installation
 
@@ -236,11 +240,11 @@ cp .env.example .env
 
 ---
 
-## Testing with Regtest BTC
+## Testing on OPNet Testnet
 
 1. Install [OP_WALLET](https://opnet.org) Chrome extension
-2. Switch to **Regtest** in OP_WALLET settings
-3. Get free regtest BTC from [faucet.opnet.org](https://faucet.opnet.org)
+2. Switch to **OPNet Testnet** in OP_WALLET settings
+3. Get free testnet BTC from [faucet.opnet.org](https://faucet.opnet.org)
 4. Open BitPredict and click **Connect**
 5. Browse markets, select one, place a YES or NO prediction
 6. Check your portfolio in the **My Bets** tab
@@ -253,7 +257,14 @@ cp .env.example .env
 
 **GitHub**: [github.com/opbitpredict/BitPredict](https://github.com/opbitpredict/BitPredict)
 
-**Contract**: OP_NET Regtest — deploy via OP_WALLET after compiling to WASM
+### Deployed Contracts (OPNet Testnet)
+
+| Contract | Address |
+|---|---|
+| **PredictionMarket** | `opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj` |
+| **$PRED Token (OP-20)** | `opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph` |
+
+Explorer: [opscan.org](https://opscan.org)
 
 ---
 
