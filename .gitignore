@@ -1,0 +1,45 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Keys & secrets - NEVER commit
+*.pem
+*.key
+wallet.json
+.ssh_vps_key
+id_rsa*
+id_ed25519*
+*.p12
+.gh_token
+ghp_*
+
+# Build artifacts
+dist.tar.gz
+*.tar.gz
+nginx_*.conf
