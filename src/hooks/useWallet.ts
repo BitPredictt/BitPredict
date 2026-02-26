@@ -39,7 +39,7 @@ export function useWallet() {
   const connectOPWallet = useCallback(async () => {
     setLoading(true);
     try {
-      const opnet = (window as any).opnet;
+      const opnet = (window as unknown as { opnet?: { requestAccounts: () => Promise<string[]> } }).opnet;
       if (opnet && typeof opnet.requestAccounts === 'function') {
         const accounts = await opnet.requestAccounts();
         if (accounts && accounts.length > 0) {

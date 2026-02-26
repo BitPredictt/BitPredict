@@ -32,7 +32,6 @@ import {
   BytesWriter,
   Calldata,
   encodeSelector,
-  Map,
   NetEvent,
   OP_NET,
   Revert,
@@ -48,7 +47,6 @@ import {
 
 const MARKET_FEE_BPS: u64 = 200; // 2% fee on trades
 const MIN_TRADE_AMOUNT: u256 = u256.fromU64(100); // 100 sats minimum
-const RESOLUTION_GRACE_PERIOD: u64 = 144; // ~1 day in blocks
 const INITIAL_LIQUIDITY: u256 = u256.fromU64(1_000_000); // 1M sats initial virtual liquidity
 
 // ============================================================
@@ -313,8 +311,8 @@ export class PredictionMarket extends OP_NET {
     const netAmount = SafeMath.sub(amount, fee);
 
     // Get current reserves
-    let yesReserve = this.yesReserves.get(marketAddr).get();
-    let noReserve = this.noReserves.get(marketAddr).get();
+    const yesReserve = this.yesReserves.get(marketAddr).get();
+    const noReserve = this.noReserves.get(marketAddr).get();
 
     // Calculate constant product k = yesReserve * noReserve
     const k = SafeMath.mul(yesReserve, noReserve);

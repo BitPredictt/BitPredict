@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Box, Cpu, Zap, ExternalLink } from 'lucide-react';
-import { fetchBlockHeight, OPNET_CONFIG } from '../lib/opnet';
+import { fetchBlockHeight } from '../lib/opnet';
 
 interface NetworkStat {
   label: string;
@@ -64,7 +64,7 @@ export function NetworkStats() {
         </div>
       ))}
       <a
-        href="https://docs.opnet.org"
+        href="https://dev.opnet.org"
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-btc transition-colors shrink-0 ml-auto"

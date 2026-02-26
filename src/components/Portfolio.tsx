@@ -17,7 +17,7 @@ export function Portfolio({ bets, walletConnected, onConnect }: PortfolioProps) 
         </div>
         <h3 className="text-lg font-bold text-white mb-2">Connect Your Wallet</h3>
         <p className="text-xs text-gray-500 mb-6 text-center max-w-sm">
-          Connect your OPWallet to view your predictions and track your performance.
+          Connect your OP_WALLET to view your predictions and track your performance.
         </p>
         <button onClick={onConnect} className="btc-btn flex items-center gap-2">
           <Wallet size={16} />

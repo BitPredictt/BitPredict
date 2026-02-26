@@ -74,10 +74,6 @@ function App() {
     setToast({ message: `${side.toUpperCase()} prediction placed! ${amount.toLocaleString()} sats on Bitcoin L1`, type: 'success' });
   }, []);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-  };
-
   return (
     <div className="min-h-screen">
       <Header
@@ -100,11 +96,11 @@ function App() {
                 <span className="btc-gradient">on Bitcoin L1</span>
               </h2>
               <p className="text-sm text-gray-500 mt-3 max-w-md mx-auto">
-                AI-powered prediction markets built on OP_NET. Trade binary outcomes with testnet Bitcoin.
+                AI-powered prediction markets built on OP_NET. Trade binary outcomes with regtest Bitcoin on OP_NET.
               </p>
               <div className="flex items-center justify-center gap-4 mt-4">
                 <a
-                  href="https://github.com/"
+                  href="https://github.com/opbitpredict/BitPredict"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-btc transition-colors"

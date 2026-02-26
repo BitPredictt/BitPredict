@@ -138,7 +138,7 @@ export function calculatePayout(
  * OP_WALLET is a fork of UniSat — exposes window.opnet with same API surface
  */
 export function isOPWalletAvailable(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).opnet;
+  return typeof window !== 'undefined' && !!(window as unknown as Record<string, unknown>).opnet;
 }
 
 /**
@@ -148,7 +148,7 @@ export function isOPWalletAvailable(): boolean {
  */
 export async function connectOPWallet(): Promise<{ address: string; publicKey: string } | null> {
   try {
-    const opwallet = (window as any).opnet;
+    const opwallet = (window as unknown as { opnet?: { requestAccounts: () => Promise<string[]>; getPublicKey?: () => Promise<string> } }).opnet;
     if (!opwallet) return null;
 
     const accounts = await opwallet.requestAccounts();
