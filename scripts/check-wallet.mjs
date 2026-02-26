@@ -3,7 +3,7 @@ import { networks } from '@btc-vision/bitcoin';
 import { Mnemonic, MLDSASecurityLevel, OPNetLimitedProvider, TransactionFactory } from '@btc-vision/transaction';
 import * as fs from 'fs';
 
-const SEED = 'REDACTED_USE_ENV_VAR';
+const SEED = process.env.OPNET_SEED || (() => { console.error('Set OPNET_SEED env var'); process.exit(1); })();
 const network = networks.opnetTestnet;
 const RPC = 'https://testnet.opnet.org';
 
