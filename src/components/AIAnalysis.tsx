@@ -1,43 +1,35 @@
 import { useState } from 'react';
-import { BrainCircuit, Sparkles, TrendingUp, TrendingDown, AlertTriangle, Send, Bot, Code2, Shield, Workflow } from 'lucide-react';
-import type { Market } from '../types';
-import { MOCK_MARKETS } from '../data/markets';
+import { BrainCircuit, Bot, Code2, Shield, Workflow, ExternalLink, HelpCircle, ChevronDown, ChevronUp, Zap, Wallet, Globe, BookOpen } from 'lucide-react';
 
-interface AnalysisResult {
-  marketId: string;
-  question: string;
-  recommendation: 'yes' | 'no' | 'neutral';
-  confidence: number;
-  reasoning: string;
-  factors: string[];
+interface FAQItem {
+  q: string;
+  a: string;
+  category: 'opnet' | 'platform' | 'wallet' | 'trading';
 }
 
-const generateAnalysis = (market: Market): AnalysisResult => {
-  const isYesFavored = market.yesPrice > 0.5;
-  const confidence = 55 + Math.floor(Math.random() * 30);
-  
-  const factors = [
-    market.category === 'Crypto' ? 'On-chain OP_NET data: Bitcoin adoption metrics trending upward' : 'Cross-chain sentiment analysis via Bob AI complete',
-    `AMM reserves: YES=${Math.round(market.yesPrice * 100)}% / NO=${Math.round(market.noPrice * 100)}% (constant-product x·y=k)`,
-    `Trading volume: ${(market.volume / 1000).toFixed(0)}K sats — ${market.volume > 500000 ? 'very high' : market.volume > 100000 ? 'strong' : 'moderate'} market interest`,
-    market.liquidity > 100000 ? 'Liquidity depth: High — reliable price discovery, low slippage' : 'Liquidity depth: Moderate — expect 2-5% slippage on large orders',
-    isYesFavored ? 'Market consensus leans YES — contrarian NO offers 2.8x potential return' : 'Market consensus leans NO — contrarian YES offers higher upside',
-    `Risk assessment: ${confidence > 70 ? 'Low risk — strong signal alignment' : confidence > 55 ? 'Medium risk — mixed signals, position size carefully' : 'High risk — insufficient data for conviction'}`,
-    `OP_NET block confirmation: ~10 min settlement on Bitcoin L1`,
-  ];
+const FAQ_DATA: FAQItem[] = [
+  { category: 'opnet', q: 'What is OP_NET?', a: 'OP_NET is a Bitcoin Layer 1 smart contract platform. It uses Tapscript-encoded calldata to execute WASM-compiled AssemblyScript smart contracts directly on Bitcoin, without sidechains or bridges. It provides Solidity-like development experience on Bitcoin.' },
+  { category: 'opnet', q: 'How does OP_NET differ from other Bitcoin L2s?', a: 'Unlike Lightning, Stacks, or RSK, OP_NET runs directly on Bitcoin L1. Smart contracts are compiled to WebAssembly (WASM) and executed by OP_NET validators. Settlement happens on Bitcoin mainchain with PoW + OP_NET consensus.' },
+  { category: 'opnet', q: 'What is the OP_NET Testnet?', a: 'The OP_NET Testnet (Signet fork) is the current testing environment for OP_NET smart contracts. It uses testnet BTC (tb1 addresses) and connects to https://testnet.opnet.org RPC. You can get testnet BTC from the faucet.' },
+  { category: 'opnet', q: 'What is Bob AI?', a: 'Bob is the OP_NET AI agent accessible via MCP (Model Context Protocol). Bob can analyze smart contracts, audit code, generate market insights, and help developers build on OP_NET. Bob powers the AI analysis signals in BitPredict.' },
+  { category: 'opnet', q: 'What programming language are contracts written in?', a: 'OP_NET smart contracts are written in AssemblyScript (TypeScript-like language) and compiled to WASM. The runtime (btc-runtime) provides Solidity-like patterns: storage, events, modifiers, and u256 math. No floating-point arithmetic is allowed.' },
+  { category: 'platform', q: 'What is BitPredict?', a: 'BitPredict is a decentralized prediction market platform built on OP_NET. You can trade YES/NO shares on binary outcomes across Crypto, Politics, Sports, Tech, and Culture categories. Prices are determined by a constant-product AMM (x·y=k).' },
+  { category: 'platform', q: 'How does the AMM pricing work?', a: 'BitPredict uses a constant-product AMM (x·y=k) similar to Uniswap. YES and NO reserves maintain a product invariant. When you buy YES shares, you add to NO reserves and remove from YES reserves, shifting the price. A 2% protocol fee applies.' },
+  { category: 'platform', q: 'What happens when a market resolves?', a: 'When the outcome is determined, the market creator (or oracle) resolves the market. Winning shares become redeemable 1:1 from the total pool. Losers receive nothing. Payouts settle on Bitcoin L1 via OP_NET smart contract.' },
+  { category: 'platform', q: 'How are achievements and XP earned?', a: 'Complete quests and milestones to earn XP: place predictions, use Bob AI analysis, connect your wallet, explore the leaderboard, and more. XP accumulates to increase your level shown in the Quests tab.' },
+  { category: 'wallet', q: 'What wallet do I need?', a: 'BitPredict uses OP_WALLET, a browser extension (UniSat fork) that supports OP_NET smart contract interactions. Install it from opnet.org. It exposes APIs for account connection, transaction signing (signPsbt), and broadcasting.' },
+  { category: 'wallet', q: 'How do I get testnet BTC?', a: 'Visit the OP_NET faucet at https://faucet.opnet.org to receive free testnet BTC. Your wallet address should start with tb1 for testnet. The faucet typically distributes small amounts sufficient for testing.' },
+  { category: 'wallet', q: 'Why does my balance show 0?', a: 'Balance is fetched live from the OP_NET testnet RPC. If you are using a demo wallet (random address), the balance will be 0. Connect a real OP_WALLET with testnet BTC from the faucet to see a non-zero balance.' },
+  { category: 'trading', q: 'What is slippage?', a: 'Slippage is the difference between the expected price and the actual execution price. Larger trades relative to pool liquidity cause more slippage. The AMM details panel in the bet modal shows your exact price impact.' },
+  { category: 'trading', q: 'What is the protocol fee?', a: 'A 2% (200 basis points) fee is charged on each trade. This fee goes to liquidity providers and the protocol. It is automatically deducted from your trade amount before calculating shares received.' },
+  { category: 'trading', q: 'Can I lose more than I invest?', a: 'No. Your maximum loss is limited to the amount you invest. If your prediction is wrong, you lose your stake. If correct, your shares are redeemable for a proportional share of the total pool.' },
+];
 
-  const reasoning = isYesFavored
-    ? `Based on current market data and trend analysis, the YES outcome appears more likely. The market has attracted significant volume ($${(market.volume / 1000).toFixed(0)}K), and the current pricing of ${Math.round(market.yesPrice * 100)}¢ suggests the crowd expects this outcome. However, markets can shift quickly — consider position sizing carefully.`
-    : `The NO outcome is currently favored by the market at ${Math.round(market.noPrice * 100)}¢. While contrarian YES bets offer higher potential returns, the consensus view has historically been reliable in similar markets. Volume of $${(market.volume / 1000).toFixed(0)}K provides reasonable price confidence.`;
-
-  return {
-    marketId: market.id,
-    question: market.question,
-    recommendation: isYesFavored ? 'yes' : 'no',
-    confidence,
-    reasoning,
-    factors,
-  };
+const CATEGORY_META: Record<string, { label: string; icon: React.ReactNode }> = {
+  opnet: { label: 'OP_NET', icon: <Zap size={14} className="text-btc" /> },
+  platform: { label: 'Platform', icon: <Globe size={14} className="text-purple-400" /> },
+  wallet: { label: 'Wallet', icon: <Wallet size={14} className="text-green-400" /> },
+  trading: { label: 'Trading', icon: <BookOpen size={14} className="text-blue-400" /> },
 };
 
 interface AIAnalysisProps {
@@ -45,41 +37,33 @@ interface AIAnalysisProps {
 }
 
 export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
-  const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [customQuery, setCustomQuery] = useState('');
+  const [openItems, setOpenItems] = useState<Set<number>>(new Set());
+  const [filterCat, setFilterCat] = useState<string>('all');
 
-  const handleAnalyze = async (market: Market) => {
-    setSelectedMarket(market);
-    setLoading(true);
-    setAnalysis(null);
-    await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1000));
-    setAnalysis(generateAnalysis(market));
-    setLoading(false);
-    onAnalyze?.();
+  const toggle = (i: number) => {
+    setOpenItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else { next.add(i); onAnalyze?.(); }
+      return next;
+    });
   };
 
-  const handleCustomQuery = async () => {
-    if (!customQuery.trim()) return;
-    const randomMarket = MOCK_MARKETS[Math.floor(Math.random() * MOCK_MARKETS.length)];
-    await handleAnalyze(randomMarket);
-    setCustomQuery('');
-  };
+  const filtered = filterCat === 'all' ? FAQ_DATA : FAQ_DATA.filter((f) => f.category === filterCat);
 
   return (
     <div className="space-y-6 pb-20 animate-fade-in max-w-2xl mx-auto">
       {/* Header */}
       <div className="text-center mb-8">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-btc/20 flex items-center justify-center mx-auto mb-3 border border-purple-500/20">
-          <BrainCircuit size={32} className="text-purple-400" />
+          <HelpCircle size={32} className="text-purple-400" />
         </div>
-        <h2 className="text-2xl font-extrabold text-white">AI Market Analyst</h2>
-        <p className="text-xs text-gray-500 mt-1">Powered by <span className="text-btc font-bold">Bob</span> — OP_NET AI Agent</p>
+        <h2 className="text-2xl font-extrabold text-white">Help & FAQ</h2>
+        <p className="text-xs text-gray-500 mt-1">Everything about <span className="text-btc font-bold">OP_NET</span>, BitPredict & trading</p>
       </div>
 
       {/* Bob AI Agent Card */}
-      <div className="bg-gradient-to-br from-purple-500/5 to-btc/5 rounded-2xl p-5 border border-purple-500/10 mb-2">
+      <div className="bg-gradient-to-br from-purple-500/5 to-btc/5 rounded-2xl p-5 border border-purple-500/10">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0 border border-purple-500/20">
             <Bot size={20} className="text-purple-400" />
@@ -90,7 +74,7 @@ export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
               <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full font-bold border border-green-500/20">MCP Connected</span>
             </h3>
             <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-              Bob analyzes markets using on-chain OP_NET data, AMM reserve ratios, volume patterns, and smart contract state to generate trading signals.
+              Bob powers AI analysis signals shown on each market card. He analyzes on-chain data, AMM reserves, and volume patterns.
             </p>
           </div>
         </div>
@@ -110,132 +94,68 @@ export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
         </div>
       </div>
 
-      {/* Custom query */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={customQuery}
-          onChange={(e) => setCustomQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleCustomQuery()}
-          placeholder="Ask about any market..."
-          className="flex-1 bg-surface-2 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-btc/30 focus:outline-none transition-colors"
-        />
-        <button
-          onClick={handleCustomQuery}
-          className="btc-btn flex items-center gap-2 shrink-0"
-        >
-          <Send size={16} />
-          Analyze
-        </button>
+      {/* Quick links */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <a href="https://dev.opnet.org" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
+          <BrainCircuit size={18} className="text-btc mx-auto mb-1" />
+          <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">OP_NET Docs</div>
+          <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
+        </a>
+        <a href="https://faucet.opnet.org" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
+          <Wallet size={18} className="text-green-400 mx-auto mb-1" />
+          <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Get Testnet BTC</div>
+          <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
+        </a>
+        <a href="https://opscan.org" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
+          <Globe size={18} className="text-purple-400 mx-auto mb-1" />
+          <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Block Explorer</div>
+          <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
+        </a>
+        <a href="https://github.com/opbitpredict/BitPredict" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
+          <Code2 size={18} className="text-blue-400 mx-auto mb-1" />
+          <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Source Code</div>
+          <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
+        </a>
       </div>
 
-      {/* Quick picks */}
-      <div>
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Quick Analysis</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {MOCK_MARKETS.slice(0, 6).map((market) => (
-            <button
-              key={market.id}
-              onClick={() => handleAnalyze(market)}
-              className={`text-left p-3 rounded-xl border transition-all ${
-                selectedMarket?.id === market.id
-                  ? 'bg-btc/10 border-btc/30'
-                  : 'bg-surface-2/50 border-white/5 hover:border-white/10'
-              }`}
-            >
-              <div className="text-xs font-bold text-white leading-snug line-clamp-2">{market.question}</div>
-              <div className="text-[10px] text-gray-500 mt-1">{market.category} · {Math.round(market.yesPrice * 100)}% YES</div>
-            </button>
-          ))}
-        </div>
+      {/* Category filter */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar">
+        <button onClick={() => setFilterCat('all')} className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${filterCat === 'all' ? 'bg-btc/20 text-btc border-btc/30' : 'bg-surface-2 text-gray-500 border-white/5 hover:text-white'}`}>All</button>
+        {Object.entries(CATEGORY_META).map(([key, meta]) => (
+          <button key={key} onClick={() => setFilterCat(key)} className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1 ${filterCat === key ? 'bg-btc/20 text-btc border-btc/30' : 'bg-surface-2 text-gray-500 border-white/5 hover:text-white'}`}>
+            {meta.icon} {meta.label}
+          </button>
+        ))}
       </div>
 
-      {/* Analysis result */}
-      {loading && (
-        <div className="bg-surface-2 rounded-2xl p-6 border border-white/5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center">
-              <Sparkles size={16} className="text-purple-400 animate-pulse" />
-            </div>
-            <div>
-              <div className="h-3 w-32 animate-shimmer rounded" />
-              <div className="h-2 w-48 animate-shimmer rounded mt-2" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="h-3 animate-shimmer rounded w-full" />
-            <div className="h-3 animate-shimmer rounded w-4/5" />
-            <div className="h-3 animate-shimmer rounded w-3/5" />
-          </div>
-        </div>
-      )}
-
-      {analysis && !loading && (
-        <div className="bg-surface-2 rounded-2xl p-6 border border-white/5 space-y-4 animate-fade-in">
-          {/* Market info */}
-          <div className="flex items-start gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-              analysis.recommendation === 'yes' ? 'bg-green-500/20' : analysis.recommendation === 'no' ? 'bg-red-500/20' : 'bg-yellow-500/20'
-            }`}>
-              {analysis.recommendation === 'yes' ? (
-                <TrendingUp size={20} className="text-green-400" />
-              ) : analysis.recommendation === 'no' ? (
-                <TrendingDown size={20} className="text-red-400" />
-              ) : (
-                <AlertTriangle size={20} className="text-yellow-400" />
+      {/* FAQ items */}
+      <div className="space-y-2">
+        {filtered.map((item, i) => {
+          const globalIdx = FAQ_DATA.indexOf(item);
+          const isOpen = openItems.has(globalIdx);
+          const meta = CATEGORY_META[item.category];
+          return (
+            <div key={globalIdx} className="bg-surface-2/50 border border-white/5 rounded-xl overflow-hidden hover:border-white/10 transition-all">
+              <button onClick={() => toggle(globalIdx)} className="w-full flex items-center gap-3 p-4 text-left">
+                <div className="shrink-0">{meta.icon}</div>
+                <span className="text-xs font-bold text-white flex-1">{item.q}</span>
+                {isOpen ? <ChevronUp size={14} className="text-gray-500 shrink-0" /> : <ChevronDown size={14} className="text-gray-500 shrink-0" />}
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-4 pt-0">
+                  <div className="bg-surface-1 rounded-lg p-3">
+                    <p className="text-xs text-gray-300 leading-relaxed">{item.a}</p>
+                  </div>
+                </div>
               )}
             </div>
-            <div>
-              <h4 className="text-sm font-bold text-white">{analysis.question}</h4>
-              <div className="flex items-center gap-2 mt-1">
-                <span className={`text-xs font-black uppercase ${
-                  analysis.recommendation === 'yes' ? 'text-green-400' : analysis.recommendation === 'no' ? 'text-red-400' : 'text-yellow-400'
-                }`}>
-                  Recommend: {analysis.recommendation}
-                </span>
-                <span className="text-[10px] text-gray-500">· {analysis.confidence}% confidence</span>
-              </div>
-            </div>
-          </div>
+          );
+        })}
+      </div>
 
-          {/* Confidence bar */}
-          <div>
-            <div className="flex justify-between mb-1">
-              <span className="text-[10px] text-gray-500">AI Confidence</span>
-              <span className="text-[10px] text-btc font-bold">{analysis.confidence}%</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-btc-dark to-btc transition-all duration-700"
-                style={{ width: `${analysis.confidence}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Reasoning */}
-          <div className="bg-surface-1 rounded-xl p-4">
-            <h5 className="text-xs font-bold text-gray-400 mb-2">Analysis</h5>
-            <p className="text-xs text-gray-300 leading-relaxed">{analysis.reasoning}</p>
-          </div>
-
-          {/* Factors */}
-          <div>
-            <h5 className="text-xs font-bold text-gray-400 mb-2">Key Factors</h5>
-            <div className="space-y-1.5">
-              {analysis.factors.map((f, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-btc mt-1.5 shrink-0" />
-                  <span className="text-xs text-gray-400">{f}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <p className="text-[10px] text-gray-600 text-center pt-2 border-t border-white/5">
-            Powered by <span className="text-btc">Bob AI</span> (OP_NET MCP) · Analysis is informational only · DYOR
-          </p>
-        </div>
-      )}
+      <p className="text-[10px] text-gray-600 text-center pt-2 border-t border-white/5">
+        Powered by <span className="text-btc">Bob AI</span> (OP_NET MCP) · <a href="https://dev.opnet.org" target="_blank" rel="noopener noreferrer" className="text-btc hover:underline">Full Documentation</a>
+      </p>
     </div>
   );
 }

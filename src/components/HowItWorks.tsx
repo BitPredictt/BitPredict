@@ -9,7 +9,7 @@ const steps = [
   {
     icon: <ArrowLeftRight size={20} className="text-purple-400" />,
     title: 'Buy Shares',
-    desc: 'Use regtest BTC to buy YES or NO shares. Constant-product AMM (x·y=k) ensures fair pricing with slippage protection.',
+    desc: 'Use testnet BTC to buy YES or NO shares. Constant-product AMM (x·y=k) ensures fair pricing with slippage protection.',
   },
   {
     icon: <Brain size={20} className="text-green-400" />,

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, Filter, ExternalLink, Github, MessageCircle } from 'lucide-react';
+import { Search, Filter, ExternalLink, Github } from 'lucide-react';
 import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { MOCK_MARKETS, CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
@@ -149,7 +149,7 @@ function App() {
                 <span className="btc-gradient">on Bitcoin L1</span>
               </h2>
               <p className="text-sm text-gray-500 mt-3 max-w-md mx-auto">
-                AI-powered prediction markets built on OP_NET. Trade binary outcomes with regtest Bitcoin on OP_NET.
+                AI-powered prediction markets built on OP_NET. Trade binary outcomes with testnet Bitcoin on OP_NET.
               </p>
               <div className="flex items-center justify-center gap-4 mt-4">
                 <a
@@ -160,15 +160,6 @@ function App() {
                 >
                   <Github size={14} />
                   GitHub
-                </a>
-                <a
-                  href="https://t.me/opnetbtc"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-btc transition-colors"
-                >
-                  <MessageCircle size={14} />
-                  Telegram
                 </a>
                 <a
                   href="https://opnet.org"
@@ -281,10 +272,10 @@ function App() {
         <div className="flex">
           {([
             { id: 'markets' as Tab, icon: '📊', label: 'Markets' },
-            { id: 'portfolio' as Tab, icon: '💼', label: 'Bets' },
+            { id: 'portfolio' as Tab, icon: '💼', label: 'Portfolio' },
             { id: 'achievements' as Tab, icon: '🏅', label: 'Quests' },
             { id: 'leaderboard' as Tab, icon: '🏆', label: 'Ranks' },
-            { id: 'ai' as Tab, icon: '🧠', label: 'AI' },
+            { id: 'ai' as Tab, icon: '❓', label: 'Help' },
           ]).map((tab) => (
             <button
               key={tab.id}
@@ -312,8 +303,8 @@ function App() {
 
       {/* Achievement unlock notification */}
       {achievements.newUnlock && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-fade-in">
-          <div className="bg-gradient-to-r from-btc/20 to-purple-500/20 border border-btc/30 rounded-2xl px-6 py-4 backdrop-blur-xl shadow-2xl flex items-center gap-3">
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[200] animate-fade-in pointer-events-none">
+          <div className="bg-gradient-to-r from-btc/30 to-purple-500/30 border border-btc/40 rounded-2xl px-6 py-3 backdrop-blur-2xl shadow-2xl flex items-center gap-3">
             <span className="text-2xl">{achievements.newUnlock.icon}</span>
             <div>
               <div className="text-xs font-black text-btc">Achievement Unlocked!</div>

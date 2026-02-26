@@ -1,4 +1,4 @@
-import { Clock, TrendingUp, Droplets, ChevronRight } from 'lucide-react';
+import { Clock, TrendingUp, Droplets, ChevronRight, BrainCircuit } from 'lucide-react';
 import type { Market } from '../types';
 
 interface MarketCardProps {
@@ -15,16 +15,36 @@ const categoryColors: Record<string, string> = {
   Culture: 'bg-pink-500/15 text-pink-400 border-pink-500/20',
 };
 
+// Inline AI signal for each market
+const AI_SIGNALS: Record<string, { signal: 'bullish' | 'bearish' | 'neutral'; confidence: number; hint: string }> = {
+  'btc-100k-2026': { signal: 'bullish', confidence: 78, hint: 'Post-halving momentum + ETF inflows' },
+  'eth-etf-spot': { signal: 'neutral', confidence: 55, hint: 'Moderate inflows, ambitious target' },
+  'us-election-2026': { signal: 'neutral', confidence: 52, hint: 'Too early, mixed signals' },
+  'opnet-adoption': { signal: 'bullish', confidence: 72, hint: 'Ecosystem growing rapidly' },
+  'ai-agi-2027': { signal: 'bearish', confidence: 85, hint: 'Timeline too ambitious' },
+  'champions-league': { signal: 'bearish', confidence: 60, hint: 'Strong competition' },
+  'btc-dominance': { signal: 'bullish', confidence: 62, hint: 'Altcoin rotation slowing' },
+  'mars-mission': { signal: 'bearish', confidence: 70, hint: 'Technical delays likely' },
+  'nft-comeback': { signal: 'bearish', confidence: 75, hint: 'Market not recovering' },
+  'fed-rate-cut': { signal: 'neutral', confidence: 48, hint: 'Depends on inflation data' },
+  'solana-flip-eth': { signal: 'neutral', confidence: 50, hint: 'Both chains growing' },
+  'world-cup-2026': { signal: 'bearish', confidence: 65, hint: 'Many strong competitors' },
+};
+
 export function MarketCard({ market, onSelect, index }: MarketCardProps) {
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
   const daysLeft = Math.max(0, Math.ceil((new Date(market.endDate).getTime() - Date.now()) / 86400000));
+  const ai = AI_SIGNALS[market.id];
 
   const formatVolume = (v: number) => {
     if (v >= 1000000) return `$${(v / 1000000).toFixed(1)}M`;
     if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
     return `$${v}`;
   };
+
+  const signalColor = ai?.signal === 'bullish' ? 'text-green-400' : ai?.signal === 'bearish' ? 'text-red-400' : 'text-yellow-400';
+  const signalBg = ai?.signal === 'bullish' ? 'bg-green-500/10 border-green-500/20' : ai?.signal === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
 
   return (
     <div
@@ -44,9 +64,19 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
       </div>
 
       {/* Question */}
-      <h3 className="text-sm font-bold text-white leading-snug mb-4 group-hover:text-btc-light transition-colors">
+      <h3 className="text-sm font-bold text-white leading-snug mb-3 group-hover:text-btc-light transition-colors">
         {market.question}
       </h3>
+
+      {/* AI Signal inline */}
+      {ai && (
+        <div className={`flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg border ${signalBg}`}>
+          <BrainCircuit size={12} className="text-purple-400" />
+          <span className={`text-[10px] font-black uppercase ${signalColor}`}>{ai.signal}</span>
+          <span className="text-[10px] text-gray-500">{ai.confidence}%</span>
+          <span className="text-[10px] text-gray-500 truncate flex-1">{ai.hint}</span>
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="mb-3">

@@ -41,10 +41,12 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
   const handlePlace = async () => {
     if (amountNum <= 0 || !wallet.connected) return;
     setPlacing(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    onPlaceBet(market.id, side, amountNum);
-    setPlacing(false);
-    onClose();
+    try {
+      await onPlaceBet(market.id, side, amountNum);
+    } finally {
+      setPlacing(false);
+      onClose();
+    }
   };
 
   const presets = [500, 1000, 5000, 10000];
@@ -229,7 +231,7 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
         </button>
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
-          Powered by OP_NET · Bitcoin Layer 1 · Regtest
+          Powered by OP_NET · Bitcoin Layer 1 · Testnet
         </p>
       </div>
     </div>

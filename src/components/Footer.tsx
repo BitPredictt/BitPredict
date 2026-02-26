@@ -1,4 +1,4 @@
-import { Github, ExternalLink, MessageCircle, Zap } from 'lucide-react';
+import { Github, ExternalLink, Zap } from 'lucide-react';
 
 export function Footer() {
   return (
@@ -27,7 +27,7 @@ export function Footer() {
             <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Community</h4>
             <ul className="space-y-2">
               <li><a href="https://github.com/opbitpredict/BitPredict" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1"><Github size={10} /> GitHub</a></li>
-              <li><a href="https://t.me/opaborat" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1"><MessageCircle size={10} /> Telegram</a></li>
+              <li><a href="https://opnet.org" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1"><ExternalLink size={10} /> OP_NET</a></li>
             </ul>
           </div>
           <div>

@@ -21,7 +21,7 @@ export function useWallet() {
     connected: false,
     address: '',
     balanceSats: 0,
-    network: 'regtest',
+    network: 'testnet',
   });
   const [loading, setLoading] = useState(false);
   const isDemoRef = useRef(false);
@@ -45,7 +45,7 @@ export function useWallet() {
             connected: true,
             address: parsed.address,
             balanceSats: 0,
-            network: 'regtest',
+            network: 'testnet',
           });
           if (!parsed.isDemo) {
             loadRealBalance(parsed.address).then((bal) => {
@@ -77,7 +77,7 @@ export function useWallet() {
         if (accounts && accounts.length > 0) {
           const addr = accounts[0];
           isDemoRef.current = false;
-          setWallet({ connected: true, address: addr, balanceSats: 0, network: 'regtest' });
+          setWallet({ connected: true, address: addr, balanceSats: 0, network: 'testnet' });
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ address: addr, connected: true, isDemo: false }));
           // Fetch real balance immediately
           const bal = await loadRealBalance(addr);
@@ -87,11 +87,11 @@ export function useWallet() {
       }
 
       // Fallback: demo wallet (clearly marked)
-      const demoAddr = 'bcrt1q' + Array.from({ length: 38 }, () =>
+      const demoAddr = 'tb1q' + Array.from({ length: 38 }, () =>
         '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 36)]
       ).join('');
       isDemoRef.current = true;
-      const state: WalletState = { connected: true, address: demoAddr, balanceSats: 0, network: 'regtest' };
+      const state: WalletState = { connected: true, address: demoAddr, balanceSats: 0, network: 'testnet' };
       setWallet(state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ address: demoAddr, connected: true, isDemo: true }));
       // Try to fetch balance even for demo addr (will be 0 on-chain)
@@ -99,11 +99,11 @@ export function useWallet() {
       setWallet((prev) => (prev.address === demoAddr ? { ...prev, balanceSats: bal } : prev));
     } catch (err) {
       console.error('Wallet connect failed:', err);
-      const demoAddr = 'bcrt1q' + Array.from({ length: 38 }, () =>
+      const demoAddr = 'tb1q' + Array.from({ length: 38 }, () =>
         '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 36)]
       ).join('');
       isDemoRef.current = true;
-      setWallet({ connected: true, address: demoAddr, balanceSats: 0, network: 'regtest' });
+      setWallet({ connected: true, address: demoAddr, balanceSats: 0, network: 'testnet' });
     } finally {
       setLoading(false);
     }
@@ -111,7 +111,7 @@ export function useWallet() {
 
   const disconnect = useCallback(() => {
     isDemoRef.current = false;
-    setWallet({ connected: false, address: '', balanceSats: 0, network: 'regtest' });
+    setWallet({ connected: false, address: '', balanceSats: 0, network: 'testnet' });
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
