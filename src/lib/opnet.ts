@@ -13,10 +13,10 @@
  * Docs: https://dev.opnet.org / https://github.com/btc-vision/opnet
  */
 
-// OP_NET regtest configuration (testnet not yet live)
+// OP_NET testnet configuration (Signet fork, opt1 prefix)
 export const OPNET_CONFIG = {
-  network: 'regtest' as const,
-  rpcUrl: 'https://regtest.opnet.org',
+  network: 'testnet' as const,
+  rpcUrl: 'https://testnet.opnet.org',
   explorerUrl: 'https://opscan.org',
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
@@ -26,7 +26,7 @@ export const OPNET_CONFIG = {
 // Official OP_NET SDK usage:
 // import { JSONRpcProvider, getContract, OP_20_ABI } from 'opnet';
 // import { networks } from '@btc-vision/bitcoin';
-// const provider = new JSONRpcProvider(OPNET_CONFIG.rpcUrl, networks.regtest);
+// const provider = new JSONRpcProvider(OPNET_CONFIG.rpcUrl, networks.opnetTestnet);
 
 // Contract method selectors (SHA256 first 4 bytes — OPNet uses SHA256, NOT keccak256)
 export const CONTRACT_METHODS = {
@@ -228,13 +228,13 @@ export function decodeMarketInfo(data: Uint8Array): OnChainMarketState {
 }
 
 /**
- * Validate a Bitcoin regtest address
- * Regtest uses bcrt1 prefix for bech32
+ * Validate an OP_NET testnet address
+ * OPNet testnet uses opt1 prefix (Signet fork)
  */
-export function isValidRegtestAddress(address: string): boolean {
+export function isValidOPNetAddress(address: string): boolean {
   if (!address) return false;
-  // bcrt1 (bech32 regtest), tb1 (testnet fallback), m/n/2 (legacy)
-  return /^(bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn][a-km-zA-HJ-NP-Z1-9]{25,34}|2[a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
+  // opt1 (OPNet testnet bech32m), bcrt1 (regtest fallback), tb1 (Bitcoin testnet)
+  return /^(opt1[a-z0-9]{39,80}|bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn][a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
 }
 
 /**
@@ -363,7 +363,7 @@ export async function submitBetTransaction(
     // Fallback: use sendBitcoin for a simple transfer that records the bet
     if (opwallet.sendBitcoin) {
       // Send sats to a burn/escrow address to record the prediction
-      const escrowAddr = 'bcrt1qpredictmarket000000000000000000000000000';
+      const escrowAddr = 'opt1ppredictmarket000000000000000000000000000';
       const txHash = await opwallet.sendBitcoin(escrowAddr, amountSats, {
         memo: `bitpredict:${marketId}:${side}`,
       });

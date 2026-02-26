@@ -10,16 +10,16 @@ interface ExtendedEntry extends LeaderboardEntry {
 }
 
 const MOCK_LEADERBOARD: ExtendedEntry[] = [
-  { rank: 1, address: 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080', nickname: 'SatoshiWhale', volume: 2450000, wins: 47, pnl: 890000, totalBets: 62, losses: 15, winRate: 75.8, streak: 8, level: 12 },
-  { rank: 2, address: 'bcrt1qrp33g0q5b5698ahp5jnf5yzjmgcek7x2jg90dn', nickname: 'BTCOracle', volume: 1870000, wins: 38, pnl: 620000, totalBets: 51, losses: 13, winRate: 74.5, streak: 5, level: 10 },
-  { rank: 3, address: 'bcrt1q0sq6agfcq0hv9av1fz6nerz00eqqxpzf6c8qkd', nickname: 'VibePredictor', volume: 1340000, wins: 31, pnl: 410000, totalBets: 45, losses: 14, winRate: 68.9, streak: 3, level: 9 },
-  { rank: 4, address: 'bcrt1qm34lsc65zpw79lxes69zkqmk6ee3ewf0csmhtg', nickname: 'MoonHunter', volume: 980000, wins: 25, pnl: 280000, totalBets: 38, losses: 13, winRate: 65.8, streak: 4, level: 8 },
-  { rank: 5, address: 'bcrt1qw2c3lxufxqe536nx4y4gzfg69azy2ce2pqscdu', nickname: 'CryptoSage', volume: 760000, wins: 22, pnl: 195000, totalBets: 35, losses: 13, winRate: 62.9, streak: 2, level: 7 },
-  { rank: 6, address: 'bcrt1qcr8te4kr609gcawutmrza0j4xv80jy8z4x0qmv', nickname: 'BitNinja', volume: 540000, wins: 18, pnl: 120000, totalBets: 30, losses: 12, winRate: 60.0, streak: 1, level: 6 },
-  { rank: 7, address: 'bcrt1q6rz28mcfaxtmd6v789l9rrlrusd0rkg7wnt2fk', nickname: 'OPNetter', volume: 420000, wins: 15, pnl: 88000, totalBets: 27, losses: 12, winRate: 55.6, streak: 3, level: 5 },
-  { rank: 8, address: 'bcrt1qd6h6vp99qwstk3z668md42q0zc44vpwknhspk5', nickname: 'AlphaTrader', volume: 310000, wins: 12, pnl: 65000, totalBets: 22, losses: 10, winRate: 54.5, streak: 1, level: 4 },
-  { rank: 9, address: 'bcrt1qf7936mqy2lzl23e4m7p9qs4p4kfm8c7s6kv4nz', nickname: 'DeFiDegen', volume: 245000, wins: 10, pnl: 42000, totalBets: 19, losses: 9, winRate: 52.6, streak: 0, level: 3 },
-  { rank: 10, address: 'bcrt1qa2ew5j0dqqkr2g3zfvwql7mn69dexqk6n0s5qp', nickname: 'Predictor99', volume: 180000, wins: 8, pnl: 28000, totalBets: 16, losses: 8, winRate: 50.0, streak: 2, level: 3 },
+  { rank: 1, address: 'opt1pw508d6qejxtdg4y5r3zarvary0c5xw7k9grllhm', nickname: 'SatoshiWhale', volume: 2450000, wins: 47, pnl: 890000, totalBets: 62, losses: 15, winRate: 75.8, streak: 8, level: 12 },
+  { rank: 2, address: 'opt1prp33g0q5b5698ahp5jnf5yzjmgcek7x2hqjtrr6', nickname: 'BTCOracle', volume: 1870000, wins: 38, pnl: 620000, totalBets: 51, losses: 13, winRate: 74.5, streak: 5, level: 10 },
+  { rank: 3, address: 'opt1p0sq6agfcq0hv9av1fz6nerz00eqqxpzfkce5sw', nickname: 'VibePredictor', volume: 1340000, wins: 31, pnl: 410000, totalBets: 45, losses: 14, winRate: 68.9, streak: 3, level: 9 },
+  { rank: 4, address: 'opt1pm34lsc65zpw79lxes69zkqmk6ee3ewf0wnu4dv', nickname: 'MoonHunter', volume: 980000, wins: 25, pnl: 280000, totalBets: 38, losses: 13, winRate: 65.8, streak: 4, level: 8 },
+  { rank: 5, address: 'opt1pw2c3lxufxqe536nx4y4gzfg69azy2ce2lr8nwg', nickname: 'CryptoSage', volume: 760000, wins: 22, pnl: 195000, totalBets: 35, losses: 13, winRate: 62.9, streak: 2, level: 7 },
+  { rank: 6, address: 'opt1pcr8te4kr609gcawutmrza0j4xv80jy8z8xyfm5', nickname: 'BitNinja', volume: 540000, wins: 18, pnl: 120000, totalBets: 30, losses: 12, winRate: 60.0, streak: 1, level: 6 },
+  { rank: 7, address: 'opt1p6rz28mcfaxtmd6v789l9rrlrusd0rkg7sf2p3e', nickname: 'OPNetter', volume: 420000, wins: 15, pnl: 88000, totalBets: 27, losses: 12, winRate: 55.6, streak: 3, level: 5 },
+  { rank: 8, address: 'opt1pd6h6vp99qwstk3z668md42q0zc44vpwk7zy9c2', nickname: 'AlphaTrader', volume: 310000, wins: 12, pnl: 65000, totalBets: 22, losses: 10, winRate: 54.5, streak: 1, level: 4 },
+  { rank: 9, address: 'opt1pf7936mqy2lzl23e4m7p9qs4p4kfm8c7sdhr6ny', nickname: 'DeFiDegen', volume: 245000, wins: 10, pnl: 42000, totalBets: 19, losses: 9, winRate: 52.6, streak: 0, level: 3 },
+  { rank: 10, address: 'opt1pa2ew5j0dqqkr2g3zfvwql7mn69dexqk69nk73r', nickname: 'Predictor99', volume: 180000, wins: 8, pnl: 28000, totalBets: 16, losses: 8, winRate: 50.0, streak: 2, level: 3 },
 ];
 
 interface LeaderboardProps {
@@ -57,7 +57,7 @@ export function Leaderboard({ userAddress }: LeaderboardProps) {
           <Trophy size={32} className="text-yellow-500" />
         </div>
         <h2 className="text-2xl font-extrabold text-white">Leaderboard</h2>
-        <p className="text-xs text-gray-500 mt-1">Top predictors on OP_NET Regtest</p>
+        <p className="text-xs text-gray-500 mt-1">Top predictors on OP_NET Testnet</p>
       </div>
 
       {/* Global stats */}

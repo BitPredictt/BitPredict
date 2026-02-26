@@ -214,8 +214,8 @@ const DEFAULT_QUESTS: Quest[] = [
   },
   {
     id: 'visit_faucet',
-    title: 'Get Regtest BTC',
-    description: 'Visit the OP_NET faucet to get regtest BTC',
+    title: 'Get Testnet BTC',
+    description: 'Visit the OP_NET faucet to get testnet BTC',
     icon: '🚰',
     type: 'onetime',
     completed: false,

@@ -92,7 +92,7 @@ export function Portfolio({ bets, walletConnected, onConnect }: PortfolioProps) 
           <BarChart3 size={32} className="text-btc" />
         </div>
         <h2 className="text-2xl font-extrabold text-white">Portfolio</h2>
-        <p className="text-xs text-gray-500 mt-1">Track your predictions on OP_NET Regtest</p>
+        <p className="text-xs text-gray-500 mt-1">Track your predictions on OP_NET Testnet</p>
       </div>
 
       {/* PnL Banner */}

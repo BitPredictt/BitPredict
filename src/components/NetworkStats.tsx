@@ -30,7 +30,7 @@ export function NetworkStats() {
   const stats: NetworkStat[] = [
     {
       label: 'Network',
-      value: 'OP_NET Regtest',
+      value: 'OP_NET Testnet',
       icon: <Activity size={12} className="text-green-400" />,
     },
     {

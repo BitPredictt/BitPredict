@@ -19,7 +19,7 @@ export function useWallet() {
     connected: !!walletAddress,
     address: walletAddress ?? '',
     balanceSats: walletBalance ? Number(walletBalance.confirmed) : 0,
-    network: 'regtest',
+    network: 'testnet',
   }), [walletAddress, walletBalance]);
 
   // Sync loading state with SDK connecting state

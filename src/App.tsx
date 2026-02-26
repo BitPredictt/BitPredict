@@ -149,7 +149,7 @@ function App() {
                 <span className="btc-gradient">on Bitcoin L1</span>
               </h2>
               <p className="text-sm text-gray-500 mt-3 max-w-md mx-auto">
-                AI-powered prediction markets built on OP_NET. Trade binary outcomes with regtest Bitcoin on OP_NET.
+                AI-powered prediction markets built on OP_NET. Trade binary outcomes with testnet Bitcoin on OP_NET.
               </p>
               <div className="flex items-center justify-center gap-4 mt-4">
                 <a
