@@ -231,7 +231,7 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
         </button>
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
-          Powered by OP_NET · Bitcoin Layer 1 · Testnet
+          Powered by OP_NET · Bitcoin Layer 1 · Regtest
         </p>
       </div>
     </div>

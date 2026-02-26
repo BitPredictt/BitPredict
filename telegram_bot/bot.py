@@ -7,14 +7,14 @@ Full feature set matching web app:
 - /markets — Browse all 12 markets with category filters
 - /market <id> — Detailed market view with AMM prices
 - /balance <address> — Real OP_NET RPC balance
-- /stats — Live OP_NET Testnet block height + network stats
+- /stats — Live OP_NET Regtest block height + network stats
 - /achievements — View achievements & XP progress
 - /quests — Active quests & completion status
 - /ai <id> — Bob AI analysis for any market
 - /about — About BitPredict
 - /help — All commands
 - Inline keyboards for navigation
-- Real OP_NET Testnet RPC integration
+- Real OP_NET Regtest RPC integration
 """
 
 import os
@@ -44,7 +44,7 @@ from telegram.constants import ParseMode
 # ---------------------------------------------------------------------------
 
 BOT_TOKEN = os.environ.get("BITPREDICT_TG_TOKEN", "")
-OPNET_RPC = "https://testnet.opnet.org"
+OPNET_RPC = "https://regtest.opnet.org"
 WEBAPP_URL = "https://opbitpredict.github.io/BitPredict/"
 GITHUB_URL = "https://github.com/opbitpredict/BitPredict"
 EXPLORER_URL = "https://opscan.org"
@@ -150,7 +150,7 @@ QUESTS = [
      "icon": "\U0001f4c5", "type": "daily", "xp": 50},
     {"id": "weekly_volume", "title": "Weekly Volume", "desc": "Trade 50,000 sats this week",
      "icon": "\U0001f4c8", "type": "weekly", "xp": 300},
-    {"id": "visit_faucet", "title": "Get Testnet BTC", "desc": "Visit the OP_NET faucet",
+    {"id": "visit_faucet", "title": "Get Regtest BTC", "desc": "Visit the OP_NET faucet",
      "icon": "\U0001f6b0", "type": "onetime", "xp": 75},
     {"id": "check_leaderboard", "title": "Competitive Spirit", "desc": "Check the leaderboard",
      "icon": "\U0001f3c6", "type": "onetime", "xp": 50},
@@ -492,7 +492,7 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"*\U0001f4b0 Wallet Balance*\n\n"
             f"\U0001f4cd *Address*: `{_esc(addr[:8])}\\.\\.\\.\\.{_esc(addr[-6:])}`\n"
             f"\u26a1 *Balance*: *{bal:,}* sats \\({btc:.8f} BTC\\)\n"
-            f"\U0001f310 *Network*: OP\\_NET Testnet\n\n"
+            f"\U0001f310 *Network*: OP\\_NET Regtest\n\n"
             f"_Live data from {_esc(OPNET_RPC)}_"
         )
     else:
@@ -500,7 +500,7 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"*\U0001f4b0 Wallet Balance*\n\n"
             f"\U0001f4cd *Address*: `{_esc(addr[:8])}\\.\\.\\.\\.{_esc(addr[-6:])}`\n"
             f"\u26a0\ufe0f Balance unavailable \\(RPC error or address not found\\)\n\n"
-            f"Get testnet BTC from the [faucet]({_esc(FAUCET_URL)})\\!"
+            f"Get regtest BTC from the [faucet]({_esc(FAUCET_URL)})\\!"
         )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001f50d Explorer", url=f"{EXPLORER_URL}/address/{addr}"),
@@ -530,7 +530,7 @@ async def send_stats(message):
         f"\U0001f4ca *Active Markets*: *{len(MARKETS)}*\n"
         f"\U0001f4b0 *Total Volume*: {sats_fmt(total_vol)} sats\n"
         f"\U0001f4a7 *Total Liquidity*: {sats_fmt(total_liq)} sats\n"
-        f"\U0001f310 *Network*: OP\\_NET Testnet\n"
+        f"\U0001f310 *Network*: OP\\_NET Regtest\n"
         f"\u26a1 *Consensus*: PoW \\+ OP\\_NET\n\n"
         f"_Data from {_esc(OPNET_RPC)}_"
     )
