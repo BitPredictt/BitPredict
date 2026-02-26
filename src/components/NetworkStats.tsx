@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Box, Cpu, Zap, ExternalLink } from 'lucide-react';
+import { fetchBlockHeight, OPNET_CONFIG } from '../lib/opnet';
 
 interface NetworkStat {
   label: string;
@@ -9,24 +10,32 @@ interface NetworkStat {
 }
 
 export function NetworkStats() {
-  const [blockHeight, setBlockHeight] = useState(892_147);
+  const [blockHeight, setBlockHeight] = useState<number | null>(null);
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setBlockHeight((prev) => prev + (Math.random() > 0.7 ? 1 : 0));
-    }, 10000);
-    return () => clearInterval(interval);
+    let mounted = true;
+    const poll = async () => {
+      const height = await fetchBlockHeight();
+      if (mounted && height !== null) {
+        setBlockHeight(height);
+        setLive(true);
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 15000);
+    return () => { mounted = false; clearInterval(interval); };
   }, []);
 
   const stats: NetworkStat[] = [
     {
       label: 'Network',
-      value: 'OP_NET Testnet',
+      value: 'OP_NET Regtest',
       icon: <Activity size={12} className="text-green-400" />,
     },
     {
-      label: 'Block Height',
-      value: blockHeight.toLocaleString(),
+      label: 'Block',
+      value: blockHeight !== null ? blockHeight.toLocaleString() : '...',
       icon: <Box size={12} className="text-btc" />,
     },
     {
@@ -44,8 +53,8 @@ export function NetworkStats() {
   return (
     <div className="flex items-center gap-4 overflow-x-auto no-scrollbar py-2 px-4 bg-surface-2/30 border-b border-white/3">
       <div className="flex items-center gap-1.5 shrink-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-        <span className="text-[10px] text-green-400 font-bold">LIVE</span>
+        <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+        <span className={`text-[10px] font-bold ${live ? 'text-green-400' : 'text-yellow-400'}`}>{live ? 'LIVE' : 'CONNECTING'}</span>
       </div>
       {stats.map((stat) => (
         <div key={stat.label} className="flex items-center gap-1.5 shrink-0">

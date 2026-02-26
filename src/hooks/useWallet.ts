@@ -13,7 +13,7 @@ export function useWallet() {
     connected: false,
     address: '',
     balanceSats: 0,
-    network: 'testnet',
+    network: 'regtest',
   });
   const [loading, setLoading] = useState(false);
 
@@ -48,7 +48,7 @@ export function useWallet() {
             connected: true,
             address: addr,
             balanceSats: 50000 + Math.floor(Math.random() * 100000),
-            network: 'testnet',
+            network: 'regtest',
           };
           setWallet(state);
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ address: addr, connected: true }));
@@ -56,29 +56,29 @@ export function useWallet() {
         }
       }
 
-      // Fallback: generate demo address for testnet
-      const demoAddr = 'tb1q' + Array.from({ length: 38 }, () =>
+      // Fallback: generate demo address for regtest
+      const demoAddr = 'bcrt1q' + Array.from({ length: 38 }, () =>
         '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 36)]
       ).join('');
       const state: WalletState = {
         connected: true,
         address: demoAddr,
         balanceSats: 75000 + Math.floor(Math.random() * 150000),
-        network: 'testnet',
+        network: 'regtest',
       };
       setWallet(state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ address: demoAddr, connected: true }));
     } catch (err) {
       console.error('Wallet connect failed:', err);
       // Still provide demo wallet
-      const demoAddr = 'tb1q' + Array.from({ length: 38 }, () =>
+      const demoAddr = 'bcrt1q' + Array.from({ length: 38 }, () =>
         '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 36)]
       ).join('');
       setWallet({
         connected: true,
         address: demoAddr,
         balanceSats: 75000,
-        network: 'testnet',
+        network: 'regtest',
       });
     } finally {
       setLoading(false);
@@ -90,7 +90,7 @@ export function useWallet() {
       connected: false,
       address: '',
       balanceSats: 0,
-      network: 'testnet',
+      network: 'regtest',
     });
     localStorage.removeItem(STORAGE_KEY);
   }, []);

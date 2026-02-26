@@ -5,20 +5,28 @@
  * building for the prediction market on Bitcoin L1 via OP_NET.
  *
  * Supports:
- * - OPWallet browser extension
- * - WIF private key import (testnet)
- * - Contract read/write calls
+ * - OP_WALLET browser extension (UniSat fork)
+ * - Contract read/write calls via JSONRpcProvider
  * - Transaction broadcasting
+ *
+ * SDK: npm install opnet @btc-vision/transaction @btc-vision/bitcoin
+ * Docs: https://dev.opnet.org / https://github.com/btc-vision/opnet
  */
 
-// OP_NET testnet configuration
+// OP_NET regtest configuration (testnet not yet active per docs)
 export const OPNET_CONFIG = {
-  network: 'testnet' as const,
-  rpcUrl: 'https://testnet.opnet.org',
-  explorerUrl: 'https://testnet.opscan.org',
+  network: 'regtest' as const,
+  rpcUrl: 'https://regtest.opnet.org',
+  explorerUrl: 'https://opscan.org',
   faucetUrl: 'https://faucet.opnet.org',
-  contractAddress: '', // Set after deployment
+  motoswapUrl: 'https://motoswap.org',
+  contractAddress: '', // Set after deployment via OP_WALLET
 };
+
+// Official OP_NET SDK usage:
+// import { JSONRpcProvider, getContract, OP_20_ABI } from 'opnet';
+// import { networks } from '@btc-vision/bitcoin';
+// const provider = new JSONRpcProvider(OPNET_CONFIG.rpcUrl, networks.regtest);
 
 // Contract method selectors (keccak256 first 4 bytes)
 export const CONTRACT_METHODS = {
@@ -126,27 +134,30 @@ export function calculatePayout(
 }
 
 /**
- * Detect if OPWallet extension is available
+ * Detect if OP_WALLET extension is available
+ * OP_WALLET is a fork of UniSat — exposes window.opnet with same API surface
  */
 export function isOPWalletAvailable(): boolean {
   return typeof window !== 'undefined' && !!(window as any).opnet;
 }
 
 /**
- * Connect to OPWallet browser extension
+ * Connect to OP_WALLET browser extension
+ * API: requestAccounts(), getPublicKey(), getNetwork(), signPsbt(), etc.
+ * Install: https://opnet.org (Chrome Extension)
  */
 export async function connectOPWallet(): Promise<{ address: string; publicKey: string } | null> {
   try {
-    const opnet = (window as any).opnet;
-    if (!opnet) return null;
+    const opwallet = (window as any).opnet;
+    if (!opwallet) return null;
 
-    const accounts = await opnet.requestAccounts();
+    const accounts = await opwallet.requestAccounts();
     if (!accounts || accounts.length === 0) return null;
 
-    const publicKey = await opnet.getPublicKey?.() || '';
+    const publicKey = await opwallet.getPublicKey?.() || '';
     return { address: accounts[0], publicKey };
   } catch (err) {
-    console.error('OPWallet connection failed:', err);
+    console.error('OP_WALLET connection failed:', err);
     return null;
   }
 }
@@ -217,12 +228,31 @@ export function decodeMarketInfo(data: Uint8Array): OnChainMarketState {
 }
 
 /**
- * Validate a Bitcoin testnet address
+ * Validate a Bitcoin regtest address
+ * Regtest uses bcrt1 prefix for bech32, tb1 for testnet
  */
-export function isValidTestnetAddress(address: string): boolean {
+export function isValidRegtestAddress(address: string): boolean {
   if (!address) return false;
-  // tb1 (bech32 testnet), m/n (legacy testnet), 2 (P2SH testnet)
-  return /^(tb1[a-z0-9]{39,59}|[mn][a-km-zA-HJ-NP-Z1-9]{25,34}|2[a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
+  // bcrt1 (bech32 regtest), tb1 (testnet), m/n (legacy testnet/regtest)
+  return /^(bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn][a-km-zA-HJ-NP-Z1-9]{25,34}|2[a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
+}
+
+/**
+ * Fetch current block height from OP_NET RPC
+ */
+export async function fetchBlockHeight(): Promise<number | null> {
+  try {
+    const res = await fetch(OPNET_CONFIG.rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'btc_blockNumber', params: [] }),
+    });
+    const data = await res.json();
+    if (data.result) return Number(data.result);
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**

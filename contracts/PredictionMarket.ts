@@ -18,7 +18,7 @@
  * - Time-based resolution with grace period
  * - Admin key rotation support
  *
- * Deployment: Compile with `npm run build` → deploys to OP_NET testnet/mainnet
+ * Deployment: Compile with `npm run build` → deploy via OP_WALLET to OP_NET regtest/mainnet
  */
 
 import {

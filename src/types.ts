@@ -27,7 +27,7 @@ export interface WalletState {
   connected: boolean;
   address: string;
   balanceSats: number;
-  network: 'testnet' | 'mainnet';
+  network: 'regtest' | 'testnet' | 'mainnet';
 }
 
 export interface LeaderboardEntry {

@@ -11,7 +11,7 @@
 
 ## What is BitPredict?
 
-BitPredict is a **fully functional prediction market platform** built natively on **Bitcoin Layer 1** using **OP_NET's smart contract infrastructure**. Users can trade binary outcomes (YES/NO) on real-world events — crypto prices, politics, sports, tech — using testnet Bitcoin.
+BitPredict is a **fully functional prediction market platform** built natively on **Bitcoin Layer 1** using **OP_NET's smart contract infrastructure**. Users can trade binary outcomes (YES/NO) on real-world events — crypto prices, politics, sports, tech — using regtest Bitcoin.
 
 Unlike traditional prediction markets that rely on Ethereum or L2 rollups, BitPredict operates directly on Bitcoin's base layer, inheriting its unmatched security and decentralization while adding programmable market logic through OP_NET.
 
@@ -51,7 +51,7 @@ This entire project was vibecoded — every line of code was generated through A
 
 **Day 3 — Frontend & Integration**
 - Built a production-quality React app with dark Bitcoin-themed UI
-- Integrated OPWallet connection and OP_NET testnet provider
+- Integrated OP_WALLET connection and OP_NET regtest provider
 - Added AI market analysis, leaderboard, portfolio tracking
 - Telegram Mini App support for mobile-first experience
 - Deployed and tested end-to-end
@@ -84,7 +84,7 @@ This entire project was vibecoded — every line of code was generated through A
 | **Portfolio Tracking** | View active bets, wins, losses, total wagered |
 | **AI Analysis** | AI-powered market analysis with confidence scores |
 | **Leaderboard** | Top predictors ranked by volume and wins |
-| **OPWallet Connect** | Browser extension wallet integration |
+| **OP_WALLET Connect** | Browser extension wallet integration |
 | **Telegram Mini App** | Works inside Telegram via WebApp SDK |
 | **Mobile Bottom Nav** | Responsive design with mobile-first navigation |
 
@@ -115,7 +115,7 @@ BitPredict
 │   │   ├── AIAnalysis.tsx        # AI market analysis
 │   │   └── Toast.tsx             # Notification system
 │   ├── hooks/
-│   │   └── useWallet.ts          # OPWallet + demo wallet logic
+│   │   └── useWallet.ts          # OP_WALLET + demo wallet logic
 │   ├── lib/
 │   │   └── opnet.ts              # OP_NET integration layer
 │   │       ├── calculatePrice()  # AMM price calculation
@@ -169,8 +169,8 @@ This provides:
 ### Mainnet Deployment Path
 
 1. **Compile contract** → `npm run build` (AssemblyScript → WASM)
-2. **Deploy to testnet** → Use `@btc-vision/transaction` to broadcast deployment tx
-3. **Test thoroughly** → Unit tests + integration tests on testnet
+2. **Deploy to regtest** → Use OP_WALLET extension to upload .wasm and broadcast deployment tx
+3. **Test thoroughly** → Unit tests + integration tests on regtest
 4. **Audit** → Smart contract security review
 5. **Deploy to mainnet** → Same process, mainnet OP_NET RPC
 6. **Add oracle integration** → Decentralized resolution via Chainlink/custom oracle
@@ -188,7 +188,7 @@ This provides:
 | **Styling** | TailwindCSS v4 |
 | **Icons** | Lucide React |
 | **Animations** | Framer Motion |
-| **Wallet** | OPWallet browser extension |
+| **Wallet** | OP_WALLET browser extension |
 | **Telegram** | Telegram WebApp SDK |
 | **AI Agent** | Bob (OP_NET MCP Server) |
 | **OP_NET Libs** | `opnet`, `@btc-vision/bitcoin`, `@btc-vision/transaction` |
@@ -201,13 +201,13 @@ This provides:
 
 - Node.js >= 18
 - npm >= 9
-- [OPWallet](https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb) browser extension
-- Testnet BTC from [faucet.opnet.org](https://faucet.opnet.org)
+- [OP_WALLET](https://opnet.org) browser extension
+- Regtest BTC from [faucet.opnet.org](https://faucet.opnet.org)
 
 ### Installation
 
 ```bash
-git clone https://github.com/YOUR_REPO/bitpredict.git
+git clone https://github.com/opbitpredict/BitPredict.git
 cd bitpredict
 npm install
 ```
@@ -231,16 +231,16 @@ npm run preview
 
 ```bash
 cp .env.example .env
-# Edit .env with your testnet private key (WIF format)
+# Edit .env with your regtest private key (WIF format)
 ```
 
 ---
 
-## Testing with Testnet BTC
+## Testing with Regtest BTC
 
-1. Install [OPWallet](https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb)
-2. Switch to **Testnet** in OPWallet settings
-3. Get free testnet BTC from [faucet.opnet.org](https://faucet.opnet.org)
+1. Install [OP_WALLET](https://opnet.org) Chrome extension
+2. Switch to **Regtest** in OP_WALLET settings
+3. Get free regtest BTC from [faucet.opnet.org](https://faucet.opnet.org)
 4. Open BitPredict and click **Connect**
 5. Browse markets, select one, place a YES or NO prediction
 6. Check your portfolio in the **My Bets** tab
@@ -249,9 +249,11 @@ cp .env.example .env
 
 ## Live Demo
 
-**Frontend**: [Deployed URL — TBD]
+**Frontend**: [http://188.137.250.160](http://188.137.250.160) | [GitHub Pages](https://opbitpredict.github.io/BitPredict/)
 
-**Contract**: [OP_NET Testnet — TBD]
+**GitHub**: [github.com/opbitpredict/BitPredict](https://github.com/opbitpredict/BitPredict)
+
+**Contract**: OP_NET Regtest — deploy via OP_WALLET after compiling to WASM
 
 ---
 
@@ -292,8 +294,10 @@ MIT License — see [LICENSE](LICENSE)
 
 - **OP_NET**: [opnet.org](https://opnet.org)
 - **Bob AI Agent**: [ai.opnet.org](https://ai.opnet.org)
-- **Developer Docs**: [docs.opnet.org](https://docs.opnet.org)
-- **OPWallet**: [Chrome Web Store](https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb)
+- **Developer Docs**: [dev.opnet.org](https://dev.opnet.org)
+- **Block Explorer**: [opscan.org](https://opscan.org)
+- **MotoSwap DEX**: [motoswap.org](https://motoswap.org)
+- **OP_WALLET**: [opnet.org](https://opnet.org)
 - **Testnet Faucet**: [faucet.opnet.org](https://faucet.opnet.org)
 - **Challenge**: [vibecode.finance/challenge](https://vibecode.finance/challenge)
 

@@ -2,14 +2,14 @@ import { Trophy, TrendingUp, Medal } from 'lucide-react';
 import type { LeaderboardEntry } from '../types';
 
 const MOCK_LEADERBOARD: LeaderboardEntry[] = [
-  { rank: 1, address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx', nickname: 'SatoshiWhale', volume: 2450000, wins: 47, pnl: 890000 },
-  { rank: 2, address: 'tb1qrp33g0q5b5698ahp5jnf5yzjmgcek7x28wd2ej', nickname: 'BTCOracle', volume: 1870000, wins: 38, pnl: 620000 },
-  { rank: 3, address: 'tb1q0sq6agfcq0hv9av1fz6nerz00eqqxpzfvm23ne', nickname: 'VibePredictor', volume: 1340000, wins: 31, pnl: 410000 },
-  { rank: 4, address: 'tb1qm34lsc65zpw79lxes69zkqmk6ee3ewf0k8nwer', nickname: 'MoonHunter', volume: 980000, wins: 25, pnl: 280000 },
-  { rank: 5, address: 'tb1qw2c3lxufxqe536nx4y4gzfg69azy2ce2ewq6ye', nickname: 'CryptoSage', volume: 760000, wins: 22, pnl: 195000 },
-  { rank: 6, address: 'tb1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', nickname: 'BitNinja', volume: 540000, wins: 18, pnl: 120000 },
-  { rank: 7, address: 'tb1q6rz28mcfaxtmd6v789l9rrlrusd0rkg7fqwqen', nickname: 'OPNetter', volume: 420000, wins: 15, pnl: 88000 },
-  { rank: 8, address: 'tb1qd6h6vp99qwstk3z668md42q0zc44vpwkk824zh', nickname: 'AlphaTrader', volume: 310000, wins: 12, pnl: 65000 },
+  { rank: 1, address: 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4', nickname: 'SatoshiWhale', volume: 2450000, wins: 47, pnl: 890000 },
+  { rank: 2, address: 'bcrt1qrp33g0q5b5698ahp5jnf5yzjmgcek7x2z7y3a5', nickname: 'BTCOracle', volume: 1870000, wins: 38, pnl: 620000 },
+  { rank: 3, address: 'bcrt1q0sq6agfcq0hv9av1fz6nerz00eqqxpzfhq9xkm', nickname: 'VibePredictor', volume: 1340000, wins: 31, pnl: 410000 },
+  { rank: 4, address: 'bcrt1qm34lsc65zpw79lxes69zkqmk6ee3ewf0jn6v8r', nickname: 'MoonHunter', volume: 980000, wins: 25, pnl: 280000 },
+  { rank: 5, address: 'bcrt1qw2c3lxufxqe536nx4y4gzfg69azy2ce2x8jqml', nickname: 'CryptoSage', volume: 760000, wins: 22, pnl: 195000 },
+  { rank: 6, address: 'bcrt1qcr8te4kr609gcawutmrza0j4xv80jy8z7m5qwd', nickname: 'BitNinja', volume: 540000, wins: 18, pnl: 120000 },
+  { rank: 7, address: 'bcrt1q6rz28mcfaxtmd6v789l9rrlrusd0rkg7tp2j5n', nickname: 'OPNetter', volume: 420000, wins: 15, pnl: 88000 },
+  { rank: 8, address: 'bcrt1qd6h6vp99qwstk3z668md42q0zc44vpwk0rqm4j', nickname: 'AlphaTrader', volume: 310000, wins: 12, pnl: 65000 },
 ];
 
 interface LeaderboardProps {
