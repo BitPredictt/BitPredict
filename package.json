@@ -12,6 +12,7 @@
   "dependencies": {
     "@btc-vision/bitcoin": "^6.5.6",
     "@btc-vision/transaction": "^1.7.31",
+    "@btc-vision/walletconnect": "^1.10.3",
     "@tailwindcss/vite": "^4.2.1",
     "buffer": "^6.0.3",
     "framer-motion": "^12.34.3",

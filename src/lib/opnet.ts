@@ -28,7 +28,7 @@ export const OPNET_CONFIG = {
 // import { networks } from '@btc-vision/bitcoin';
 // const provider = new JSONRpcProvider(OPNET_CONFIG.rpcUrl, networks.regtest);
 
-// Contract method selectors (keccak256 first 4 bytes)
+// Contract method selectors (SHA256 first 4 bytes — OPNet uses SHA256, NOT keccak256)
 export const CONTRACT_METHODS = {
   createMarket: 'createMarket',
   buyShares: 'buyShares',
