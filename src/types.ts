@@ -21,6 +21,35 @@ export interface Bet {
   price: number;
   timestamp: number;
   status: 'pending' | 'won' | 'lost' | 'active';
+  txHash?: string;
+  blockHeight?: number;
+}
+
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  category: 'trading' | 'social' | 'explorer' | 'milestone';
+  unlocked: boolean;
+  unlockedAt?: number;
+  progress?: number;
+  maxProgress?: number;
+  xpReward: number;
+}
+
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  type: 'daily' | 'weekly' | 'onetime';
+  completed: boolean;
+  completedAt?: number;
+  progress: number;
+  maxProgress: number;
+  xpReward: number;
+  action?: string;
 }
 
 export interface WalletState {
@@ -40,5 +69,5 @@ export interface LeaderboardEntry {
   isUser?: boolean;
 }
 
-export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai';
+export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'achievements';
 export type CategoryFilter = 'All' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';

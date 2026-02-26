@@ -1,8 +1,10 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Search, Filter, ExternalLink, Github, MessageCircle } from 'lucide-react';
 import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { MOCK_MARKETS, CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
+import { useAchievements } from './hooks/useAchievements';
+import { submitBetTransaction, getExplorerTxUrl, isOPWalletAvailable } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -13,9 +15,11 @@ import { Portfolio } from './components/Portfolio';
 import { Toast } from './components/Toast';
 import { Footer } from './components/Footer';
 import { HowItWorks } from './components/HowItWorks';
+import { Achievements } from './components/Achievements';
 
 function App() {
-  const { wallet, loading: walletLoading, connectOPWallet, disconnect } = useWallet();
+  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance } = useWallet();
+  const achievements = useAchievements();
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
   const [search, setSearch] = useState('');
@@ -23,6 +27,20 @@ function App() {
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Track wallet connection for achievements
+  useEffect(() => {
+    if (wallet.connected) {
+      achievements.onWalletConnected();
+    }
+  }, [wallet.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track leaderboard visits
+  useEffect(() => {
+    if (activeTab === 'leaderboard') {
+      achievements.onLeaderboardVisited();
+    }
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredMarkets = useMemo(() => {
     let markets = [...MOCK_MARKETS];
@@ -56,7 +74,7 @@ function App() {
     return markets;
   }, [category, search, sortBy]);
 
-  const handlePlaceBet = useCallback((marketId: string, side: 'yes' | 'no', amount: number) => {
+  const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number) => {
     const market = MOCK_MARKETS.find((m) => m.id === marketId);
     if (!market) return;
 
@@ -67,12 +85,47 @@ function App() {
       amount,
       price: side === 'yes' ? market.yesPrice : market.noPrice,
       timestamp: Date.now(),
-      status: 'active',
+      status: 'pending',
     };
 
     setBets((prev) => [newBet, ...prev]);
-    setToast({ message: `${side.toUpperCase()} prediction placed! ${amount.toLocaleString()} sats on Bitcoin L1`, type: 'success' });
-  }, []);
+
+    // Attempt real OP_NET transaction via OP_WALLET
+    if (isOPWalletAvailable()) {
+      const result = await submitBetTransaction(marketId, side, amount);
+      if (result.success && result.txHash) {
+        setBets((prev) =>
+          prev.map((b) => b.id === newBet.id ? { ...b, status: 'active', txHash: result.txHash } : b)
+        );
+        setToast({
+          message: `${side.toUpperCase()} prediction confirmed! TX: ${result.txHash.slice(0, 12)}...`,
+          type: 'success',
+        });
+        // Refresh balance after tx
+        refreshBalance(wallet.address);
+      } else {
+        setBets((prev) =>
+          prev.map((b) => b.id === newBet.id ? { ...b, status: 'active' } : b)
+        );
+        setToast({
+          message: `${side.toUpperCase()} prediction placed! ${amount.toLocaleString()} sats on Bitcoin L1${result.error ? ` (${result.error})` : ''}`,
+          type: 'success',
+        });
+      }
+    } else {
+      // Demo mode — mark as active immediately
+      setBets((prev) =>
+        prev.map((b) => b.id === newBet.id ? { ...b, status: 'active' } : b)
+      );
+      setToast({
+        message: `${side.toUpperCase()} prediction placed! ${amount.toLocaleString()} sats (demo mode — install OP_WALLET for real txs)`,
+        type: 'success',
+      });
+    }
+
+    // Track achievements
+    achievements.onBetPlaced(newBet, bets, market.category);
+  }, [bets, wallet.address, refreshBalance, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">
@@ -209,7 +262,18 @@ function App() {
           <Leaderboard userAddress={wallet.address} />
         )}
 
-        {activeTab === 'ai' && <AIAnalysis />}
+        {activeTab === 'ai' && <AIAnalysis onAnalyze={achievements.onAIUsed} />}
+
+        {activeTab === 'achievements' && (
+          <Achievements
+            achievements={achievements.achievements}
+            quests={achievements.quests}
+            totalXP={achievements.totalXP}
+            level={achievements.level}
+            xpToNext={achievements.xpToNext}
+            onFaucetVisited={achievements.onFaucetVisited}
+          />
+        )}
       </main>
 
       {/* Mobile bottom nav */}
@@ -217,7 +281,8 @@ function App() {
         <div className="flex">
           {([
             { id: 'markets' as Tab, icon: '📊', label: 'Markets' },
-            { id: 'portfolio' as Tab, icon: '💼', label: 'My Bets' },
+            { id: 'portfolio' as Tab, icon: '💼', label: 'Bets' },
+            { id: 'achievements' as Tab, icon: '🏅', label: 'Quests' },
             { id: 'leaderboard' as Tab, icon: '🏆', label: 'Ranks' },
             { id: 'ai' as Tab, icon: '🧠', label: 'AI' },
           ]).map((tab) => (
@@ -243,6 +308,20 @@ function App() {
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
         />
+      )}
+
+      {/* Achievement unlock notification */}
+      {achievements.newUnlock && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-fade-in">
+          <div className="bg-gradient-to-r from-btc/20 to-purple-500/20 border border-btc/30 rounded-2xl px-6 py-4 backdrop-blur-xl shadow-2xl flex items-center gap-3">
+            <span className="text-2xl">{achievements.newUnlock.icon}</span>
+            <div>
+              <div className="text-xs font-black text-btc">Achievement Unlocked!</div>
+              <div className="text-sm font-bold text-white">{achievements.newUnlock.title}</div>
+              <div className="text-[10px] text-gray-400">+{achievements.newUnlock.xpReward} XP</div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast */}

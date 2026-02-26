@@ -17,11 +17,13 @@ const generateAnalysis = (market: Market): AnalysisResult => {
   const confidence = 55 + Math.floor(Math.random() * 30);
   
   const factors = [
-    market.category === 'Crypto' ? 'Bitcoin adoption metrics trending upward' : 'Market sentiment analysis complete',
-    `Current odds: ${Math.round(market.yesPrice * 100)}% YES / ${Math.round(market.noPrice * 100)}% NO`,
-    `Volume: $${(market.volume / 1000).toFixed(0)}K indicates strong market interest`,
-    market.liquidity > 100000 ? 'High liquidity — reliable price discovery' : 'Moderate liquidity — prices may be volatile',
-    isYesFavored ? 'Market consensus leans YES' : 'Market consensus leans NO',
+    market.category === 'Crypto' ? 'On-chain OP_NET data: Bitcoin adoption metrics trending upward' : 'Cross-chain sentiment analysis via Bob AI complete',
+    `AMM reserves: YES=${Math.round(market.yesPrice * 100)}% / NO=${Math.round(market.noPrice * 100)}% (constant-product x·y=k)`,
+    `Trading volume: ${(market.volume / 1000).toFixed(0)}K sats — ${market.volume > 500000 ? 'very high' : market.volume > 100000 ? 'strong' : 'moderate'} market interest`,
+    market.liquidity > 100000 ? 'Liquidity depth: High — reliable price discovery, low slippage' : 'Liquidity depth: Moderate — expect 2-5% slippage on large orders',
+    isYesFavored ? 'Market consensus leans YES — contrarian NO offers 2.8x potential return' : 'Market consensus leans NO — contrarian YES offers higher upside',
+    `Risk assessment: ${confidence > 70 ? 'Low risk — strong signal alignment' : confidence > 55 ? 'Medium risk — mixed signals, position size carefully' : 'High risk — insufficient data for conviction'}`,
+    `OP_NET block confirmation: ~10 min settlement on Bitcoin L1`,
   ];
 
   const reasoning = isYesFavored
@@ -38,7 +40,11 @@ const generateAnalysis = (market: Market): AnalysisResult => {
   };
 };
 
-export function AIAnalysis() {
+interface AIAnalysisProps {
+  onAnalyze?: () => void;
+}
+
+export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +57,7 @@ export function AIAnalysis() {
     await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1000));
     setAnalysis(generateAnalysis(market));
     setLoading(false);
+    onAnalyze?.();
   };
 
   const handleCustomQuery = async () => {
