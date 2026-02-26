@@ -1,0 +1,15 @@
+{
+    "name": "bitpredict-contracts",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "build": "asc src/index.ts --target release --config asconfig.json",
+        "build:debug": "asc src/index.ts --target debug --config asconfig.json"
+    },
+    "dependencies": {
+        "@btc-vision/btc-runtime": "latest",
+        "@btc-vision/as-bignum": "latest",
+        "@btc-vision/opnet-transform": "latest",
+        "assemblyscript": "^0.27.34"
+    }
+}

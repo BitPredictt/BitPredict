@@ -20,7 +20,7 @@ export const OPNET_CONFIG = {
   explorerUrl: 'https://opscan.org',
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: '', // Set after deployment via OP_WALLET
+  contractAddress: 'opt1sqzv3pnzsgfughexslplfyjg8s0engxpv3ge3lqn5', // Deployed PredictionMarket
 };
 
 // Official OP_NET SDK usage:
@@ -362,8 +362,8 @@ export async function submitBetTransaction(
 
     // Fallback: use sendBitcoin for a simple transfer that records the bet
     if (opwallet.sendBitcoin) {
-      // Send sats to a burn/escrow address to record the prediction
-      const escrowAddr = 'opt1ppredictmarket000000000000000000000000000';
+      // Send sats to contract address to record the prediction
+      const escrowAddr = 'opt1sqzv3pnzsgfughexslplfyjg8s0engxpv3ge3lqn5';
       const txHash = await opwallet.sendBitcoin(escrowAddr, amountSats, {
         memo: `bitpredict:${marketId}:${side}`,
       });
