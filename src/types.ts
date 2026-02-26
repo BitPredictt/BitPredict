@@ -23,6 +23,8 @@ export interface Bet {
   status: 'pending' | 'won' | 'lost' | 'active';
   txHash?: string;
   blockHeight?: number;
+  payout?: number;
+  shares?: number;
 }
 
 export interface Achievement {

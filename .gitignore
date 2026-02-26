@@ -39,6 +39,11 @@ id_ed25519*
 .gh_token
 ghp_*
 
+# Server database
+server/*.db
+server/*.db-wal
+server/*.db-shm
+
 # Build artifacts
 dist.tar.gz
 *.tar.gz

@@ -6,11 +6,12 @@ import { calculateShares } from '../lib/opnet';
 interface BetModalProps {
   market: Market;
   wallet: WalletState;
+  predBalance: number;
   onClose: () => void;
   onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number) => void;
 }
 
-export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps) {
+export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: BetModalProps) {
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [amount, setAmount] = useState('1000');
   const [placing, setPlacing] = useState(false);
@@ -38,8 +39,10 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
     ? Math.abs((side === 'yes' ? ammResult.newYesPrice : ammResult.newNoPrice) - price) / price * 100
     : 0;
 
+  const insufficientBalance = amountNum > predBalance;
+
   const handlePlace = async () => {
-    if (amountNum <= 0 || !wallet.connected) return;
+    if (amountNum <= 0 || !wallet.connected || insufficientBalance) return;
     setPlacing(true);
     try {
       await onPlaceBet(market.id, side, amountNum);
@@ -102,7 +105,7 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
 
         {/* Amount */}
         <div className="mb-4">
-          <label className="text-xs font-semibold text-gray-400 mb-2 block">Amount (sats)</label>
+          <label className="text-xs font-semibold text-gray-400 mb-2 block">Amount (PRED) — Balance: {predBalance.toLocaleString()}</label>
           <input
             type="number"
             value={amount}
@@ -132,11 +135,11 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
           <div className="bg-surface-2 rounded-xl p-4 mb-5 space-y-2">
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">You pay</span>
-              <span className="text-white font-bold">{amountNum.toLocaleString()} sats</span>
+              <span className="text-white font-bold">{amountNum.toLocaleString()} PRED</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Protocol fee (2%)</span>
-              <span className="text-gray-400 font-medium">-{fee.toLocaleString()} sats</span>
+              <span className="text-gray-400 font-medium">-{fee.toLocaleString()} PRED</span>
             </div>
             {ammResult && (
               <div className="flex justify-between text-xs">
@@ -146,11 +149,11 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
             )}
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Potential payout</span>
-              <span className="text-white font-bold">{potentialPayout.toLocaleString()} sats</span>
+              <span className="text-white font-bold">{potentialPayout.toLocaleString()} PRED</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-2">
               <span className="text-gray-500">Potential profit</span>
-              <span className="text-green-400 font-bold">+{potentialProfit.toLocaleString()} sats</span>
+              <span className="text-green-400 font-bold">+{potentialProfit.toLocaleString()} PRED</span>
             </div>
 
             {/* AMM Details toggle */}
@@ -207,10 +210,17 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
           </div>
         )}
 
+        {insufficientBalance && wallet.connected && amountNum > 0 && (
+          <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
+            <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
+            <p className="text-xs text-red-400">Insufficient balance: {predBalance.toLocaleString()} PRED (need {amountNum.toLocaleString()})</p>
+          </div>
+        )}
+
         {/* Place button */}
         <button
           onClick={handlePlace}
-          disabled={!wallet.connected || amountNum <= 0 || placing}
+          disabled={!wallet.connected || amountNum <= 0 || placing || insufficientBalance}
           className={`w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
             side === 'yes'
               ? 'bg-gradient-to-r from-green-600 to-green-500 text-white hover:from-green-500 hover:to-green-400'
@@ -225,13 +235,13 @@ export function BetModal({ market, wallet, onClose, onPlaceBet }: BetModalProps)
           ) : (
             <>
               <Zap size={16} />
-              Place {side.toUpperCase()} — {amountNum.toLocaleString()} sats
+              Place {side.toUpperCase()} — {amountNum.toLocaleString()} PRED
             </>
           )}
         </button>
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
-          Powered by OP_NET · Bitcoin Layer 1 · Testnet
+          Powered by OP_NET · Bitcoin Layer 1 · Testnet · PRED virtual currency
         </p>
       </div>
     </div>

@@ -323,58 +323,69 @@ function getOPWallet(): OPWalletAPI | null {
 }
 
 /**
- * Submit a prediction bet as a real OP_NET transaction
- * Flow: encode calldata → OP_WALLET signPsbt → broadcast
- * Falls back to sendBitcoin if signPsbt unavailable
+ * Submit a prediction bet as a real OP_NET transaction.
+ * Uses opnet SDK: getContract() → simulate() → sendTransaction({signer:null})
+ * Per Bob's rules: signer and mldsaSigner are ALWAYS null on frontend.
  */
 export async function submitBetTransaction(
   marketId: string,
   side: 'yes' | 'no',
   amountSats: number,
+  senderAddress: string,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  const opwallet = getOPWallet();
-  if (!opwallet) {
-    return { txHash: '', success: false, error: 'OP_WALLET not available' };
-  }
-
   try {
-    // Encode bet calldata for the prediction market contract
+    // Dynamic import to avoid SSR issues
+    const { getContract, JSONRpcProvider } = await import('opnet');
+    const { opnetTestnet } = await import('@btc-vision/bitcoin');
+
+    const provider = new JSONRpcProvider(OPNET_CONFIG.rpcUrl, opnetTestnet);
+
+    // PredictionMarket ABI (flat array per Bob's rules)
+    const abi = [
+      {
+        name: 'buyShares',
+        inputs: [
+          { name: 'marketId', type: 'UINT256' },
+          { name: 'isYes', type: 'BOOL' },
+          { name: 'amount', type: 'UINT256' },
+        ],
+        outputs: [{ name: 'shares', type: 'UINT256' }],
+        type: 'Function',
+      },
+    ];
+
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      abi,
+      provider,
+      opnetTestnet,
+      senderAddress,
+    );
+
+    // Encode marketId as u256 from string
     const marketIdBig = BigInt('0x' + Array.from(new TextEncoder().encode(marketId))
       .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0'));
-    const isYes = side === 'yes' ? 1n : 0n;
-    const calldata = encodeCalldata('buyShares', marketIdBig, isYes, BigInt(amountSats));
+    const isYes = side === 'yes';
 
-    // If contract is deployed, use signPsbt for contract interaction
-    if (OPNET_CONFIG.contractAddress && opwallet.signPsbt) {
-      // Build a PSBT that includes the contract calldata as OP_NET interaction
-      const calldataHex = Array.from(calldata).map(b => b.toString(16).padStart(2, '0')).join('');
+    // Step 1: Simulate
+    const simulation = await (contract as any).buyShares(marketIdBig, isYes, BigInt(amountSats));
 
-      // Use OP_WALLET's signPsbt to sign the interaction
-      const signedPsbt = await opwallet.signPsbt(calldataHex);
-
-      // Broadcast signed transaction
-      if (opwallet.pushPsbt) {
-        const txHash = await opwallet.pushPsbt(signedPsbt);
-        return { txHash, success: true };
-      }
-
-      return { txHash: signedPsbt.slice(0, 64), success: true };
+    if (simulation.revert) {
+      return { txHash: '', success: false, error: `Contract revert: ${simulation.revert}` };
     }
 
-    // Fallback: use sendBitcoin for a simple transfer that records the bet
-    if (opwallet.sendBitcoin) {
-      // Send sats to contract address to record the prediction
-      const escrowAddr = 'opt1sqzv3pnzsgfughexslplfyjg8s0engxpv3ge3lqn5';
-      const txHash = await opwallet.sendBitcoin(escrowAddr, amountSats, {
-        memo: `bitpredict:${marketId}:${side}`,
-      });
-      return { txHash, success: true };
-    }
+    // Step 2: Send transaction — signer: null on frontend (OP_WALLET handles signing)
+    const receipt = await simulation.sendTransaction({
+      signer: null,
+      mldsaSigner: null,
+      refundTo: senderAddress,
+      maximumAllowedSatToSpend: BigInt(amountSats + 10000),
+      network: opnetTestnet,
+    });
 
     return {
-      txHash: '',
-      success: false,
-      error: 'OP_WALLET does not support signPsbt or sendBitcoin',
+      txHash: receipt.transactionId || receipt.txid || '',
+      success: true,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

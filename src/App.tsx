@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Search, Filter, ExternalLink, Github } from 'lucide-react';
 import type { Tab, CategoryFilter, Market, Bet } from './types';
-import { MOCK_MARKETS, CATEGORIES } from './data/markets';
+import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
-import { submitBetTransaction, getExplorerTxUrl, isOPWalletAvailable } from './lib/opnet';
+import { submitBetTransaction, isOPWalletAvailable } from './lib/opnet';
+import * as api from './lib/api';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -26,14 +27,43 @@ function App() {
   const [sortBy, setSortBy] = useState<'volume' | 'ending' | 'liquidity'>('volume');
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
+  const [markets, setMarkets] = useState<Market[]>([]);
+  const [predBalance, setPredBalance] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const marketsLoaded = useRef(false);
 
-  // Track wallet connection for achievements
+  // Load markets from server
   useEffect(() => {
-    if (wallet.connected) {
-      achievements.onWalletConnected();
-    }
-  }, [wallet.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (marketsLoaded.current) return;
+    marketsLoaded.current = true;
+    api.getMarkets().then(setMarkets).catch((e) => console.error('Failed to load markets:', e));
+    // Refresh every 30s
+    const iv = setInterval(() => {
+      api.getMarkets().then(setMarkets).catch(() => {});
+    }, 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Auth user + load balance and bets when wallet connects
+  useEffect(() => {
+    if (!wallet.connected || !wallet.address) return;
+    achievements.onWalletConnected();
+
+    api.authUser(wallet.address).then((u) => setPredBalance(u.balance)).catch(() => {});
+    api.getUserBets(wallet.address).then((serverBets) => {
+      setBets(serverBets.map((b) => ({
+        id: b.id,
+        marketId: b.marketId,
+        side: b.side,
+        amount: b.amount,
+        price: b.price,
+        timestamp: b.timestamp,
+        status: b.status === 'cancelled' ? 'lost' as const : b.status,
+        payout: b.payout,
+        shares: b.shares,
+      })));
+    }).catch(() => {});
+  }, [wallet.connected, wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track leaderboard visits
   useEffect(() => {
@@ -43,15 +73,15 @@ function App() {
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredMarkets = useMemo(() => {
-    let markets = [...MOCK_MARKETS];
+    let list = [...markets];
 
     if (category !== 'All') {
-      markets = markets.filter((m) => m.category === category);
+      list = list.filter((m) => m.category === category);
     }
 
     if (search.trim()) {
       const q = search.toLowerCase();
-      markets = markets.filter(
+      list = list.filter(
         (m) =>
           m.question.toLowerCase().includes(q) ||
           m.tags.some((t) => t.includes(q)) ||
@@ -61,71 +91,69 @@ function App() {
 
     switch (sortBy) {
       case 'volume':
-        markets.sort((a, b) => b.volume - a.volume);
+        list.sort((a, b) => b.volume - a.volume);
         break;
       case 'ending':
-        markets.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+        list.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
         break;
       case 'liquidity':
-        markets.sort((a, b) => b.liquidity - a.liquidity);
+        list.sort((a, b) => b.liquidity - a.liquidity);
         break;
     }
 
-    return markets;
-  }, [category, search, sortBy]);
+    return list;
+  }, [markets, category, search, sortBy]);
 
   const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number) => {
-    const market = MOCK_MARKETS.find((m) => m.id === marketId);
-    if (!market) return;
+    const market = markets.find((m) => m.id === marketId);
+    if (!market || !wallet.connected) return;
 
-    const newBet: Bet = {
-      id: `bet-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      marketId,
-      side,
-      amount,
-      price: side === 'yes' ? market.yesPrice : market.noPrice,
-      timestamp: Date.now(),
-      status: 'pending',
-    };
+    try {
+      // 1) Place bet on server (deducts PRED balance, updates AMM)
+      const result = await api.placeBet(wallet.address, marketId, side, amount);
 
-    setBets((prev) => [newBet, ...prev]);
+      // Update local state
+      setPredBalance(result.newBalance);
+      const newBet: Bet = {
+        id: result.betId,
+        marketId,
+        side,
+        amount,
+        price: side === 'yes' ? market.yesPrice : market.noPrice,
+        timestamp: Date.now(),
+        status: 'active',
+        shares: result.shares,
+      };
+      setBets((prev) => [newBet, ...prev]);
 
-    // Attempt real OP_NET transaction via OP_WALLET
-    if (isOPWalletAvailable()) {
-      const result = await submitBetTransaction(marketId, side, amount);
-      if (result.success && result.txHash) {
-        setBets((prev) =>
-          prev.map((b) => b.id === newBet.id ? { ...b, status: 'active', txHash: result.txHash } : b)
-        );
-        setToast({
-          message: `${side.toUpperCase()} prediction confirmed! TX: ${result.txHash.slice(0, 12)}...`,
-          type: 'success',
-        });
-        // Refresh balance after tx
-        refreshBalance(wallet.address);
-      } else {
-        setBets((prev) =>
-          prev.map((b) => b.id === newBet.id ? { ...b, status: 'active' } : b)
-        );
-        setToast({
-          message: `${side.toUpperCase()} prediction placed! ${amount.toLocaleString()} sats on Bitcoin L1${result.error ? ` (${result.error})` : ''}`,
-          type: 'success',
-        });
+      // Update market prices locally
+      setMarkets((prev) => prev.map((m) =>
+        m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
+      ));
+
+      // 2) Attempt real on-chain TX if OP_WALLET available (non-blocking)
+      if (isOPWalletAvailable()) {
+        submitBetTransaction(marketId, side, amount, wallet.address).then((txResult) => {
+          if (txResult.success && txResult.txHash) {
+            setBets((prev) =>
+              prev.map((b) => b.id === newBet.id ? { ...b, txHash: txResult.txHash } : b)
+            );
+          }
+        }).catch(() => {});
       }
-    } else {
-      // Demo mode — mark as active immediately
-      setBets((prev) =>
-        prev.map((b) => b.id === newBet.id ? { ...b, status: 'active' } : b)
-      );
+
       setToast({
-        message: `${side.toUpperCase()} prediction placed! ${amount.toLocaleString()} sats (demo mode — install OP_WALLET for real txs)`,
+        message: `${side.toUpperCase()} — ${amount.toLocaleString()} PRED на «${market.question.slice(0, 40)}...»`,
         type: 'success',
       });
-    }
 
-    // Track achievements
-    achievements.onBetPlaced(newBet, bets, market.category);
-  }, [bets, wallet.address, refreshBalance, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
+      // Track achievements
+      achievements.onBetPlaced(newBet, bets, market.category);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setToast({ message: `Ошибка: ${msg}`, type: 'error' });
+    }
+  }, [markets, wallet.connected, wallet.address, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">
@@ -244,6 +272,8 @@ function App() {
         {activeTab === 'portfolio' && (
           <Portfolio
             bets={bets}
+            markets={markets}
+            predBalance={predBalance}
             walletConnected={wallet.connected}
             onConnect={connectOPWallet}
           />
@@ -296,6 +326,7 @@ function App() {
         <BetModal
           market={selectedMarket}
           wallet={wallet}
+          predBalance={predBalance}
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
         />

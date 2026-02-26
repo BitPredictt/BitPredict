@@ -1,15 +1,16 @@
-import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink } from 'lucide-react';
-import type { Bet } from '../types';
-import { MOCK_MARKETS } from '../data/markets';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins } from 'lucide-react';
+import type { Bet, Market } from '../types';
 import { getExplorerTxUrl } from '../lib/opnet';
 
 interface PortfolioProps {
   bets: Bet[];
+  markets: Market[];
+  predBalance: number;
   walletConnected: boolean;
   onConnect: () => void;
 }
 
-export function Portfolio({ bets, walletConnected, onConnect }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, walletConnected, onConnect }: PortfolioProps) {
   if (!walletConnected) {
     return (
       <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
@@ -28,7 +29,7 @@ export function Portfolio({ bets, walletConnected, onConnect }: PortfolioProps) 
     );
   }
 
-  const getMarket = (marketId: string) => MOCK_MARKETS.find((m) => m.id === marketId);
+  const getMarket = (marketId: string) => markets.find((m) => m.id === marketId);
   const getMarketQuestion = (marketId: string) => getMarket(marketId)?.question || 'Unknown Market';
 
   const totalInvested = bets.reduce((sum, b) => sum + b.amount, 0);
@@ -93,6 +94,10 @@ export function Portfolio({ bets, walletConnected, onConnect }: PortfolioProps) 
         </div>
         <h2 className="text-2xl font-extrabold text-white">Portfolio</h2>
         <p className="text-xs text-gray-500 mt-1">Track your predictions on OP_NET Testnet</p>
+        <div className="flex items-center justify-center gap-2 mt-2">
+          <Coins size={16} className="text-btc" />
+          <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} PRED</span>
+        </div>
       </div>
 
       {/* PnL Banner */}
@@ -205,7 +210,7 @@ export function Portfolio({ bets, walletConnected, onConnect }: PortfolioProps) 
                         }`}>
                           {bet.side}
                         </span>
-                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} sats @ {Math.round(bet.price * 100)}¢</span>
+                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} PRED @ {Math.round(bet.price * 100)}¢</span>
                         {bet.status === 'active' && (
                           <span className={`text-[10px] font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(1)}%
