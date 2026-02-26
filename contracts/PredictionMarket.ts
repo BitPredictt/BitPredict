@@ -33,6 +33,7 @@ import {
   Calldata,
   encodeSelector,
   Map,
+  NetEvent,
   OP_NET,
   Revert,
   SafeMath,
@@ -54,40 +55,66 @@ const INITIAL_LIQUIDITY: u256 = u256.fromU64(1_000_000); // 1M sats initial virt
 // Events
 // ============================================================
 
-class MarketCreatedEvent {
+class MarketCreatedEvent extends NetEvent {
   constructor(
-    public marketId: u256,
-    public question: string,
-    public endBlock: u256,
-    public creator: Address,
-  ) {}
+    marketId: u256,
+    endBlock: u256,
+    creator: Address,
+  ) {
+    const data = new BytesWriter(96);
+    data.writeU256(marketId);
+    data.writeU256(endBlock);
+    data.writeAddress(creator);
+    super('MarketCreated', data);
+  }
 }
 
-class SharesPurchasedEvent {
+class SharesPurchasedEvent extends NetEvent {
   constructor(
-    public marketId: u256,
-    public buyer: Address,
-    public isYes: bool,
-    public amount: u256,
-    public shares: u256,
-    public newYesPrice: u256,
-  ) {}
+    marketId: u256,
+    buyer: Address,
+    isYes: bool,
+    amount: u256,
+    shares: u256,
+    newYesPrice: u256,
+  ) {
+    const data = new BytesWriter(160);
+    data.writeU256(marketId);
+    data.writeAddress(buyer);
+    data.writeU256(isYes ? u256.One : u256.Zero);
+    data.writeU256(amount);
+    data.writeU256(shares);
+    data.writeU256(newYesPrice);
+    super('SharesPurchased', data);
+  }
 }
 
-class MarketResolvedEvent {
+class MarketResolvedEvent extends NetEvent {
   constructor(
-    public marketId: u256,
-    public outcome: bool, // true = YES wins, false = NO wins
-    public resolver: Address,
-  ) {}
+    marketId: u256,
+    outcome: bool, // true = YES wins, false = NO wins
+    resolver: Address,
+  ) {
+    const data = new BytesWriter(96);
+    data.writeU256(marketId);
+    data.writeU256(outcome ? u256.One : u256.Zero);
+    data.writeAddress(resolver);
+    super('MarketResolved', data);
+  }
 }
 
-class PayoutClaimedEvent {
+class PayoutClaimedEvent extends NetEvent {
   constructor(
-    public marketId: u256,
-    public claimer: Address,
-    public amount: u256,
-  ) {}
+    marketId: u256,
+    claimer: Address,
+    amount: u256,
+  ) {
+    const data = new BytesWriter(96);
+    data.writeU256(marketId);
+    data.writeAddress(claimer);
+    data.writeU256(amount);
+    super('PayoutClaimed', data);
+  }
 }
 
 // ============================================================
@@ -228,7 +255,6 @@ export class PredictionMarket extends OP_NET {
     // Emit event
     this.emitEvent(new MarketCreatedEvent(
       marketId,
-      'Binary Prediction Market',
       endBlock,
       Blockchain.tx.sender,
     ));
@@ -400,7 +426,7 @@ export class PredictionMarket extends OP_NET {
     this.emitEvent(new MarketResolvedEvent(
       marketId,
       !SafeMath.eq(outcomeNormalized, u256.Zero),
-      Blockchain.tx.sender,
+      Blockchain.tx.origin,
     ));
 
     return new BytesWriter(0);
