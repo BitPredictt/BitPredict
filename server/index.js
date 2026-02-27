@@ -259,6 +259,18 @@ db.exec(`
 try { db.exec('ALTER TABLE bets ADD COLUMN claim_tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
 
+// Migration: add image_url column if missing
+try { db.exec('ALTER TABLE markets ADD COLUMN image_url TEXT'); } catch(e) { /* already exists */ }
+
+// Wipe polymarket markets with bad tags (object tags) so they re-sync cleanly
+try {
+  const badCount = db.prepare("SELECT COUNT(*) as c FROM markets WHERE market_type = 'polymarket' AND tags LIKE '%\"id\"%'").get().c;
+  if (badCount > 0) {
+    db.prepare("DELETE FROM markets WHERE market_type = 'polymarket'").run();
+    console.log(`Wiped ${badCount} polymarket markets with bad tags for re-sync`);
+  }
+} catch(e) { /* ignore */ }
+
 // Fix stuck bets: active bets on resolved markets should be settled
 try {
   const stuckBets = db.prepare(`SELECT b.*, m.outcome FROM bets b JOIN markets m ON b.market_id = m.id
@@ -567,7 +579,8 @@ async function syncPolymarketEvents() {
         const vol = Math.round(parseFloat(m.volume || 0));
         const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
         const category = mapPolyCategory(ev.category || m.category || '');
-        const tags = JSON.stringify([category.toLowerCase(), 'polymarket', ...(ev.tags || []).slice(0, 3)]);
+        const rawTags = (ev.tags || []).slice(0, 3).map(t => typeof t === 'string' ? t : (t.label || t.slug || '')).filter(Boolean);
+        const tags = JSON.stringify([category.toLowerCase(), 'polymarket', ...rawTags]);
 
         // Scale volume/liquidity to BPUSD (1 BPUSD ≈ $1, but scale up for drama)
         const scaledVol = Math.max(vol, 10000);
