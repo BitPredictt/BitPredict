@@ -550,6 +550,9 @@ app.post('/api/bet', async (req, res) => {
   if (!address || !marketId || !side || !amount) {
     return res.status(400).json({ error: 'address, marketId, side, amount required' });
   }
+  if (typeof address !== 'string' || !address.startsWith('opt1') || address.length > 120) {
+    return res.status(400).json({ error: 'Invalid address: must be an OPNet testnet address (opt1...)' });
+  }
   if (side !== 'yes' && side !== 'no') {
     return res.status(400).json({ error: 'side must be yes or no' });
   }
@@ -1092,6 +1095,11 @@ app.post('/api/faucet/claim', async (req, res) => {
     return res.status(429).json({ error: 'Faucet cooldown: try again in 5 minutes' });
   }
 
+  // Validate address prefix (OPNet testnet addresses start with opt1)
+  if (!address.startsWith('opt1')) {
+    return res.status(400).json({ error: 'Invalid address: must be an OPNet testnet address (opt1...)' });
+  }
+
   // Credit in DB first
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
@@ -1099,7 +1107,6 @@ app.post('/api/faucet/claim', async (req, res) => {
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   }
 
-  const FAUCET_AMOUNT = 500;
   const newBalance = user.balance + FAUCET_AMOUNT;
   db.prepare('UPDATE users SET balance = ? WHERE address = ?').run(newBalance, address);
 
