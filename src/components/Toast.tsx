@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
 
 interface ToastProps {
   message: string;
   type?: 'success' | 'error';
+  link?: string;
+  linkLabel?: string;
   onClose: () => void;
 }
 
-export function Toast({ message, type = 'success', onClose }: ToastProps) {
+export function Toast({ message, type = 'success', link, linkLabel, onClose }: ToastProps) {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
@@ -28,7 +30,15 @@ export function Toast({ message, type = 'success', onClose }: ToastProps) {
           : 'bg-green-500/10 border border-green-500/30 text-green-300'
       }`}>
         {type === 'error' ? <XCircle size={18} /> : <CheckCircle2 size={18} />}
-        <span className="text-sm font-medium flex-1">{message}</span>
+        <span className="text-sm font-medium flex-1">
+          {message}
+          {link && (
+            <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 ml-1 text-btc hover:underline">
+              <ExternalLink size={11} />
+              {linkLabel || 'View TX'}
+            </a>
+          )}
+        </span>
         <button onClick={onClose} className="text-gray-500 hover:text-white p-1">
           <XCircle size={14} />
         </button>

@@ -19,7 +19,7 @@ interface PortfolioProps {
 
 export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [claiming, setClaiming] = useState(false);
-  const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
 
   const handleClaimFaucet = async () => {
     if (claiming || !walletAddress) return;
@@ -31,12 +31,9 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
       onBalanceUpdate(result.newBalance);
 
       const msg = result.txHash
-        ? `✅ +${result.claimed} PUSD on-chain! TX: ${result.txHash.slice(0, 16)}...`
+        ? `✅ +${result.claimed} PUSD on-chain!`
         : `✅ +${result.claimed} PUSD credited! Balance: ${result.newBalance.toLocaleString()}`;
-      setClaimMsg({ text: msg, type: 'success' });
-      if (result.txHash) {
-        setClaimMsg({ text: msg + ` | View on explorer`, type: 'success' });
-      }
+      setClaimMsg({ text: msg, type: 'success', txHash: result.txHash || undefined });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setClaimMsg({ text: msg, type: 'error' });
@@ -141,9 +138,20 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
           {claiming ? 'Claiming...' : 'Claim 500 PUSD (Faucet)'}
         </button>
         {claimMsg && (
-          <p className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-            {claimMsg.text}
-          </p>
+          <div className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            <span>{claimMsg.text}</span>
+            {claimMsg.txHash && (
+              <a
+                href={getExplorerTxUrl(claimMsg.txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-2 inline-flex items-center gap-1 text-btc hover:underline"
+              >
+                <ExternalLink size={10} />
+                View TX on Explorer
+              </a>
+            )}
+          </div>
         )}
       </div>
 

@@ -28,7 +28,7 @@ function App() {
   const [bets, setBets] = useState<Bet[]>([]);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [predBalance, setPredBalance] = useState(0);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
   const marketsLoaded = useRef(false);
 
   // Load markets from server
@@ -144,9 +144,10 @@ function App() {
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
       const txMsg = result.txHash
-        ? `✅ On-chain TX: ${result.txHash.slice(0, 20)}...`
+        ? `✅ Bet confirmed on-chain!`
         : `✅ Bet placed: ${result.shares} shares for ${amount} PUSD`;
-      setToast({ message: txMsg, type: 'success' });
+      const txLink = result.txHash ? `https://opscan.org/tx/${result.txHash}` : undefined;
+      setToast({ message: txMsg, type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
@@ -357,6 +358,8 @@ function App() {
         <Toast
           message={toast.message}
           type={toast.type}
+          link={toast.link}
+          linkLabel={toast.linkLabel}
           onClose={() => setToast(null)}
         />
       )}

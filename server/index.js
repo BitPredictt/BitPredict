@@ -82,17 +82,12 @@ async function createOnChainProof(amount, memo) {
 // Init deployer wallet on startup
 initDeployerWallet();
 
-// CORS: restrict to known origins
-const ALLOWED_ORIGINS = [
-  'https://bitpredictt.github.io',
-  'http://localhost:5173',
-  'http://localhost:4173',
-];
+// CORS: allow all origins (testnet), handle preflight
 app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.some(o => origin.startsWith(o))) cb(null, true);
-    else cb(null, true); // Allow all for now (testnet), log unknown
-  },
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));
 
