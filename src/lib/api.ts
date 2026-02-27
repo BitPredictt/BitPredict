@@ -155,6 +155,25 @@ export async function placeOnChainBet(address: string, marketId: string, side: '
   });
 }
 
+// --- Reward claims (achievement/quest BPUSD) ---
+export interface RewardClaim {
+  reward_id: string;
+  reward_type: string;
+  amount: number;
+  claimed_at: number;
+}
+
+export async function claimReward(address: string, rewardId: string, rewardType: string, amount: number) {
+  return apiFetch<{ success: boolean; amount: number; newBalance: number }>('/api/reward/claim', {
+    method: 'POST',
+    body: JSON.stringify({ address, rewardId, rewardType, amount }),
+  });
+}
+
+export async function getClaimedRewards(address: string) {
+  return apiFetch<RewardClaim[]>(`/api/reward/claimed/${address}`);
+}
+
 // --- Health ---
 export async function healthCheck() {
   return apiFetch<{ status: string; ts: number; markets: number }>('/api/health');

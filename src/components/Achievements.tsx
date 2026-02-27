@@ -1,4 +1,5 @@
-import { Trophy, Star, Zap, Target, CheckCircle2, Lock, ExternalLink, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { Trophy, Star, Zap, Target, CheckCircle2, Lock, ExternalLink, ChevronRight, Gift, Loader2, Coins } from 'lucide-react';
 import type { Achievement, Quest } from '../types';
 
 interface AchievementsProps {
@@ -8,21 +9,26 @@ interface AchievementsProps {
   level: number;
   xpToNext: number;
   onFaucetVisited: () => void;
+  walletAddress?: string;
+  onClaimReward?: (rewardId: string, rewardType: 'achievement' | 'quest', amount: number) => Promise<void>;
 }
 
-function XPBadge({ xp }: { xp: number }) {
+function BPUSDBadge({ amount, claimed }: { amount: number; claimed?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-0.5 text-[9px] font-black text-btc bg-btc/10 px-1.5 py-0.5 rounded-full border border-btc/20">
-      <Zap size={8} />+{xp} XP
+    <span className={`inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded-full border ${
+      claimed ? 'text-gray-500 bg-gray-500/10 border-gray-500/20' : 'text-btc bg-btc/10 border-btc/20'
+    }`}>
+      <Coins size={8} />+{amount} BPUSD
     </span>
   );
 }
 
-function AchievementCard({ achievement }: { achievement: Achievement }) {
+function AchievementCard({ achievement, onClaim, claiming }: { achievement: Achievement; onClaim?: (id: string) => void; claiming?: boolean }) {
   const unlocked = achievement.unlocked;
   const progress = achievement.progress || 0;
   const max = achievement.maxProgress || 1;
   const pct = Math.min((progress / max) * 100, 100);
+  const canClaim = unlocked && !achievement.rewardClaimed && onClaim;
 
   return (
     <div className={`relative p-4 rounded-xl border transition-all ${
@@ -61,8 +67,24 @@ function AchievementCard({ achievement }: { achievement: Achievement }) {
               </div>
             </div>
           )}
+
+          {canClaim && (
+            <button
+              onClick={() => onClaim(achievement.id)}
+              disabled={claiming}
+              className="mt-2 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-yellow-600/30 to-btc/30 border border-yellow-500/40 text-[10px] font-bold text-yellow-300 hover:border-yellow-400/60 transition-all disabled:opacity-50"
+            >
+              {claiming ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
+              {claiming ? 'Claiming...' : `Claim +${achievement.xpReward} BPUSD`}
+            </button>
+          )}
+          {achievement.rewardClaimed && (
+            <span className="mt-1 inline-flex items-center gap-1 text-[9px] text-green-500 font-bold">
+              <CheckCircle2 size={9} /> Reward claimed
+            </span>
+          )}
         </div>
-        <XPBadge xp={achievement.xpReward} />
+        <BPUSDBadge amount={achievement.xpReward} claimed={achievement.rewardClaimed} />
       </div>
       {unlocked && achievement.unlockedAt && (
         <div className="text-[9px] text-gray-600 mt-2 text-right">
@@ -73,11 +95,12 @@ function AchievementCard({ achievement }: { achievement: Achievement }) {
   );
 }
 
-function QuestCard({ quest, onAction }: { quest: Quest; onAction: (quest: Quest) => void }) {
+function QuestCard({ quest, onAction, onClaim, claiming }: { quest: Quest; onAction: (quest: Quest) => void; onClaim?: (id: string) => void; claiming?: boolean }) {
   const pct = Math.min((quest.progress / quest.maxProgress) * 100, 100);
   const typeColor = quest.type === 'daily' ? 'text-green-400 bg-green-500/10 border-green-500/20'
     : quest.type === 'weekly' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
     : 'text-purple-400 bg-purple-500/10 border-purple-500/20';
+  const canClaim = quest.completed && !quest.rewardClaimed && onClaim;
 
   return (
     <div className={`p-4 rounded-xl border transition-all ${
@@ -115,9 +138,25 @@ function QuestCard({ quest, onAction }: { quest: Quest; onAction: (quest: Quest)
               </div>
             </div>
           )}
+
+          {canClaim && (
+            <button
+              onClick={() => onClaim(quest.id)}
+              disabled={claiming}
+              className="mt-2 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-yellow-600/30 to-btc/30 border border-yellow-500/40 text-[10px] font-bold text-yellow-300 hover:border-yellow-400/60 transition-all disabled:opacity-50"
+            >
+              {claiming ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
+              {claiming ? 'Claiming...' : `Claim +${quest.xpReward} BPUSD`}
+            </button>
+          )}
+          {quest.rewardClaimed && (
+            <span className="mt-1 inline-flex items-center gap-1 text-[9px] text-green-500 font-bold">
+              <CheckCircle2 size={9} /> Reward claimed
+            </span>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <XPBadge xp={quest.xpReward} />
+          <BPUSDBadge amount={quest.xpReward} claimed={quest.rewardClaimed} />
           {!quest.completed && quest.action && (
             <button
               onClick={() => onAction(quest)}
@@ -126,7 +165,7 @@ function QuestCard({ quest, onAction }: { quest: Quest; onAction: (quest: Quest)
               Go <ChevronRight size={10} />
             </button>
           )}
-          {quest.completed && (
+          {quest.completed && !canClaim && (
             <CheckCircle2 size={14} className="text-green-400" />
           )}
         </div>
@@ -142,10 +181,31 @@ export function Achievements({
   level,
   xpToNext,
   onFaucetVisited,
+  walletAddress,
+  onClaimReward,
 }: AchievementsProps) {
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
   const completedQuests = quests.filter((q) => q.completed).length;
+  const totalBPUSD = achievements.filter(a => a.rewardClaimed).reduce((s, a) => s + a.xpReward, 0)
+    + quests.filter(q => q.rewardClaimed).reduce((s, q) => s + q.xpReward, 0);
   const xpPct = ((500 - xpToNext) / 500) * 100;
+
+  const handleClaimAchievement = async (id: string) => {
+    if (!onClaimReward || claimingId) return;
+    const ach = achievements.find(a => a.id === id);
+    if (!ach) return;
+    setClaimingId(id);
+    try { await onClaimReward(id, 'achievement', ach.xpReward); } finally { setClaimingId(null); }
+  };
+
+  const handleClaimQuest = async (id: string) => {
+    if (!onClaimReward || claimingId) return;
+    const q = quests.find(q => q.id === id);
+    if (!q) return;
+    setClaimingId(id);
+    try { await onClaimReward(id, 'quest', q.xpReward); } finally { setClaimingId(null); }
+  };
 
   const handleQuestAction = (quest: Quest) => {
     if (quest.id === 'visit_faucet') {
@@ -172,7 +232,7 @@ export function Achievements({
         </div>
         <h2 className="text-2xl font-extrabold text-white">Achievements & Quests</h2>
         <p className="text-xs text-gray-500 mt-1">
-          Complete challenges, earn XP, level up on OP_NET
+          Complete challenges, earn BPUSD tokens on OP_NET
         </p>
       </div>
 
@@ -185,11 +245,11 @@ export function Achievements({
             </div>
             <div>
               <div className="text-xs font-bold text-white">Level {level}</div>
-              <div className="text-[10px] text-gray-500">{totalXP} total XP</div>
+              <div className="text-[10px] text-gray-500">{totalBPUSD} BPUSD earned</div>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] text-gray-500">{xpToNext} XP to next level</div>
+            <div className="text-[10px] text-gray-500">{xpToNext} BPUSD to next level</div>
             <div className="flex items-center gap-2 mt-1">
               <Star size={12} className="text-btc" />
               <span className="text-xs font-bold text-btc">{unlockedCount}/{achievements.length} achievements</span>
@@ -214,8 +274,8 @@ export function Achievements({
             <div className="text-[9px] text-gray-500 font-bold">Quests Done</div>
           </div>
           <div className="text-center">
-            <div className="text-lg font-black text-btc">{totalXP}</div>
-            <div className="text-[9px] text-gray-500 font-bold">Total XP</div>
+            <div className="text-lg font-black text-btc">{totalBPUSD}</div>
+            <div className="text-[9px] text-gray-500 font-bold">BPUSD Earned</div>
           </div>
         </div>
       </div>
@@ -232,7 +292,7 @@ export function Achievements({
           </div>
           <div className="space-y-2">
             {activeQuests.map((q) => (
-              <QuestCard key={q.id} quest={q} onAction={handleQuestAction} />
+              <QuestCard key={q.id} quest={q} onAction={handleQuestAction} onClaim={walletAddress ? handleClaimQuest : undefined} claiming={claimingId === q.id} />
             ))}
           </div>
         </div>
@@ -247,7 +307,7 @@ export function Achievements({
           </div>
           <div className="space-y-2">
             {doneQuests.map((q) => (
-              <QuestCard key={q.id} quest={q} onAction={handleQuestAction} />
+              <QuestCard key={q.id} quest={q} onAction={handleQuestAction} onClaim={walletAddress ? handleClaimQuest : undefined} claiming={claimingId === q.id} />
             ))}
           </div>
         </div>
@@ -260,7 +320,7 @@ export function Achievements({
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Trading</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {tradingAch.map((a) => <AchievementCard key={a.id} achievement={a} />)}
+          {tradingAch.map((a) => <AchievementCard key={a.id} achievement={a} onClaim={walletAddress ? handleClaimAchievement : undefined} claiming={claimingId === a.id} />)}
         </div>
       </div>
 
@@ -271,7 +331,7 @@ export function Achievements({
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Milestones</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {milestoneAch.map((a) => <AchievementCard key={a.id} achievement={a} />)}
+          {milestoneAch.map((a) => <AchievementCard key={a.id} achievement={a} onClaim={walletAddress ? handleClaimAchievement : undefined} claiming={claimingId === a.id} />)}
         </div>
       </div>
 
@@ -282,7 +342,7 @@ export function Achievements({
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Explorer</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {explorerAch.map((a) => <AchievementCard key={a.id} achievement={a} />)}
+          {explorerAch.map((a) => <AchievementCard key={a.id} achievement={a} onClaim={walletAddress ? handleClaimAchievement : undefined} claiming={claimingId === a.id} />)}
         </div>
       </div>
 
@@ -293,7 +353,7 @@ export function Achievements({
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Social</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {socialAch.map((a) => <AchievementCard key={a.id} achievement={a} />)}
+          {socialAch.map((a) => <AchievementCard key={a.id} achievement={a} onClaim={walletAddress ? handleClaimAchievement : undefined} claiming={claimingId === a.id} />)}
         </div>
       </div>
 

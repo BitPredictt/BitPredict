@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { Achievement, Quest, Bet } from '../types';
+import * as api from '../lib/api';
 
 const STORAGE_KEY = 'bitpredict_achievements';
 const QUEST_STORAGE_KEY = 'bitpredict_quests';
@@ -403,6 +404,25 @@ export function useAchievements() {
     completeQuest('visit_faucet');
   }, [completeQuest]);
 
+  const syncClaimedRewards = useCallback(async (address: string) => {
+    try {
+      const claims = await api.getClaimedRewards(address);
+      const claimedIds = new Set(claims.map(c => c.reward_id));
+      setAchievements(prev => prev.map(a => claimedIds.has(a.id) ? { ...a, rewardClaimed: true } : a));
+      setQuests(prev => prev.map(q => claimedIds.has(q.id) ? { ...q, rewardClaimed: true } : q));
+    } catch { /* ignore */ }
+  }, []);
+
+  const claimReward = useCallback(async (address: string, rewardId: string, rewardType: 'achievement' | 'quest', amount: number) => {
+    const result = await api.claimReward(address, rewardId, rewardType, amount);
+    if (rewardType === 'achievement') {
+      setAchievements(prev => prev.map(a => a.id === rewardId ? { ...a, rewardClaimed: true } : a));
+    } else {
+      setQuests(prev => prev.map(q => q.id === rewardId ? { ...q, rewardClaimed: true } : q));
+    }
+    return result;
+  }, []);
+
   return {
     achievements,
     quests,
@@ -417,5 +437,7 @@ export function useAchievements() {
     onCommunityVisited,
     onLeaderboardVisited,
     onFaucetVisited,
+    syncClaimedRewards,
+    claimReward,
   };
 }

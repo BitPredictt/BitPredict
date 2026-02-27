@@ -40,6 +40,7 @@ export interface Achievement {
   progress?: number;
   maxProgress?: number;
   xpReward: number;
+  rewardClaimed?: boolean;
 }
 
 export interface Quest {
@@ -53,6 +54,7 @@ export interface Quest {
   progress: number;
   maxProgress: number;
   xpReward: number;
+  rewardClaimed?: boolean;
   action?: string;
 }
 

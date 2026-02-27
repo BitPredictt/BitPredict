@@ -263,6 +263,37 @@ db.exec(`
 // Safe migrations for existing DB
 try { db.exec('ALTER TABLE bets ADD COLUMN claim_tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
+
+// Migration: recreate bets table to add 'claimable' to CHECK constraint (SQLite can't ALTER CHECK)
+try {
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='bets'").get();
+  const needsMigration = schema && schema.sql && !schema.sql.includes('claimable');
+  if (needsMigration) {
+    console.log('Migrating bets table to support claimable status...');
+    db.exec(`
+      CREATE TABLE bets_new (
+        id TEXT PRIMARY KEY,
+        user_address TEXT NOT NULL,
+        market_id TEXT NOT NULL,
+        side TEXT NOT NULL CHECK(side IN ('yes','no')),
+        amount INTEGER NOT NULL,
+        price REAL NOT NULL,
+        shares INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','won','lost','cancelled','claimable')),
+        payout INTEGER NOT NULL DEFAULT 0,
+        tx_hash TEXT DEFAULT '',
+        claim_tx_hash TEXT DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        FOREIGN KEY (user_address) REFERENCES users(address),
+        FOREIGN KEY (market_id) REFERENCES markets(id)
+      );
+      INSERT INTO bets_new SELECT id, user_address, market_id, side, amount, price, shares, status, payout, tx_hash, claim_tx_hash, created_at FROM bets;
+      DROP TABLE bets;
+      ALTER TABLE bets_new RENAME TO bets;
+    `);
+    console.log('Bets table migrated successfully');
+  }
+} catch(e) { console.error('Bets table migration error:', e.message); }
 // Index for O(1) txHash replay lookup
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_bets_tx_hash ON bets(tx_hash) WHERE tx_hash != ""'); } catch(e) { /* ignore */ }
 
@@ -285,9 +316,8 @@ try {
   for (const b of stuckBets) {
     if (b.side === b.outcome) {
       const payout = Math.round(b.amount / b.price);
-      db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
-      console.log(`Fixed stuck bet ${b.id}: won +${payout}`);
+      db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
+      console.log(`Fixed stuck bet ${b.id}: claimable +${payout}`);
     } else {
       db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
       console.log(`Fixed stuck bet ${b.id}: lost`);
@@ -306,6 +336,32 @@ db.exec(`
 `);
 
 // tx_hash column handled in CREATE TABLE + migrations above
+
+// Reward claims table for achievement/quest BPUSD rewards
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reward_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT NOT NULL,
+    reward_id TEXT NOT NULL,
+    reward_type TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    claimed_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE(address, reward_id)
+  );
+`);
+
+// Migration: convert auto-credited 'won' bets (no claim_tx_hash) back to 'claimable'
+try {
+  const autoCredited = db.prepare("SELECT * FROM bets WHERE status = 'won' AND (claim_tx_hash IS NULL OR claim_tx_hash = '')").all();
+  for (const b of autoCredited) {
+    if (b.payout > 0) {
+      db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('claimable', b.id);
+      db.prepare('UPDATE users SET balance = MAX(0, balance - ?) WHERE address = ?').run(b.payout, b.user_address);
+      console.log(`Reverted auto-credit bet ${b.id}: ${b.payout} deducted, now claimable`);
+    }
+  }
+  if (autoCredited.length > 0) console.log(`Reverted ${autoCredited.length} auto-credited bets to claimable`);
+} catch(e) { console.error('Migration error:', e.message); }
 
 // --- Price feed (multi-source with fallback chain) ---
 const PRICE_CACHE = { btc: { price: 0, ts: 0 }, eth: { price: 0, ts: 0 }, sol: { price: 0, ts: 0 } };
@@ -991,6 +1047,43 @@ app.post('/api/claim', (req, res) => {
     console.error('Claim error:', e.message);
     res.status(500).json({ error: 'Claim failed: ' + e.message });
   }
+});
+
+// Claim achievement/quest BPUSD reward
+app.post('/api/reward/claim', (req, res) => {
+  const { address, rewardId, rewardType, amount } = req.body;
+  if (!address || !rewardId || !rewardType || !amount) return res.status(400).json({ error: 'address, rewardId, rewardType, amount required' });
+  if (!address.startsWith('opt1') || address.length < 20) return res.status(400).json({ error: 'invalid address' });
+  if (typeof amount !== 'number' || amount <= 0 || amount > 1000) return res.status(400).json({ error: 'invalid amount (1-1000)' });
+
+  // Check if already claimed
+  const existing = db.prepare('SELECT id FROM reward_claims WHERE address = ? AND reward_id = ?').get(address, rewardId);
+  if (existing) return res.status(400).json({ error: 'reward already claimed' });
+
+  // Ensure user exists
+  const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+
+  try {
+    const txn = db.transaction(() => {
+      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount) VALUES (?, ?, ?, ?)').run(address, rewardId, rewardType, amount);
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amount, address);
+    });
+    txn();
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    res.json({ success: true, amount, newBalance });
+  } catch (e) {
+    console.error('Reward claim error:', e.message);
+    res.status(500).json({ error: 'Claim failed: ' + e.message });
+  }
+});
+
+// Get claimed rewards for a user
+app.get('/api/reward/claimed/:address', (req, res) => {
+  const { address } = req.params;
+  if (!address || !address.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
+  const claims = db.prepare('SELECT reward_id, reward_type, amount, claimed_at FROM reward_claims WHERE address = ?').all(address);
+  res.json(claims);
 });
 
 // Get prices

@@ -50,6 +50,7 @@ function App() {
     if (!wallet.connected || !wallet.address) return;
     achievements.onWalletConnected();
 
+    achievements.syncClaimedRewards(wallet.address);
     const loadBets = () => {
       api.authUser(wallet.address).then((u) => setPredBalance(u.balance)).catch(() => {});
       api.getUserBets(wallet.address).then((serverBets) => {
@@ -328,6 +329,11 @@ function App() {
             level={achievements.level}
             xpToNext={achievements.xpToNext}
             onFaucetVisited={achievements.onFaucetVisited}
+            walletAddress={wallet.address}
+            onClaimReward={async (rewardId, rewardType, amount) => {
+              const result = await achievements.claimReward(wallet.address, rewardId, rewardType, amount);
+              setPredBalance(result.newBalance);
+            }}
           />
         )}
       </main>

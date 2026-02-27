@@ -324,7 +324,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         </span>
                       </div>
                       {(bet.status === 'won' || bet.status === 'claimable') && (bet.payout ?? 0) > 0 && (
-                        <span className="text-[10px] font-bold text-green-400">+{(bet.payout ?? 0).toLocaleString()}</span>
+                        <span className="text-[10px] font-bold text-green-400">+{(bet.payout ?? 0).toLocaleString()} BPUSD</span>
                       )}
                       {bet.status === 'claimable' && (bet.payout ?? 0) > 0 && (
                         <button
@@ -335,6 +335,11 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                           {claimingBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
                           {claimingBetId === bet.id ? 'Claiming...' : 'Claim'}
                         </button>
+                      )}
+                      {bet.status === 'won' && (bet.payout ?? 0) > 0 && (
+                        <span className="text-[9px] text-green-500 font-bold flex items-center gap-0.5">
+                          <CheckCircle2 size={9} /> Claimed
+                        </span>
                       )}
                     </div>
                   </div>
