@@ -21,7 +21,10 @@ let opnetNetwork = null;
 
 const PRED_TOKEN = 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph';
 const PRED_DECIMALS = 8;
-const INCREASE_ALLOWANCE_SELECTOR = 0x395093510;
+const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
+
+// Contract pubkey hex (32 bytes) — resolved via getCode RPC on startup
+let PRED_CONTRACT_PUBKEY = '';
 
 let txLock = false;
 
@@ -48,6 +51,26 @@ async function initDeployerWallet() {
     const utxos = await opnetProvider.fetchUTXO({ address: wallet.p2tr, minAmount: 1000n, requestedAmount: 10000n }).catch(() => []);
     const totalSats = utxos.reduce((a, u) => a + u.value, 0n);
     console.log('Deployer BTC balance:', totalSats.toString(), 'sats', `(${utxos.length} UTXOs)`);
+
+    // Resolve PRED token contract pubkey (32-byte hex) via getCode RPC
+    try {
+      const codeRes = await fetch('https://testnet.opnet.org/api/v1/json-rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getCode', params: [PRED_TOKEN, false], id: 1 }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const codeData = await codeRes.json();
+      if (codeData.result && codeData.result.contractPublicKey) {
+        // contractPublicKey is base64 — decode to hex
+        PRED_CONTRACT_PUBKEY = Buffer.from(codeData.result.contractPublicKey, 'base64').toString('hex');
+        console.log('PRED contract pubkey resolved:', PRED_CONTRACT_PUBKEY);
+      } else {
+        console.log('Could not resolve PRED contract pubkey:', JSON.stringify(codeData.error || {}));
+      }
+    } catch (e2) {
+      console.log('PRED pubkey resolution failed:', e2.message);
+    }
   } catch (e) {
     console.error('Failed to init deployer wallet:', e.message);
   }
@@ -81,10 +104,13 @@ async function getChallenge() {
 }
 
 // Create real on-chain proof TX using increaseAllowance on PRED token.
-// This creates a verifiable TX on opscan.org without needing token balance.
+// contract param = 32-byte hex pubkey (resolved via getCode RPC on startup).
 async function createOnChainProof(amount, memo) {
   if (!deployerWallet || !opnetProvider || !opnetFactory) {
     return { success: false, error: 'Deployer wallet not initialized' };
+  }
+  if (!PRED_CONTRACT_PUBKEY) {
+    return { success: false, error: 'PRED contract pubkey not resolved' };
   }
   if (txLock) {
     return { success: false, error: 'Server busy, try again in a few seconds' };
@@ -94,6 +120,8 @@ async function createOnChainProof(amount, memo) {
     const { BinaryWriter } = await import('@btc-vision/transaction');
 
     const rawAmount = BigInt(amount) * (10n ** BigInt(PRED_DECIMALS));
+    // Use wallet's Address object for writeAddress
+    const spenderAddr = deployerWallet.address;
 
     const challenge = await getChallenge();
     const utxos = await opnetProvider.fetchUTXO({
@@ -103,10 +131,10 @@ async function createOnChainProof(amount, memo) {
     });
     if (!utxos || utxos.length === 0) throw new Error('No UTXOs — fund deployer wallet');
 
-    // increaseAllowance(spender, amount) — real on-chain interaction
+    // increaseAllowance(spender, amount) — real on-chain contract interaction
     const writer = new BinaryWriter();
     writer.writeSelector(INCREASE_ALLOWANCE_SELECTOR);
-    writer.writeAddress(deployerWallet.p2tr); // spender = self (proof only)
+    writer.writeAddress(spenderAddr);
     writer.writeU256(rawAmount);
 
     const result = await opnetFactory.signInteraction({
@@ -116,7 +144,7 @@ async function createOnChainProof(amount, memo) {
       utxos,
       from: deployerWallet.p2tr,
       to: PRED_TOKEN,
-      contract: PRED_TOKEN,
+      contract: PRED_CONTRACT_PUBKEY, // 32-byte hex pubkey (NOT bech32)
       calldata: writer.getBuffer(),
       feeRate: 2,
       priorityFee: 1000n,
@@ -127,16 +155,16 @@ async function createOnChainProof(amount, memo) {
     });
 
     // Broadcast funding tx, then interaction tx
-    const b1 = await opnetProvider.broadcastTransaction(result.transaction[0], false);
+    const b1 = await opnetProvider.broadcastTransaction(result.fundingTransaction, false);
     console.log(`[${memo}] Funding TX:`, JSON.stringify(b1));
     await new Promise(r => setTimeout(r, 2000));
-    const b2 = await opnetProvider.broadcastTransaction(result.transaction[1], false);
-    console.log(`[${memo}] Proof TX:`, JSON.stringify(b2));
+    const b2 = await opnetProvider.broadcastTransaction(result.interactionTransaction, false);
+    console.log(`[${memo}] Interaction TX:`, JSON.stringify(b2));
 
     const txHash = b2?.result || '';
     return { success: true, txHash };
   } catch (e) {
-    console.error(`On-chain proof error [${memo}]:`, e.message);
+    console.error(`On-chain proof error [${memo}]:`, e.message, '\nStack:', e.stack);
     return { success: false, error: e.message };
   } finally {
     txLock = false;
