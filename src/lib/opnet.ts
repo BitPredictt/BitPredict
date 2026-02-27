@@ -21,7 +21,9 @@ export const OPNET_CONFIG = {
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
   contractAddress: 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj', // Deployed PredictionMarket
-  predTokenAddress: 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph', // $PRED OP-20 Token
+  pusdTokenAddress: 'opt1sqrtqma0n885v8z50df9ve6pv8ukkfwwgugfx42sp', // $PUSD MintableToken
+  pusdDecimals: 8,
+  pusdMaxMintPerTx: 10_000_000, // 10M PUSD per mint TX
 };
 
 // Official OP_NET SDK usage:
@@ -306,7 +308,7 @@ export async function getPredBalanceOnChain(
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const token = getContract(
-      OPNET_CONFIG.predTokenAddress,
+      OPNET_CONFIG.pusdTokenAddress,
       OP_20_ABI,
       provider as never,
       network as never,
@@ -334,7 +336,7 @@ export async function approvePredSpending(
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const token = getContract(
-      OPNET_CONFIG.predTokenAddress,
+      OPNET_CONFIG.pusdTokenAddress,
       OP_20_ABI,
       provider as never,
       network as never,
@@ -370,18 +372,54 @@ export async function approvePredSpending(
 }
 
 /**
- * Faucet claim is SERVER-SIDE ONLY.
- * mint() is deployer-only on OP-20 — users cannot call it.
- * Server credits balance in DB. No on-chain TX from user wallet.
+ * Public mint PUSD tokens — user calls MintableToken.publicMint(amount) directly.
+ * User signs with OP_WALLET and pays gas. No server needed.
+ * Max 10M PUSD per TX. Contract enforces supply cap.
  */
-export async function claimPredOnChain(
-  _provider: unknown,
-  _network: unknown,
-  _senderAddr: unknown,
-  _amount: bigint = 500n,
+export async function mintPusd(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown, // Address object from walletconnect
+  amount: number = 500,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  // mint() restricted to deployer — faucet handled server-side via API
-  return { txHash: '', success: true };
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
+
+    const PUSD_ABI = [
+      {
+        name: 'publicMint',
+        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+      },
+    ];
+
+    const contract = getContract(
+      OPNET_CONFIG.pusdTokenAddress,
+      PUSD_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const rawAmount = BigInt(amount) * (10n ** BigInt(OPNET_CONFIG.pusdDecimals));
+
+    const sim = await (contract as any).publicMint(rawAmount);
+    if (sim?.revert) return { txHash: '', success: false, error: `Mint revert: ${sim.revert}` };
+
+    const receipt = await sim.sendTransaction({
+      signer: null,        // OP_WALLET signs
+      mldsaSigner: null,   // OP_WALLET signs
+      refundTo: senderAddr,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+    });
+
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**
@@ -491,12 +529,12 @@ export async function claimPayoutOnChain(
  * Generate a transaction explorer URL
  */
 export function getExplorerTxUrl(txHash: string): string {
-  return `${OPNET_CONFIG.explorerUrl}/tx/${txHash}`;
+  return `${OPNET_CONFIG.explorerUrl}/transactions/${txHash}?network=op_testnet`;
 }
 
 /**
  * Generate an address explorer URL
  */
 export function getExplorerAddressUrl(address: string): string {
-  return `${OPNET_CONFIG.explorerUrl}/address/${address}`;
+  return `${OPNET_CONFIG.explorerUrl}/accounts/${address}?network=op_testnet`;
 }

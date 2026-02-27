@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Droplets, Loader2 } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl } from '../lib/opnet';
+import { getExplorerTxUrl, mintPusd, OPNET_CONFIG } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -21,19 +21,34 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
   const [claiming, setClaiming] = useState(false);
   const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
 
+  const MINT_AMOUNT = 500; // PUSD per claim
+
   const handleClaimFaucet = async () => {
     if (claiming || !walletAddress) return;
     setClaiming(true);
     setClaimMsg(null);
     try {
-      setClaimMsg({ text: 'Claiming PUSD from faucet...', type: 'success' });
-      const result = await api.claimFaucet(walletAddress) as any;
-      onBalanceUpdate(result.newBalance);
+      setClaimMsg({ text: 'Sign the mint transaction in your wallet...', type: 'success' });
 
-      const msg = result.txHash
-        ? `✅ +${result.claimed} PUSD on-chain!`
-        : `✅ +${result.claimed} PUSD credited! Balance: ${result.newBalance.toLocaleString()}`;
-      setClaimMsg({ text: msg, type: 'success', txHash: result.txHash || undefined });
+      // User mints directly from PUSD contract — no server needed
+      const result = await mintPusd(walletProvider, walletNetwork, walletAddressObj, MINT_AMOUNT);
+
+      if (!result.success) {
+        setClaimMsg({ text: result.error || 'Mint failed', type: 'error' });
+        return;
+      }
+
+      // Also notify server to track DB balance
+      try {
+        const serverResult = await api.claimFaucet(walletAddress) as any;
+        if (serverResult?.newBalance) onBalanceUpdate(serverResult.newBalance);
+      } catch { /* server tracking is best-effort */ }
+
+      setClaimMsg({
+        text: `✅ Minted ${MINT_AMOUNT} PUSD on-chain!`,
+        type: 'success',
+        txHash: result.txHash || undefined,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setClaimMsg({ text: msg, type: 'error' });

@@ -46,6 +46,12 @@ server/*.db
 server/*.db-wal
 server/*.db-shm
 
+# Deploy scripts (contains node_modules, wasm, etc)
+deploy/node_modules
+deploy/*.json
+!deploy/package.json
+deploy/.env
+
 # Build artifacts
 dist.tar.gz
 *.tar.gz
