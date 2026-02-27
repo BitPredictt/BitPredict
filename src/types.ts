@@ -7,8 +7,9 @@ export interface Market {
   volume: number;
   liquidity: number;
   endDate: string;
+  endTime?: number;
   resolved: boolean;
-  outcome?: 'yes' | 'no';
+  outcome?: 'yes' | 'no' | string | null;
   imageUrl?: string;
   tags: string[];
 }

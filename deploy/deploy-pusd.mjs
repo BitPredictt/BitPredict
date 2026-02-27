@@ -7,7 +7,7 @@
  */
 import {
     Mnemonic, TransactionFactory, ChallengeSolution,
-    OPNetLimitedProvider, BinaryWriter, MLDSASecurityLevel, AddressTypes,
+    OPNetLimitedProvider, BinaryWriter,
 } from './node_modules/@btc-vision/transaction/build/index.js';
 import { networks } from './node_modules/@btc-vision/bitcoin/build/index.js';
 import { readFileSync, writeFileSync } from 'fs';
@@ -22,8 +22,8 @@ if (!phrase) { console.error('❌ Set OPNET_MNEMONIC env var'); process.exit(1);
 
 // ── 1. Derive wallet ─────────────────────────────────────────────────────────
 const network = { ...networks.testnet, bech32: networks.testnet.bech32Opnet };
-const mnemonic = new Mnemonic(phrase, '', network, MLDSASecurityLevel.LEVEL2);
-const wallet = mnemonic.deriveUnisat(AddressTypes.P2TR, 0);
+const mnemonic = new Mnemonic(phrase, '', network);
+const wallet = mnemonic.deriveOPWallet(undefined, 0);
 console.log('✅ Wallet:', wallet.p2tr);
 
 // ── 2. Provider ───────────────────────────────────────────────────────────────

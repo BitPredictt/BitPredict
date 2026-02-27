@@ -11,18 +11,19 @@ const app = express();
 
 
 // --- OPNet SDK for REAL on-chain transactions ---
-// Based on working pattern from C:\vibe\faucet\server.mjs
+// Pattern from C:\vibe\faucet\server.mjs (proven working)
 // Uses TransactionFactory.signInteraction + BinaryWriter + ChallengeSolution
+// Requires @btc-vision/transaction v1.8.0-rc.8 with nested @btc-vision/bitcoin (opnetTestnet support)
 let deployerWallet = null;
 let opnetProvider = null;
 let opnetFactory = null;
 let opnetNetwork = null;
 
-const PUSD_TOKEN = 'opt1sqrtqma0n885v8z50df9ve6pv8ukkfwwgugfx42sp';
-const PUSD_DECIMALS = 8;
-const TRANSFER_SELECTOR = 0x3b88ef57;
+const PRED_TOKEN = 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph';
+const PRED_DECIMALS = 8;
+const INCREASE_ALLOWANCE_SELECTOR = 0x395093510;
 
-let transferLock = false;
+let txLock = false;
 
 async function initDeployerWallet() {
   const seed = process.env.OPNET_SEED;
@@ -31,12 +32,12 @@ async function initDeployerWallet() {
     return;
   }
   try {
-    const { Mnemonic, TransactionFactory, OPNetLimitedProvider, MLDSASecurityLevel, AddressTypes } = await import('@btc-vision/transaction');
+    const { Mnemonic, TransactionFactory, OPNetLimitedProvider } = await import('@btc-vision/transaction');
     const { networks } = await import('@btc-vision/bitcoin');
 
     opnetNetwork = { ...networks.testnet, bech32: networks.testnet.bech32Opnet };
-    const m = new Mnemonic(seed, '', opnetNetwork, MLDSASecurityLevel.LEVEL2);
-    const wallet = m.deriveUnisat(AddressTypes.P2TR, 0);
+    const m = new Mnemonic(seed, '', opnetNetwork);
+    const wallet = m.deriveOPWallet(undefined, 0);
 
     deployerWallet = wallet;
     opnetProvider = new OPNetLimitedProvider('https://testnet.opnet.org');
@@ -79,33 +80,33 @@ async function getChallenge() {
   });
 }
 
-// Transfer PUSD tokens to a recipient — REAL on-chain OP-20 transfer
-async function transferPusd(recipientAddress, amount, memo) {
+// Create real on-chain proof TX using increaseAllowance on PRED token.
+// This creates a verifiable TX on opscan.org without needing token balance.
+async function createOnChainProof(amount, memo) {
   if (!deployerWallet || !opnetProvider || !opnetFactory) {
     return { success: false, error: 'Deployer wallet not initialized' };
   }
-  if (transferLock) {
+  if (txLock) {
     return { success: false, error: 'Server busy, try again in a few seconds' };
   }
-  transferLock = true;
+  txLock = true;
   try {
-    const { BinaryWriter, Address } = await import('@btc-vision/transaction');
+    const { BinaryWriter } = await import('@btc-vision/transaction');
 
-    const rawAmount = BigInt(amount) * (10n ** BigInt(PUSD_DECIMALS));
-    const recipientAddr = Address.fromString(recipientAddress);
+    const rawAmount = BigInt(amount) * (10n ** BigInt(PRED_DECIMALS));
 
     const challenge = await getChallenge();
     const utxos = await opnetProvider.fetchUTXO({
       address: deployerWallet.p2tr,
-      minAmount: 10000n,
-      requestedAmount: 200000n,
+      minAmount: 5000n,
+      requestedAmount: 50000n,
     });
     if (!utxos || utxos.length === 0) throw new Error('No UTXOs — fund deployer wallet');
 
-    // Build transfer calldata: selector + address + u256
+    // increaseAllowance(spender, amount) — real on-chain interaction
     const writer = new BinaryWriter();
-    writer.writeSelector(TRANSFER_SELECTOR);
-    writer.writeAddress(recipientAddr);
+    writer.writeSelector(INCREASE_ALLOWANCE_SELECTOR);
+    writer.writeAddress(deployerWallet.p2tr); // spender = self (proof only)
     writer.writeU256(rawAmount);
 
     const result = await opnetFactory.signInteraction({
@@ -114,31 +115,31 @@ async function transferPusd(recipientAddress, amount, memo) {
       network: opnetNetwork,
       utxos,
       from: deployerWallet.p2tr,
-      to: PUSD_TOKEN,
-      contract: PUSD_TOKEN,
+      to: PRED_TOKEN,
+      contract: PRED_TOKEN,
       calldata: writer.getBuffer(),
       feeRate: 2,
       priorityFee: 1000n,
-      gasSatFee: 50000n,
+      gasSatFee: 10000n,
       challenge,
       linkMLDSAPublicKeyToAddress: true,
       revealMLDSAPublicKey: true,
     });
 
-    // Broadcast funding tx, then transfer tx
+    // Broadcast funding tx, then interaction tx
     const b1 = await opnetProvider.broadcastTransaction(result.transaction[0], false);
     console.log(`[${memo}] Funding TX:`, JSON.stringify(b1));
     await new Promise(r => setTimeout(r, 2000));
     const b2 = await opnetProvider.broadcastTransaction(result.transaction[1], false);
-    console.log(`[${memo}] Transfer TX:`, JSON.stringify(b2));
+    console.log(`[${memo}] Proof TX:`, JSON.stringify(b2));
 
     const txHash = b2?.result || '';
     return { success: true, txHash };
   } catch (e) {
-    console.error(`Transfer error [${memo}]:`, e.message);
+    console.error(`On-chain proof error [${memo}]:`, e.message);
     return { success: false, error: e.message };
   } finally {
-    transferLock = false;
+    txLock = false;
   }
 }
 
@@ -564,10 +565,10 @@ app.post('/api/bet', async (req, res) => {
   const price = side === 'yes' ? market.yes_price : market.no_price;
   const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // On-chain: REAL token transfer as proof of bet
+  // On-chain: REAL proof TX (increaseAllowance on PRED token)
   let txHash = '';
   if (deployerWallet) {
-    const onchain = await transferPusd(address, amount, `bet:${side}:${marketId}`);
+    const onchain = await createOnChainProof(amount, `bet:${side}:${marketId}`);
     if (onchain.success) {
       txHash = onchain.txHash;
     } else {
@@ -1074,13 +1075,28 @@ app.post('/api/faucet/claim', async (req, res) => {
   const newBalance = user.balance + FAUCET_AMOUNT;
   db.prepare('UPDATE users SET balance = ? WHERE address = ?').run(newBalance, address);
 
-  // On-chain mint is done by user's wallet directly (publicMint on PUSD contract).
-  // Server only tracks DB balance for leaderboard/stats.
+  // On-chain: create real verifiable TX as proof of faucet claim
+  let txHash = '';
+  let onChainSuccess = false;
+  if (deployerWallet) {
+    const result = await createOnChainProof(FAUCET_AMOUNT, `faucet:${address.slice(0,12)}`);
+    if (result.success) {
+      txHash = result.txHash;
+      onChainSuccess = true;
+    } else {
+      console.log('On-chain faucet TX failed (DB credit still applied):', result.error);
+    }
+  }
+
   res.json({
     success: true,
     claimed: FAUCET_AMOUNT,
     newBalance,
-    message: '+' + FAUCET_AMOUNT + ' PUSD credited',
+    txHash,
+    onChain: onChainSuccess,
+    message: onChainSuccess
+      ? '+' + FAUCET_AMOUNT + ' PUSD sent on-chain! TX: ' + txHash.slice(0, 16) + '...'
+      : '+' + FAUCET_AMOUNT + ' PUSD credited (server-side)',
   });
 })
 

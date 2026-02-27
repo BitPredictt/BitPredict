@@ -21,15 +21,15 @@ export const OPNET_CONFIG = {
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
   contractAddress: 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj', // Deployed PredictionMarket
-  pusdTokenAddress: 'opt1sqrtqma0n885v8z50df9ve6pv8ukkfwwgugfx42sp', // $PUSD MintableToken
-  pusdDecimals: 8,
-  pusdMaxMintPerTx: 10_000_000, // 10M PUSD per mint TX
+  tokenAddress: 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph', // $PRED OP-20 Token (on-chain)
+  tokenDecimals: 8,
+  tokenSymbol: 'PUSD',
 };
 
-// Official OP_NET SDK usage:
+// SDK pattern (from vibe): use networks.testnet + JSONRpcProvider with full RPC path
 // import { JSONRpcProvider, getContract, OP_20_ABI } from 'opnet';
 // import { networks } from '@btc-vision/bitcoin';
-// const provider = new JSONRpcProvider(OPNET_CONFIG.rpcUrl, networks.opnetTestnet);
+// const provider = new JSONRpcProvider('https://testnet.opnet.org/api/v1/json-rpc', networks.testnet);
 
 // Contract method selectors (SHA256 first 4 bytes — OPNet uses SHA256, NOT keccak256)
 export const CONTRACT_METHODS = {
@@ -308,7 +308,7 @@ export async function getPredBalanceOnChain(
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const token = getContract(
-      OPNET_CONFIG.pusdTokenAddress,
+      OPNET_CONFIG.tokenAddress,
       OP_20_ABI,
       provider as never,
       network as never,
@@ -336,7 +336,7 @@ export async function approvePredSpending(
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const token = getContract(
-      OPNET_CONFIG.pusdTokenAddress,
+      OPNET_CONFIG.tokenAddress,
       OP_20_ABI,
       provider as never,
       network as never,
@@ -346,7 +346,7 @@ export async function approvePredSpending(
     // OP-20 uses increaseAllowance(), NOT approve() (Bob: ATK-05)
     // Get spender Address via getContract().contractAddress (NOT getPublicKeyInfo — fails for contracts)
     const { ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
-    const MARKET_ABI_STUB = [{ name: 'version', inputs: [], outputs: [{ name: 'v', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function, constant: true }];
+    const MARKET_ABI_STUB = [{ name: 'version', inputs: [], outputs: [{ name: 'v', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function, constant: true }] as any;
     const marketContract = getContract(
       OPNET_CONFIG.contractAddress,
       MARKET_ABI_STUB,
@@ -372,55 +372,10 @@ export async function approvePredSpending(
 }
 
 /**
- * Public mint PUSD tokens — user calls MintableToken.publicMint(amount) directly.
- * User signs with OP_WALLET and pays gas. No server needed.
- * Max 10M PUSD per TX. Contract enforces supply cap.
+ * Faucet claim — server-side on-chain proof (increaseAllowance on PRED token).
+ * Creates a real verifiable TX on opscan.org. Server also credits DB balance.
+ * PRED is a standard OP-20 without publicMint, so server's deployer wallet signs.
  */
-export async function mintPusd(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown, // Address object from walletconnect
-  amount: number = 500,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { getContract, ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
-
-    const PUSD_ABI = [
-      {
-        name: 'publicMint',
-        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
-        outputs: [],
-        type: BitcoinAbiTypes.Function,
-      },
-    ];
-
-    const contract = getContract(
-      OPNET_CONFIG.pusdTokenAddress,
-      PUSD_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const rawAmount = BigInt(amount) * (10n ** BigInt(OPNET_CONFIG.pusdDecimals));
-
-    const sim = await (contract as any).publicMint(rawAmount);
-    if (sim?.revert) return { txHash: '', success: false, error: `Mint revert: ${sim.revert}` };
-
-    const receipt = await sim.sendTransaction({
-      signer: null,        // OP_WALLET signs
-      mldsaSigner: null,   // OP_WALLET signs
-      refundTo: senderAddr,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-    });
-
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
 
 /**
  * Submit a prediction bet on-chain: approve PRED → buyShares on PredictionMarket.
@@ -449,7 +404,7 @@ export async function submitBetTransaction(
     const { ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
     const MARKET_ABI = [
       { name: 'buyShares', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'shares', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-    ];
+    ] as any;
     const contract = getContract(
       OPNET_CONFIG.contractAddress,
       MARKET_ABI,
@@ -496,7 +451,7 @@ export async function claimPayoutOnChain(
     const { getContract, ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
     const MARKET_ABI = [
       { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-    ];
+    ] as any;
     const contract = getContract(
       OPNET_CONFIG.contractAddress,
       MARKET_ABI,

@@ -81,6 +81,7 @@ export interface PlaceBetResult {
   newBalance: number;
   newYesPrice: number;
   newNoPrice: number;
+  txHash?: string;
 }
 
 export async function placeBet(address: string, marketId: string, side: 'yes' | 'no', amount: number) {

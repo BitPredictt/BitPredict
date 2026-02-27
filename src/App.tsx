@@ -146,7 +146,7 @@ function App() {
       const txMsg = result.txHash
         ? `✅ Bet confirmed on-chain!`
         : `✅ Bet placed: ${result.shares} shares for ${amount} PUSD`;
-      const txLink = result.txHash ? `https://opscan.org/tx/${result.txHash}` : undefined;
+      const txLink = result.txHash ? `https://opscan.org/transactions/${result.txHash}?network=op_testnet` : undefined;
       setToast({ message: txMsg, type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
