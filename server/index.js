@@ -732,23 +732,27 @@ app.get('/api/markets', (req, res) => {
   const markets = db.prepare(`SELECT * FROM markets 
     WHERE NOT (market_type = 'price_5min' AND resolved = 1 AND end_time < ?)
     ORDER BY volume DESC, end_time ASC`).all(cutoff);
-  const mapped = markets.map(m => ({
-    id: m.id,
-    question: m.question,
-    category: m.category,
-    yesPrice: m.yes_price,
-    noPrice: m.no_price,
-    volume: m.volume,
-    liquidity: m.liquidity,
-    endDate: new Date(m.end_time * 1000).toISOString().split('T')[0],
-    endTime: m.end_time,
-    resolved: !!m.resolved,
-    outcome: m.outcome,
-    tags: JSON.parse(m.tags || '[]'),
-    marketType: m.market_type,
-    yesPool: m.yes_pool,
-    noPool: m.no_pool,
-  }));
+  const mapped = markets.map(m => {
+    let tags = [];
+    try { tags = JSON.parse(m.tags || '[]'); } catch(e) { tags = []; }
+    return {
+      id: m.id,
+      question: m.question,
+      category: m.category,
+      yesPrice: m.yes_price,
+      noPrice: m.no_price,
+      volume: m.volume,
+      liquidity: m.liquidity,
+      endDate: new Date(m.end_time * 1000).toISOString().split('T')[0],
+      endTime: m.end_time,
+      resolved: !!m.resolved,
+      outcome: m.outcome,
+      tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string') : [],
+      marketType: m.market_type,
+      yesPool: m.yes_pool,
+      noPool: m.no_pool,
+    };
+  });
   res.json(mapped);
 });
 
@@ -781,14 +785,15 @@ app.post('/api/bet', async (req, res) => {
   if (side !== 'yes' && side !== 'no') {
     return res.status(400).json({ error: 'side must be yes or no' });
   }
-  if (amount < 100) {
+  const amountInt = Math.floor(Number(amount));
+  if (!Number.isFinite(amountInt) || amountInt < 100) {
     return res.status(400).json({ error: 'minimum bet is 100 BPUSD' });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  if (user.balance < amount) {
-    return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD (need ${amount})` });
+  if (user.balance < amountInt) {
+    return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD (need ${amountInt})` });
   }
 
   const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
@@ -799,8 +804,8 @@ app.post('/api/bet', async (req, res) => {
   if (market.end_time <= now) return res.status(400).json({ error: 'market has ended' });
 
   // AMM: constant product
-  const fee = Math.ceil(amount * 0.02); // 2% fee
-  const netAmount = amount - fee;
+  const fee = Math.ceil(amountInt * 0.02); // 2% fee
+  const netAmount = amountInt - fee;
   const yesPool = market.yes_pool;
   const noPool = market.no_pool;
   const k = yesPool * noPool;
@@ -827,13 +832,13 @@ app.post('/api/bet', async (req, res) => {
 
   // Execute in DB transaction
   const txn = db.transaction(() => {
-    db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amount, address);
+    db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amountInt, address);
     db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      betId, address, marketId, side, amount, price, shares, txHash
+      betId, address, marketId, side, amountInt, price, shares, txHash
     );
     const prices = recalcPrices(newYesPool, newNoPool);
     db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
-      newYesPool, newNoPool, prices.yes_price, prices.no_price, amount, newYesPool + newNoPool, marketId
+      newYesPool, newNoPool, prices.yes_price, prices.no_price, amountInt, newYesPool + newNoPool, marketId
     );
   });
 
@@ -916,7 +921,8 @@ app.post('/api/claim', (req, res) => {
 app.get('/api/prices', async (req, res) => {
   const btc = await fetchPrice('btc');
   const eth = await fetchPrice('eth');
-  res.json({ btc, eth, ts: Date.now() });
+  const sol = await fetchPrice('sol');
+  res.json({ btc, eth, sol, ts: Date.now() });
 });
 
 // Leaderboard
@@ -957,13 +963,17 @@ app.post('/api/bet/onchain', (req, res) => {
   if (!address || !marketId || !side || !amount || !txHash) {
     return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
   }
+  if (typeof address !== 'string' || !address.startsWith('opt1') || address.length > 120) {
+    return res.status(400).json({ error: 'Invalid address: must be an OPNet testnet address (opt1...)' });
+  }
   if (side !== 'yes' && side !== 'no') return res.status(400).json({ error: 'side must be yes or no' });
-  if (amount < 100) return res.status(400).json({ error: 'minimum bet is 100 BPUSD' });
+  const onchainAmt = Math.floor(Number(amount));
+  if (!Number.isFinite(onchainAmt) || onchainAmt < 100) return res.status(400).json({ error: 'minimum bet is 100 BPUSD' });
 
   try {
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (!user) return res.status(404).json({ error: 'user not found' });
-    if (user.balance < amount) return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD` });
+    if (user.balance < onchainAmt) return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD` });
 
     const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
     if (!market) return res.status(404).json({ error: 'market not found' });
@@ -973,8 +983,8 @@ app.post('/api/bet/onchain', (req, res) => {
     if (market.end_time <= now) return res.status(400).json({ error: 'market has ended' });
 
     // AMM: constant product
-    const fee = Math.ceil(amount * 0.02);
-    const netAmount = amount - fee;
+    const fee = Math.ceil(onchainAmt * 0.02);
+    const netAmount = onchainAmt - fee;
     const yesPool = market.yes_pool;
     const noPool = market.no_pool;
     const k = yesPool * noPool;
@@ -995,13 +1005,13 @@ app.post('/api/bet/onchain', (req, res) => {
     const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const txn = db.transaction(() => {
-      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amount, address);
+      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(onchainAmt, address);
       db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-        betId, address, marketId, side, amount, price, shares, txHash
+        betId, address, marketId, side, onchainAmt, price, shares, txHash
       );
       const prices = recalcPrices(newYesPool, newNoPool);
       db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
-        newYesPool, newNoPool, prices.yes_price, prices.no_price, amount, newYesPool + newNoPool, marketId
+        newYesPool, newNoPool, prices.yes_price, prices.no_price, onchainAmt, newYesPool + newNoPool, marketId
       );
     });
     txn();
