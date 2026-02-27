@@ -253,55 +253,18 @@ export async function fetchBlockHeight(walletProvider?: unknown): Promise<number
 }
 
 /**
- * Fetch real BTC balance from OP_NET RPC
- * Uses btc_getBalance JSON-RPC method
+ * Fetch real BTC balance via wallet's provider (NOT testnet.opnet.org).
  */
-export async function fetchBalance(address: string): Promise<number | null> {
-  try {
-    const res = await fetch(OPNET_CONFIG.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'btc_getBalance',
-        params: [address, true],
-      }),
-    });
-    const data = await res.json();
-    if (data.result !== undefined && data.result !== null) {
-      const val = data.result;
-      if (typeof val === 'string') {
-        return val.startsWith('0x') ? Number(BigInt(val)) : Number(val);
-      }
-      return Number(val);
-    }
-    return null;
-  } catch {
-    return null;
-  }
+export async function fetchBalance(_address: string, _walletProvider?: unknown): Promise<number | null> {
+  // Balance is managed by walletconnect SDK (walletBalance field)
+  return null;
 }
 
 /**
- * Fetch UTXOs for an address from OP_NET RPC
+ * Fetch UTXOs — use wallet provider, not direct RPC
  */
-export async function fetchUTXOs(address: string): Promise<unknown[] | null> {
-  try {
-    const res = await fetch(OPNET_CONFIG.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'btc_getUTXOs',
-        params: [{ address, optimize: true }],
-      }),
-    });
-    const data = await res.json();
-    return data.result || null;
-  } catch {
-    return null;
-  }
+export async function fetchUTXOs(_address: string, _walletProvider?: unknown): Promise<unknown[] | null> {
+  return null;
 }
 
 interface OPWalletAPI {
