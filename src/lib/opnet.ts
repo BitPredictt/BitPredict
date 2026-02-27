@@ -321,52 +321,69 @@ export async function getPredBalanceOnChain(
 }
 
 /**
- * Approve PredictionMarket contract to spend MINE tokens on-chain.
- * senderAddr must be Address object from useWalletConnect().address
+ * Sign a bet proof TX — user signs increaseAllowance on BPUSD token.
+ * This creates a real on-chain TX that proves the user authorized the bet.
+ * User pays gas from their own BTC UTXOs.
  */
-export async function approvePredSpending(
+export async function signBetProof(
   provider: unknown,
   network: unknown,
   senderAddr: unknown,  // Address object from walletconnect
+  walletAddress: string,
   amount: bigint,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
+    const { Address } = await import('@btc-vision/transaction');
     const token = getContract(
       OPNET_CONFIG.tokenAddress,
       OP_20_ABI,
       provider as never,
       network as never,
-      senderAddr as never, // Address object
+      senderAddr as never,
     );
 
-    // OP-20 uses increaseAllowance(), NOT approve() (Bob: ATK-05)
-    // Get spender Address via getContract().contractAddress (NOT getPublicKeyInfo — fails for contracts)
-    const { ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
-    const MARKET_ABI_STUB = [{ name: 'version', inputs: [], outputs: [{ name: 'v', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function, constant: true }] as any;
-    const marketContract = getContract(
-      OPNET_CONFIG.contractAddress,
-      MARKET_ABI_STUB,
-      provider as never,
-      network as never,
-    );
-    const spenderAddr = await marketContract.contractAddress; // Address object
+    // Approve BPUSD contract itself to spend — creates verifiable on-chain proof
+    const spenderAddr = Address.fromString(OPNET_CONFIG.tokenPubkey) as any;
+    const sim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, amount)) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `Approve revert: ${sim.revert}` };
 
-    const sim = await (token as any).increaseAllowance(spenderAddr, amount);
-    if (sim?.revert) return { txHash: '', success: false, error: `Allowance revert: ${sim.revert}` };
+    const gas = await (provider as any).gasParameters();
+    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
+    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
+    const priorityFeeSats = gas.baseGas / gasPerSat;
+    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
 
     const receipt = await sim.sendTransaction({
       signer: null,
       mldsaSigner: null,
-      refundTo: senderAddr,
-      maximumAllowedSatToSpend: MAX_SATS,
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: 250_000n,
       network,
+      feeRate,
+      priorityFee,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+    let msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
+    return { txHash: '', success: false, error: msg };
   }
+}
+
+/**
+ * Sign a claim proof TX — user signs a small increaseAllowance as proof of wallet ownership.
+ * Used when claiming winnings from resolved markets.
+ */
+export async function signClaimProof(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  // Claim proof = approve 1 unit (minimal) as wallet ownership proof
+  return signBetProof(provider, network, senderAddr, walletAddress, 1n);
 }
 
 /** Retry wrapper for flaky RPC simulations (matches vibe pattern) */
@@ -460,8 +477,8 @@ export async function submitBetTransaction(
   try {
     const { getContract } = await import('opnet');
 
-    // Step 1: Approve PRED spending
-    const approveResult = await approvePredSpending(provider, network, senderAddr, BigInt(amountSats));
+    // Step 1: Approve BPUSD spending (user signs via OP_WALLET)
+    const approveResult = await signBetProof(provider, network, senderAddr, '', BigInt(amountSats));
     if (!approveResult.success) {
       return { txHash: '', success: false, error: approveResult.error || 'Approve failed' };
     }

@@ -236,8 +236,10 @@ db.exec(`
     amount INTEGER NOT NULL,
     price REAL NOT NULL,
     shares INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','won','lost','cancelled')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','won','lost','cancelled','claimable')),
     payout INTEGER NOT NULL DEFAULT 0,
+    tx_hash TEXT DEFAULT '',
+    claim_tx_hash TEXT DEFAULT '',
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     FOREIGN KEY (user_address) REFERENCES users(address),
     FOREIGN KEY (market_id) REFERENCES markets(id)
@@ -250,6 +252,14 @@ db.exec(`
     timestamp INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
+  -- Migration: add columns if missing
+`);
+
+// Safe migrations for existing DB
+try { db.exec('ALTER TABLE bets ADD COLUMN claim_tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS faucet_claims (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     address TEXT NOT NULL,
@@ -258,8 +268,7 @@ db.exec(`
   );
 `);
 
-// Add tx_hash column to bets if not exists
-try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT'); } catch {}
+// tx_hash column handled in CREATE TABLE + migrations above
 
 // --- Price feed (multi-source with fallback chain) ---
 const PRICE_CACHE = { btc: { price: 0, ts: 0 }, eth: { price: 0, ts: 0 } };
@@ -454,14 +463,12 @@ async function resolveExpiredMarkets() {
         const outcome = currentPrice > src.threshold ? 'yes' : 'no';
         db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
 
-        // Settle bets
+        // Settle bets — mark winners as 'claimable' (user must claim by signing TX)
         const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(m.id, 'active');
         for (const b of bets) {
           if (b.side === outcome) {
-            // Winner: payout = amount / price (full share value)
             const payout = Math.round(b.amount / b.price);
-            db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
-            db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
+            db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
           } else {
             db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
           }
@@ -596,16 +603,9 @@ app.post('/api/bet', async (req, res) => {
   const price = side === 'yes' ? market.yes_price : market.no_price;
   const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // On-chain: REAL proof TX (increaseAllowance on PRED token)
-  let txHash = '';
-  if (deployerWallet) {
-    const onchain = await createOnChainProof(amount, `bet:${side}:${marketId}`);
-    if (onchain.success) {
-      txHash = onchain.txHash;
-    } else {
-      console.log('Bet on-chain TX failed (DB bet still placed):', onchain.error);
-    }
-  }
+  // On-chain proof is now signed by user on frontend
+  // Server just records the bet — no server-side signing needed
+  const txHash = '';
 
   // Execute in DB transaction
   const txn = db.transaction(() => {
@@ -670,17 +670,28 @@ app.get('/api/bets/:address', (req, res) => {
   })));
 });
 
-// Claim payout for resolved bet
+// Claim payout for resolved bet — requires user-signed TX proof
 app.post('/api/claim', (req, res) => {
-  const { address, betId } = req.body;
-  if (!address || !betId) return res.status(400).json({ error: 'address, betId required' });
+  const { address, betId, txHash } = req.body;
+  if (!address || !betId || !txHash) return res.status(400).json({ error: 'address, betId, txHash required' });
 
   const bet = db.prepare('SELECT * FROM bets WHERE id = ? AND user_address = ?').get(betId, address);
   if (!bet) return res.status(404).json({ error: 'bet not found' });
-  if (bet.status !== 'won') return res.status(400).json({ error: 'bet not claimable' });
+  if (bet.status !== 'claimable' && bet.status !== 'won') return res.status(400).json({ error: 'bet not claimable (status: ' + bet.status + ')' });
+  if (bet.payout <= 0) return res.status(400).json({ error: 'no payout to claim' });
 
-  // Already paid out via auto-resolve, just return
-  res.json({ success: true, payout: bet.payout });
+  try {
+    const txn = db.transaction(() => {
+      db.prepare('UPDATE bets SET status = ?, claim_tx_hash = ? WHERE id = ?').run('won', txHash, bet.id);
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(bet.payout, address);
+    });
+    txn();
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    res.json({ success: true, payout: bet.payout, newBalance, txHash });
+  } catch (e) {
+    console.error('Claim error:', e.message);
+    res.status(500).json({ error: 'Claim failed: ' + e.message });
+  }
 });
 
 // Get prices

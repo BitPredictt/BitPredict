@@ -5,6 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
+import { signBetProof } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -36,32 +37,37 @@ function App() {
     if (marketsLoaded.current) return;
     marketsLoaded.current = true;
     api.getMarkets().then(setMarkets).catch((e) => console.error('Failed to load markets:', e));
-    // Refresh every 30s
+    // Refresh every 10s for real-time updates
     const iv = setInterval(() => {
       api.getMarkets().then(setMarkets).catch(() => {});
-    }, 30000);
+    }, 10000);
     return () => clearInterval(iv);
   }, []);
 
-  // Auth user + load balance and bets when wallet connects
+  // Auth user + load balance and bets when wallet connects, auto-refresh every 15s
   useEffect(() => {
     if (!wallet.connected || !wallet.address) return;
     achievements.onWalletConnected();
 
-    api.authUser(wallet.address).then((u) => setPredBalance(u.balance)).catch(() => {});
-    api.getUserBets(wallet.address).then((serverBets) => {
-      setBets(serverBets.map((b) => ({
-        id: b.id,
-        marketId: b.marketId,
-        side: b.side,
-        amount: b.amount,
-        price: b.price,
-        timestamp: b.timestamp,
-        status: b.status === 'cancelled' ? 'lost' as const : b.status,
-        payout: b.payout,
-        shares: b.shares,
-      })));
-    }).catch(() => {});
+    const loadBets = () => {
+      api.authUser(wallet.address).then((u) => setPredBalance(u.balance)).catch(() => {});
+      api.getUserBets(wallet.address).then((serverBets) => {
+        setBets(serverBets.map((b) => ({
+          id: b.id,
+          marketId: b.marketId,
+          side: b.side,
+          amount: b.amount,
+          price: b.price,
+          timestamp: b.timestamp,
+          status: b.status === 'cancelled' ? 'lost' as const : b.status as Bet['status'],
+          payout: b.payout,
+          shares: b.shares,
+        })));
+      }).catch(() => {});
+    };
+    loadBets();
+    const iv = setInterval(loadBets, 15000);
+    return () => clearInterval(iv);
   }, [wallet.connected, wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track leaderboard visits
@@ -111,6 +117,12 @@ function App() {
         break;
     }
 
+    // Always put resolved markets at the bottom
+    list.sort((a, b) => {
+      if (a.resolved !== b.resolved) return a.resolved ? 1 : -1;
+      return 0;
+    });
+
     return list;
   }, [markets, category, search, sortBy]);
 
@@ -118,7 +130,6 @@ function App() {
     const market = markets.find((m) => m.id === marketId);
     if (!market || !wallet.connected) return;
 
-    // Show pending
     const pendingId = `pending-${Date.now()}`;
     const pendingBet: Bet = {
       id: pendingId, marketId, side, amount,
@@ -126,35 +137,40 @@ function App() {
       timestamp: Date.now(), status: 'pending',
     };
     setBets((prev) => [pendingBet, ...prev]);
-    setToast({ message: 'Placing on-chain bet...', type: 'success' });
+    setToast({ message: 'Sign the transaction in OP_WALLET...', type: 'success' });
 
     try {
-      // Server executes on-chain BPUSD transfer + AMM calculation, returns real txHash
-      const result = await api.placeBet(wallet.address, marketId, side, amount);
+      // Step 1: User signs on-chain TX (increaseAllowance as bet proof) — user pays gas
+      const proof = await signBetProof(provider, walletNetwork, addressObj, wallet.address, BigInt(amount));
+      if (!proof.success) {
+        throw new Error(proof.error || 'TX signing failed');
+      }
+
+      setToast({ message: 'TX signed! Recording bet...', type: 'success' });
+
+      // Step 2: Send txHash to server — server records bet + AMM calc
+      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, proof.txHash);
 
       setPredBalance(result.newBalance);
       const confirmedBet: Bet = {
         id: result.betId, marketId, side, amount,
         price: side === 'yes' ? market.yesPrice : market.noPrice,
         timestamp: Date.now(), status: 'active',
-        shares: result.shares, txHash: result.txHash,
+        shares: result.shares, txHash: proof.txHash,
       };
       setBets((prev) => prev.map((b) => b.id === pendingId ? confirmedBet : b));
       setMarkets((prev) => prev.map((m) =>
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
-      const txMsg = result.txHash
-        ? `✅ Bet confirmed on-chain!`
-        : `✅ Bet placed: ${result.shares} shares for ${amount} BPUSD`;
-      const txLink = result.txHash ? `https://opscan.org/transactions/${result.txHash}?network=op_testnet` : undefined;
-      setToast({ message: txMsg, type: 'success', link: txLink, linkLabel: 'View TX' });
+      const txLink = `https://opscan.org/transactions/${proof.txHash}?network=op_testnet`;
+      setToast({ message: '✅ Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
-      setToast({ message: `Bet rejected: ${msg}`, type: 'error' });
+      setToast({ message: `Bet failed: ${msg}`, type: 'error' });
     }
-  }, [markets, wallet.connected, wallet.address, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">

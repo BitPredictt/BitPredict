@@ -21,7 +21,7 @@ export interface Bet {
   amount: number;
   price: number;
   timestamp: number;
-  status: 'pending' | 'won' | 'lost' | 'active';
+  status: 'pending' | 'won' | 'lost' | 'active' | 'claimable';
   txHash?: string;
   blockHeight?: number;
   payout?: number;

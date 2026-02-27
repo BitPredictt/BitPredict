@@ -64,7 +64,7 @@ export interface ServerBet {
   amount: number;
   price: number;
   shares: number;
-  status: 'active' | 'won' | 'lost' | 'cancelled';
+  status: 'active' | 'won' | 'lost' | 'cancelled' | 'claimable';
   payout: number;
   timestamp: number;
   currentYesPrice: number;
@@ -128,11 +128,11 @@ export async function aiSignal(marketId: string) {
   return apiFetch<{ marketId: string; signal: string; source: string }>(`/api/ai/signal/${marketId}`);
 }
 
-// --- Faucet ---
-export async function claimFaucet(address: string) {
-  return apiFetch<{ success: boolean; claimed: number; newBalance: number; message: string }>('/api/faucet/claim', {
+// --- Claim payout (user-signed TX proof) ---
+export async function claimPayout(address: string, betId: string, txHash: string) {
+  return apiFetch<{ success: boolean; payout: number; newBalance: number; txHash: string }>('/api/claim', {
     method: 'POST',
-    body: JSON.stringify({ address }),
+    body: JSON.stringify({ address, betId, txHash }),
   });
 }
 

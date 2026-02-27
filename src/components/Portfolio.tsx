@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Droplets, Loader2 } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl, mintTokensOnChain, OPNET_CONFIG } from '../lib/opnet';
+import { getExplorerTxUrl, mintTokensOnChain, signClaimProof, OPNET_CONFIG } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -20,6 +20,8 @@ interface PortfolioProps {
 export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
+  const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
+  const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
 
   const handleMint = async () => {
     if (minting || !walletAddress) return;
@@ -41,6 +43,24 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
       setMintMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
     } finally {
       setMinting(false);
+    }
+  };
+
+  const handleClaim = async (betId: string) => {
+    if (claimingBetId || !walletAddress) return;
+    setClaimingBetId(betId);
+    setClaimMsg(null);
+    try {
+      setClaimMsg({ text: 'Sign claim TX in OP_WALLET...', type: 'success' });
+      const proof = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress);
+      if (!proof.success) throw new Error(proof.error || 'Claim TX failed');
+      const result = await api.claimPayout(walletAddress, betId, proof.txHash);
+      onBalanceUpdate(result.newBalance);
+      setClaimMsg({ text: `+${result.payout.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} claimed!`, type: 'success', txHash: proof.txHash });
+    } catch (err) {
+      setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+    } finally {
+      setClaimingBetId(null);
     }
   };
 
@@ -99,6 +119,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     switch (status) {
       case 'active': return <Clock size={12} className="text-blue-400" />;
       case 'won': return <CheckCircle2 size={12} className="text-green-400" />;
+      case 'claimable': return <Gift size={12} className="text-yellow-400" />;
       case 'lost': return <XCircle size={12} className="text-red-400" />;
       default: return <Clock size={12} className="text-gray-500" />;
     }
@@ -108,6 +129,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     switch (status) {
       case 'active': return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
       case 'won': return 'text-green-400 bg-green-500/10 border-green-500/20';
+      case 'claimable': return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20';
       case 'lost': return 'text-red-400 bg-red-500/10 border-red-500/20';
       default: return 'text-gray-400 bg-gray-500/10 border-gray-500/20';
     }
@@ -152,6 +174,16 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
               >
                 <ExternalLink size={10} />
                 View TX
+              </a>
+            )}
+          </div>
+        )}
+        {claimMsg && (
+          <div className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            <span>{claimMsg.text}</span>
+            {claimMsg.txHash && (
+              <a href={getExplorerTxUrl(claimMsg.txHash)} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 text-btc hover:underline">
+                <ExternalLink size={10} /> View TX
               </a>
             )}
           </div>
@@ -284,11 +316,23 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {statusIcon(bet.status)}
-                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusColor(bet.status)}`}>
-                        {bet.status}
-                      </span>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex items-center gap-1.5">
+                        {statusIcon(bet.status)}
+                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusColor(bet.status)}`}>
+                          {bet.status === 'claimable' ? 'won' : bet.status}
+                        </span>
+                      </div>
+                      {(bet.status === 'won' || bet.status === 'claimable') && bet.payout && bet.payout > 0 && (
+                        <button
+                          onClick={() => handleClaim(bet.id)}
+                          disabled={claimingBetId === bet.id}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-green-600/20 to-btc/20 border border-green-500/30 text-[10px] font-bold text-green-400 hover:border-green-400/50 transition-all disabled:opacity-50"
+                        >
+                          {claimingBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
+                          Claim {bet.payout.toLocaleString()}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

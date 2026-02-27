@@ -50,10 +50,13 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
     return `${v}`;
   };
 
+  const isEnded = msLeft <= 0;
+  const isResolved = market.resolved;
+
   return (
     <div
-      onClick={() => onSelect(market)}
-      className="glass-card rounded-2xl p-5 cursor-pointer group animate-fade-in"
+      onClick={() => !isResolved && onSelect(market)}
+      className={`glass-card rounded-2xl p-5 group animate-fade-in ${isResolved ? 'opacity-60' : 'cursor-pointer'}`}
       style={{ animationDelay: `${index * 60}ms` }}
     >
       {/* Category badge */}
@@ -61,9 +64,9 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${categoryColors[market.category] || 'bg-gray-500/15 text-gray-400 border-gray-500/20'}`}>
           {market.category}
         </span>
-        <div className={`flex items-center gap-1 text-[10px] ${isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
+        <div className={`flex items-center gap-1 text-[10px] ${isResolved ? 'text-purple-400 font-bold' : isEnded ? 'text-red-400 font-bold' : isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
           <Clock size={10} />
-          <span>{formatTimeLeft()}</span>
+          <span>{isResolved ? `Resolved: ${(market.outcome || '').toUpperCase()}` : formatTimeLeft()}</span>
         </div>
       </div>
 
