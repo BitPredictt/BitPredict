@@ -24,7 +24,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'volume' | 'ending' | 'liquidity' | 'ending_soon'>('volume');
+  const [sortBy, setSortBy] = useState<'volume' | 'ending_soon' | 'liquidity'>('volume');
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -97,9 +97,6 @@ function App() {
     switch (sortBy) {
       case 'volume':
         list.sort((a, b) => b.volume - a.volume);
-        break;
-      case 'ending':
-        list.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
         break;
       case 'liquidity':
         list.sort((a, b) => b.liquidity - a.liquidity);
@@ -239,8 +236,7 @@ function App() {
                   className="bg-surface-2 border border-white/5 rounded-xl px-3 py-2.5 text-xs text-gray-400 focus:border-btc/30 focus:outline-none cursor-pointer"
                 >
                   <option value="volume">Top Volume</option>
-                  <option value="ending">Ending Soon</option>
-                  <option value="ending_soon">⏱ Ending &lt;24h</option>
+                  <option value="ending_soon">Ending Soon</option>
                   <option value="liquidity">Highest Liquidity</option>
                 </select>
               </div>

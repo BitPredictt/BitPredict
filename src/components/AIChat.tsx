@@ -11,11 +11,11 @@ interface Message {
 }
 
 const QUICK_PROMPTS = [
-  { icon: <TrendingUp size={13} />, label: 'Best value', text: 'Какие рынки сейчас дают лучший expected value? Рассчитай EV.' },
+  { icon: <TrendingUp size={13} />, label: 'Best value', text: 'Which markets currently offer the best expected value? Calculate EV.' },
   { icon: <BarChart3 size={13} />, label: 'BTC analysis', text: 'Analyze the current BTC price markets — what\'s your signal?' },
   { icon: <Sparkles size={13} />, label: 'Strategy', text: 'Build me a portfolio strategy: which markets to bet on and how much BPUSD to allocate?' },
   { icon: <Shield size={13} />, label: 'OP_NET tech', text: 'Explain how OP_NET smart contracts work on Bitcoin L1 — Tapscript, WASM, the whole stack.' },
-  { icon: <Zap size={13} />, label: 'How to start', text: 'Как начать пользоваться BitPredict? Пошагово: кошелёк, фаусет, ставки.' },
+  { icon: <Zap size={13} />, label: 'How to start', text: 'How do I get started with BitPredict? Walk me through: wallet, faucet, placing bets.' },
   { icon: <Cpu size={13} />, label: 'On-chain flow', text: 'How does the on-chain bet flow work? Approve BPUSD → buyShares → claimPayout?' },
 ];
 
@@ -29,7 +29,7 @@ export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
     {
       id: 'welcome',
       role: 'bob',
-      text: "Привет! Я **Bob** — AI-агент OP_NET и ведущий аналитик BitPredict.\n\nМоя база знаний: протокол OP_NET, смарт-контракты на Bitcoin L1, AMM-механики, on-chain аналитика. Под капотом — **Gemini LLM** + глубокая экспертиза OPNet.\n\n🔍 Спроси меня о рынках, стратегиях, OP_NET технологиях или попроси сигнал на конкретный маркет!",
+      text: "Hey! I'm **Bob** — the OP_NET AI agent and lead analyst at BitPredict.\n\nMy knowledge base: OP_NET protocol, Bitcoin L1 smart contracts, AMM mechanics, on-chain analytics. Powered by **Gemini LLM** + deep OPNet expertise.\n\n🔍 Ask me about markets, strategies, OP_NET technology, or request a signal on any specific market!",
       ts: Date.now(),
       source: 'bob+gemini',
     },

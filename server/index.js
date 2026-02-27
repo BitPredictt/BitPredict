@@ -259,6 +259,24 @@ db.exec(`
 try { db.exec('ALTER TABLE bets ADD COLUMN claim_tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
 
+// Fix stuck bets: active bets on resolved markets should be settled
+try {
+  const stuckBets = db.prepare(`SELECT b.*, m.outcome FROM bets b JOIN markets m ON b.market_id = m.id
+    WHERE b.status = 'active' AND m.resolved = 1 AND m.outcome IS NOT NULL`).all();
+  for (const b of stuckBets) {
+    if (b.side === b.outcome) {
+      const payout = Math.round(b.amount / b.price);
+      db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
+      console.log(`Fixed stuck bet ${b.id}: won +${payout}`);
+    } else {
+      db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
+      console.log(`Fixed stuck bet ${b.id}: lost`);
+    }
+  }
+  if (stuckBets.length > 0) console.log(`Fixed ${stuckBets.length} stuck bets`);
+} catch(e) { console.error('Stuck bet fix error:', e.message); }
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS faucet_claims (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -463,12 +481,13 @@ async function resolveExpiredMarkets() {
         const outcome = currentPrice > src.threshold ? 'yes' : 'no';
         db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
 
-        // Settle bets — mark winners as 'claimable' (user must claim by signing TX)
+        // Settle bets — winners get 'won' + auto-credit balance
         const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(m.id, 'active');
         for (const b of bets) {
           if (b.side === outcome) {
             const payout = Math.round(b.amount / b.price);
-            db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
+            db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
+            db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
           } else {
             db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
           }
@@ -478,6 +497,100 @@ async function resolveExpiredMarkets() {
         console.error(`Failed to resolve ${m.id}:`, e.message);
       }
     }
+  }
+}
+
+// --- Polymarket Gamma API: sync real trending markets ---
+const GAMMA_HOST = 'https://gamma-api.polymarket.com';
+const POLYMARKET_CATEGORY_MAP = {
+  'politics': 'Politics', 'elections': 'Politics', 'government': 'Politics',
+  'crypto': 'Crypto', 'bitcoin': 'Crypto', 'ethereum': 'Crypto', 'defi': 'Crypto',
+  'sports': 'Sports', 'football': 'Sports', 'basketball': 'Sports', 'soccer': 'Sports',
+  'science': 'Tech', 'technology': 'Tech', 'ai': 'Tech',
+  'entertainment': 'Culture', 'culture': 'Culture', 'music': 'Culture',
+  'business': 'Politics', 'economics': 'Politics', 'finance': 'Crypto',
+};
+
+function mapPolyCategory(cat) {
+  if (!cat) return 'Politics';
+  const lower = cat.toLowerCase();
+  for (const [key, val] of Object.entries(POLYMARKET_CATEGORY_MAP)) {
+    if (lower.includes(key)) return val;
+  }
+  return 'Politics';
+}
+
+async function syncPolymarketEvents() {
+  try {
+    const res = await fetch(`${GAMMA_HOST}/events?active=true&closed=false&order=volume&ascending=false&limit=30`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return;
+    const events = await res.json();
+
+    let synced = 0;
+    for (const ev of events) {
+      const markets = ev.markets || [];
+      if (!markets.length) continue;
+
+      for (const m of markets) {
+        if (!m.question || m.question.length < 10) continue;
+        const polyId = `poly-${(m.conditionId || m.id || '').slice(0, 16)}`;
+        if (!polyId || polyId === 'poly-') continue;
+
+        const existing = db.prepare('SELECT id FROM markets WHERE id = ?').get(polyId);
+        if (existing) {
+          // Update prices from Polymarket
+          const prices = JSON.parse(m.outcomePrices || '[]');
+          const yesPrice = parseFloat(prices[0]) || 0.5;
+          const noPrice = parseFloat(prices[1]) || (1 - yesPrice);
+          const vol = Math.round(parseFloat(m.volume || 0));
+          const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
+          db.prepare('UPDATE markets SET yes_price = ?, no_price = ?, volume = ?, liquidity = ? WHERE id = ? AND market_type = ?')
+            .run(Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000, vol, liq, polyId, 'polymarket');
+          continue;
+        }
+
+        // Parse end time
+        let endTime;
+        const endStr = m.endDate || m.end_date_iso || ev.endDate;
+        if (endStr) {
+          endTime = Math.floor(new Date(endStr).getTime() / 1000);
+        } else {
+          endTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days default
+        }
+        if (endTime < Math.floor(Date.now() / 1000)) continue; // skip expired
+
+        const prices = JSON.parse(m.outcomePrices || '[]');
+        const yesPrice = parseFloat(prices[0]) || 0.5;
+        const noPrice = parseFloat(prices[1]) || (1 - yesPrice);
+        const vol = Math.round(parseFloat(m.volume || 0));
+        const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
+        const category = mapPolyCategory(ev.category || m.category || '');
+        const tags = JSON.stringify([category.toLowerCase(), 'polymarket', ...(ev.tags || []).slice(0, 3)]);
+
+        // Scale volume/liquidity to BPUSD (1 BPUSD ≈ $1, but scale up for drama)
+        const scaledVol = Math.max(vol, 10000);
+        const scaledLiq = Math.max(liq, 50000);
+        const yesPool = Math.round(scaledLiq * noPrice);
+        const noPool = Math.round(scaledLiq * yesPrice);
+
+        try {
+          db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price,
+            yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, image_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'polymarket', ?)`).run(
+            polyId, m.question, category,
+            Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000,
+            yesPool, noPool, scaledVol, scaledLiq, endTime, tags,
+            m.image || ev.image || null
+          );
+          synced++;
+        } catch (e) { /* duplicate or constraint error, skip */ }
+      }
+    }
+    if (synced > 0) console.log(`Synced ${synced} new Polymarket events`);
+  } catch (e) {
+    console.error('Polymarket sync error:', e.message);
   }
 }
 
@@ -511,9 +624,12 @@ app.get('/api/balance/:address', (req, res) => {
   res.json({ balance: user.balance });
 });
 
-// List all markets
+// List all markets (filter out old resolved 5min markets >1h old)
 app.get('/api/markets', (req, res) => {
-  const markets = db.prepare('SELECT * FROM markets ORDER BY end_time ASC').all();
+  const cutoff = Math.floor(Date.now() / 1000) - 3600; // 1h ago
+  const markets = db.prepare(`SELECT * FROM markets 
+    WHERE NOT (market_type = 'price_5min' AND resolved = 1 AND end_time < ?)
+    ORDER BY volume DESC, end_time ASC`).all(cutoff);
   const mapped = markets.map(m => ({
     id: m.id,
     question: m.question,
@@ -935,7 +1051,8 @@ ${marketContext}${userContext}
 - Always calculate expected value: EV = (probability × payout) - cost
 - Warn about risks but don't be overly cautious — traders want actionable signals
 - If someone asks how to use the platform, walk them through: connect OP_WALLET → get testnet BTC from faucet.opnet.org → mint BPUSD tokens → pick a market → place a bet
-- ALWAYS respond in the same language as the user's message (if Russian, reply in Russian, etc.)
+- The entire BitPredict platform is English-only. Never respond in any other language.
+- ALWAYS respond in English regardless of the user's language
 - Keep answers focused: 3-6 sentences for simple questions, longer for deep analysis
 - Sign off important analyses with "— Bob 🤖" when appropriate`;
 
@@ -1156,8 +1273,11 @@ setInterval(async () => {
 // Create 5-min markets every 60s
 setInterval(() => create5minMarkets(), 60000);
 
-// Resolve expired markets every 30s
-setInterval(() => resolveExpiredMarkets(), 30000);
+// Resolve expired markets every 15s (fast for 5-min markets)
+setInterval(() => resolveExpiredMarkets(), 15000);
+
+// Sync Polymarket events every 5 min
+setInterval(() => syncPolymarketEvents(), 5 * 60 * 1000);
 
 // --- Start ---
 const PORT = process.env.PORT || 3456;
@@ -1168,4 +1288,6 @@ app.listen(PORT, '0.0.0.0', async () => {
   await fetchPrice('eth');
   // Create initial 5-min markets
   setTimeout(() => create5minMarkets(), 2000);
+  // Initial Polymarket sync
+  setTimeout(() => syncPolymarketEvents(), 5000);
 });
