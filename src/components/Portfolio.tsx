@@ -1,16 +1,50 @@
-import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins } from 'lucide-react';
+import { useState } from 'react';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Droplets, Loader2 } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl } from '../lib/opnet';
+import { getExplorerTxUrl, isOPWalletAvailable, claimPredOnChain } from '../lib/opnet';
+import * as api from '../lib/api';
 
 interface PortfolioProps {
   bets: Bet[];
   markets: Market[];
   predBalance: number;
   walletConnected: boolean;
+  walletAddress: string;
   onConnect: () => void;
+  onBalanceUpdate: (balance: number) => void;
 }
 
-export function Portfolio({ bets, markets, predBalance, walletConnected, onConnect }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate }: PortfolioProps) {
+  const [claiming, setClaiming] = useState(false);
+  const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const handleClaimFaucet = async () => {
+    if (claiming || !walletAddress) return;
+    setClaiming(true);
+    setClaimMsg(null);
+    try {
+      // 1) Server-side faucet claim (credits PRED balance)
+      const result = await api.claimFaucet(walletAddress);
+      onBalanceUpdate(result.newBalance);
+
+      // 2) On-chain claim via OP_WALLET (non-blocking)
+      if (isOPWalletAvailable()) {
+        claimPredOnChain(walletAddress, 50000n).then((tx) => {
+          if (tx.success && tx.txHash) {
+            setClaimMsg({ text: `Claimed! On-chain TX: ${tx.txHash.slice(0, 16)}...`, type: 'success' });
+          }
+        }).catch(() => {});
+      }
+
+      setClaimMsg({ text: result.message, type: 'success' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setClaimMsg({ text: msg, type: 'error' });
+    } finally {
+      setClaiming(false);
+    }
+  };
+
   if (!walletConnected) {
     return (
       <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
@@ -98,6 +132,19 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, onConne
           <Coins size={16} className="text-btc" />
           <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} PRED</span>
         </div>
+        <button
+          onClick={handleClaimFaucet}
+          disabled={claiming}
+          className="mt-3 mx-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600/20 to-btc/20 border border-purple-500/30 text-sm font-bold text-white hover:border-btc/40 transition-all disabled:opacity-50"
+        >
+          {claiming ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} className="text-purple-400" />}
+          {claiming ? 'Claiming...' : 'Claim 50,000 PRED (Faucet)'}
+        </button>
+        {claimMsg && (
+          <p className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            {claimMsg.text}
+          </p>
+        )}
       </div>
 
       {/* PnL Banner */}

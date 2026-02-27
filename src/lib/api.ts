@@ -114,6 +114,35 @@ export async function getLeaderboard() {
   return apiFetch<LeaderEntry[]>('/api/leaderboard');
 }
 
+// --- Bob AI Chat ---
+export async function aiChat(message: string, address?: string, marketId?: string) {
+  return apiFetch<{ reply: string; model: string; source: string }>('/api/ai/chat', {
+    method: 'POST',
+    body: JSON.stringify({ message, address, marketId }),
+  });
+}
+
+// --- Bob Signal (per-market quick analysis) ---
+export async function aiSignal(marketId: string) {
+  return apiFetch<{ marketId: string; signal: string; source: string }>(`/api/ai/signal/${marketId}`);
+}
+
+// --- Faucet ---
+export async function claimFaucet(address: string) {
+  return apiFetch<{ success: boolean; claimed: number; newBalance: number; message: string }>('/api/faucet/claim', {
+    method: 'POST',
+    body: JSON.stringify({ address }),
+  });
+}
+
+// --- On-chain bet record ---
+export async function recordOnChainBet(address: string, betId: string, txHash: string) {
+  return apiFetch<{ success: boolean; txHash: string }>('/api/bet/onchain', {
+    method: 'POST',
+    body: JSON.stringify({ address, betId, txHash }),
+  });
+}
+
 // --- Health ---
 export async function healthCheck() {
   return apiFetch<{ status: string; ts: number; markets: number }>('/api/health');

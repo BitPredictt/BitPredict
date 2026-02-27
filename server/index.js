@@ -480,6 +480,253 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', ts: Date.now(), markets: db.prepare('SELECT COUNT(*) as c FROM markets').get().c });
 });
 
+// On-chain bet record (frontend sends txHash after wallet signs)
+app.post('/api/bet/onchain', (req, res) => {
+  const { address, betId, txHash } = req.body;
+  if (!address || !betId || !txHash) return res.status(400).json({ error: 'address, betId, txHash required' });
+
+  const bet = db.prepare('SELECT * FROM bets WHERE id = ? AND user_address = ?').get(betId, address);
+  if (!bet) return res.status(404).json({ error: 'bet not found' });
+
+  // Store txHash in a simple way (add column if not exists)
+  try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT'); } catch {} // ignore if exists
+  db.prepare('UPDATE bets SET tx_hash = ? WHERE id = ?').run(txHash, betId);
+  res.json({ success: true, txHash });
+});
+
+// --- Bob AI (OPNet Intelligence) + Gemini Engine ---
+// Bob is the primary AI persona — OPNet expert, market analyst, smart contract auditor.
+// Gemini serves as Bob's "brain" (LLM engine). Bob's OPNet knowledge is injected as context.
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'REDACTED_KEY';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
+// Bob's OPNet knowledge base — injected into every query
+const BOB_OPNET_KNOWLEDGE = `
+## OP_NET Platform Knowledge (Bob's Core)
+OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a rollup — runs directly on Bitcoin.
+- Smart contracts written in AssemblyScript, compiled to WASM, executed by OP_NET validators
+- Calldata is Tapscript-encoded (NOT OP_RETURN, NOT inscriptions)
+- Settlement: Bitcoin mainchain with PoW + OP_NET consensus
+- Token standard: OP-20 (like ERC-20 but on Bitcoin)
+- Runtime: btc-runtime provides Solidity-like patterns — u256 math, storage, events, modifiers
+- NO floating-point arithmetic in contracts (u256 only)
+- Wallet: OP_WALLET browser extension (UniSat fork with OP_NET support)
+- Testnet: Signet fork, addresses start with "opt1"
+- RPC: https://testnet.opnet.org for testnet queries
+- Explorer: https://opscan.org
+- Faucet: https://faucet.opnet.org for testnet BTC
+
+## BitPredict Architecture
+- PRED token: OP-20 token at opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph
+- PredictionMarket contract: opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj
+- AMM: constant-product (x·y=k), 2% protocol fee (200 bps), fee rounds UP to favor protocol
+- Markets: binary YES/NO outcomes, shares priced 0–1 PRED
+- Resolution: oracle/creator resolves, winning shares redeem 1:1 from pool
+- On-chain flow: approve PRED → buyShares(marketId, isYes, amount) → claimPayout(marketId)
+- SDK pattern: getContract() → simulate() → sendTransaction({signer:null, mldsaSigner:null})
+- signer is ALWAYS null on frontend — OP_WALLET extension handles all signing
+- Security: reentrancy guards, tx.sender (not tx.origin), checked u256 math
+
+## Trading Concepts
+- Slippage: larger trades vs pool = more price impact
+- Implied probability: YES price = market's probability estimate
+- Value bet: when you think true probability > market price
+- Liquidity: deeper pools = less slippage, better execution
+- Kelly criterion: optimal bet sizing = (p*b - q) / b where p=probability, b=odds, q=1-p
+- Contrarian plays: markets often overweight recent news, creating value on the other side
+
+## OPNet Ecosystem
+- MotoSwap: DEX (like Uniswap) on OP_NET for token swaps
+- NativeSwap: BTC↔token atomic swaps
+- Staking contracts: lock tokens for rewards
+- MLDSA: quantum-resistant signatures supported by OP_NET
+- Bob AI: the official OPNet AI agent (that's me!), accessible via MCP protocol
+`;
+
+// Chat history per session (in-memory, keyed by address)
+const chatHistories = new Map();
+const MAX_HISTORY = 20;
+
+app.post('/api/ai/chat', async (req, res) => {
+  const { message, address, marketId } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+
+  try {
+    // Build live context
+    const activeMarkets = db.prepare('SELECT id, question, category, yes_price, no_price, volume, liquidity, end_time FROM markets WHERE resolved = 0 ORDER BY volume DESC LIMIT 15').all();
+    const recentResolved = db.prepare('SELECT id, question, outcome, yes_price, no_price FROM markets WHERE resolved = 1 ORDER BY end_time DESC LIMIT 5').all();
+    const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
+
+    // If user asks about a specific market, pull extra data
+    let marketContext = '';
+    if (marketId) {
+      const m = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+      if (m) {
+        const betsCount = db.prepare('SELECT COUNT(*) as c FROM bets WHERE market_id = ?').get(m.id).c;
+        const k = m.yes_pool * m.no_pool;
+        marketContext = `\n## Focus Market: "${m.question}"
+YES: ${(m.yes_price * 100).toFixed(1)}% | NO: ${(m.no_price * 100).toFixed(1)}% | Volume: ${m.volume} PRED | Liquidity: ${m.liquidity} PRED
+YES pool: ${m.yes_pool} | NO pool: ${m.no_pool} | k=${k} | Bets placed: ${betsCount}
+Ends: ${new Date(m.end_time * 1000).toISOString().split('T')[0]} | Category: ${m.category}
+${m.resolved ? `RESOLVED: ${m.outcome}` : 'ACTIVE'}`;
+      }
+    }
+
+    // User stats if address provided
+    let userContext = '';
+    if (address) {
+      const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+      const userBets = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status=\'won\' THEN 1 ELSE 0 END) as wins, SUM(amount) as volume FROM bets WHERE user_address = ?').get(address);
+      if (user) {
+        userContext = `\nUser balance: ${user.balance} PRED | Bets: ${userBets?.total || 0} | Wins: ${userBets?.wins || 0} | Volume: ${userBets?.volume || 0} PRED`;
+      }
+    }
+
+    // Manage conversation history
+    const sessionKey = address || 'anon';
+    if (!chatHistories.has(sessionKey)) chatHistories.set(sessionKey, []);
+    const history = chatHistories.get(sessionKey);
+    history.push({ role: 'user', parts: [{ text: message }] });
+    if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+
+    const systemPrompt = `You are **Bob** — the official OP_NET AI agent and lead analyst for BitPredict.
+You are NOT a generic chatbot. You are an expert in Bitcoin L1 smart contracts, OP_NET protocol, prediction markets, and quantitative trading.
+Your intelligence combines deep OPNet protocol knowledge with real-time market analysis.
+
+${BOB_OPNET_KNOWLEDGE}
+
+## Live Market Data (right now)
+BTC: $${prices.btc.toLocaleString()} | ETH: $${prices.eth.toLocaleString()}
+
+Active markets:
+${activeMarkets.map(m => `• "${m.question}" → YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}% | Vol: ${m.volume} PRED | Liq: ${m.liquidity}`).join('\n')}
+
+${recentResolved.length > 0 ? `Recently resolved:\n${recentResolved.map(m => `• "${m.question}" → ${m.outcome?.toUpperCase()}`).join('\n')}` : ''}
+${marketContext}${userContext}
+
+## Bob's Personality & Rules
+- You ARE Bob, the OP_NET AI. Refer to yourself as Bob. Show expertise and confidence.
+- When discussing OP_NET, cite specific technical details (Tapscript calldata, WASM execution, u256 math, etc.)
+- For market analysis: reference actual odds, calculate expected value, suggest position sizing
+- For trading advice: mention slippage, liquidity depth, and AMM mechanics
+- Use **bold** for key terms, use bullet points for structured answers
+- If asked "who are you" — explain you're Bob, OP_NET's AI agent, powered by deep protocol knowledge + Gemini LLM
+- Be opinionated on markets — give clear YES/NO recommendations with reasoning
+- Always calculate expected value: EV = (probability × payout) - cost
+- Warn about risks but don't be overly cautious — traders want actionable signals
+- If someone asks how to use the platform, walk them through: connect OP_WALLET → claim PRED from faucet → pick a market → place a bet
+- ALWAYS respond in the same language as the user's message (if Russian, reply in Russian, etc.)
+- Keep answers focused: 3-6 sentences for simple questions, longer for deep analysis
+- Sign off important analyses with "— Bob 🤖" when appropriate`;
+
+    // Build Gemini request with conversation history
+    const contents = [
+      { role: 'user', parts: [{ text: systemPrompt }] },
+      { role: 'model', parts: [{ text: 'Understood. I am Bob, the OP_NET AI agent. Ready to analyze markets and assist with BitPredict. Let\'s go.' }] },
+      ...history,
+    ];
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: { maxOutputTokens: 800, temperature: 0.75, topP: 0.9 },
+          safetySettings: [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          ],
+        }),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const err = await geminiRes.text();
+      console.error('Gemini API error:', geminiRes.status, err);
+      return res.status(500).json({ error: 'Bob is temporarily offline. Try again shortly.' });
+    }
+
+    const geminiData = await geminiRes.json();
+    const reply = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Bob couldn\'t process that. Try rephrasing.';
+
+    // Save Bob's response to history
+    history.push({ role: 'model', parts: [{ text: reply }] });
+
+    res.json({ reply, model: `Bob AI (${GEMINI_MODEL})`, source: 'bob+gemini' });
+  } catch (e) {
+    console.error('Bob AI error:', e.message);
+    res.status(500).json({ error: 'Bob AI error: ' + e.message });
+  }
+});
+
+// Bob quick analysis endpoint — for market cards
+app.get('/api/ai/signal/:marketId', async (req, res) => {
+  const m = db.prepare('SELECT * FROM markets WHERE id = ?').get(req.params.marketId);
+  if (!m) return res.status(404).json({ error: 'market not found' });
+
+  try {
+    const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
+    const prompt = `You are Bob, OP_NET AI. Give a 1-2 sentence trading signal for this prediction market:
+"${m.question}" — YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}%
+Volume: ${m.volume} PRED | Category: ${m.category} | BTC=$${prices.btc.toLocaleString()}
+Include: signal direction (BUY YES/BUY NO/HOLD), confidence (low/med/high), brief reason.`;
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 150, temperature: 0.6 },
+        }),
+      }
+    );
+
+    if (!geminiRes.ok) return res.status(500).json({ error: 'signal unavailable' });
+    const data = await geminiRes.json();
+    const signal = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    res.json({ marketId: m.id, signal, source: 'bob' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Faucet: claim PRED tokens ---
+const FAUCET_COOLDOWN = 3600; // 1 hour between claims
+const FAUCET_AMOUNT = 50000; // 50k PRED per claim
+
+app.post('/api/faucet/claim', (req, res) => {
+  const { address } = req.body;
+  if (!address) return res.status(400).json({ error: 'address required' });
+
+  let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  if (!user) {
+    db.prepare('INSERT INTO users (address, balance) VALUES (?, 0)').run(address);
+    user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const lastClaim = db.prepare('SELECT MAX(created_at) as last FROM bets WHERE user_address = ? AND market_id = ?').get(address, '__faucet__');
+  if (lastClaim?.last && now - lastClaim.last < FAUCET_COOLDOWN) {
+    const wait = FAUCET_COOLDOWN - (now - lastClaim.last);
+    return res.status(429).json({ error: `Faucet cooldown: wait ${Math.ceil(wait / 60)} minutes`, cooldown: wait });
+  }
+
+  db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(FAUCET_AMOUNT, address);
+  // Record claim as a special "bet" for cooldown tracking
+  db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    `faucet-${Date.now()}`, address, '__faucet__', 'yes', FAUCET_AMOUNT, 0, 0, 'cancelled'
+  );
+
+  const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+  res.json({ success: true, claimed: FAUCET_AMOUNT, newBalance, message: `Claimed ${FAUCET_AMOUNT.toLocaleString()} PRED!` });
+});
+
 // --- Background jobs ---
 // Fetch prices every 15s
 setInterval(async () => {

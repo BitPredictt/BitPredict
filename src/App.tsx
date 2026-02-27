@@ -4,14 +4,14 @@ import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
-import { submitBetTransaction, isOPWalletAvailable } from './lib/opnet';
+import { submitBetTransaction, isOPWalletAvailable, claimPredOnChain, approvePredSpending } from './lib/opnet';
 import * as api from './lib/api';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
 import { BetModal } from './components/BetModal';
 import { Leaderboard } from './components/Leaderboard';
-import { AIAnalysis } from './components/AIAnalysis';
+import { AIChat } from './components/AIChat';
 import { Portfolio } from './components/Portfolio';
 import { Toast } from './components/Toast';
 import { Footer } from './components/Footer';
@@ -131,15 +131,24 @@ function App() {
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
 
-      // 2) Attempt real on-chain TX if OP_WALLET available (non-blocking)
+      // 2) On-chain TX: approve PRED spending → place bet on contract
       if (isOPWalletAvailable()) {
-        submitBetTransaction(marketId, side, amount, wallet.address).then((txResult) => {
-          if (txResult.success && txResult.txHash) {
-            setBets((prev) =>
-              prev.map((b) => b.id === newBet.id ? { ...b, txHash: txResult.txHash } : b)
-            );
-          }
-        }).catch(() => {});
+        (async () => {
+          try {
+            // Approve PRED spending for the contract
+            await approvePredSpending(wallet.address, BigInt(amount));
+            // Submit bet on-chain
+            const txResult = await submitBetTransaction(marketId, side, amount, wallet.address);
+            if (txResult.success && txResult.txHash) {
+              setBets((prev) =>
+                prev.map((b) => b.id === newBet.id ? { ...b, txHash: txResult.txHash } : b)
+              );
+              // Record on-chain tx hash on server
+              api.recordOnChainBet(wallet.address, result.betId, txResult.txHash).catch(() => {});
+              setToast({ message: `On-chain TX: ${txResult.txHash.slice(0, 16)}...`, type: 'success' });
+            }
+          } catch {}
+        })();
       }
 
       setToast({
@@ -181,7 +190,7 @@ function App() {
               </p>
               <div className="flex items-center justify-center gap-4 mt-4">
                 <a
-                  href="https://github.com/opbitpredict/BitPredict"
+                  href="https://github.com/BitPredictt/BitPredict"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-btc transition-colors"
@@ -275,7 +284,9 @@ function App() {
             markets={markets}
             predBalance={predBalance}
             walletConnected={wallet.connected}
+            walletAddress={wallet.address}
             onConnect={connectOPWallet}
+            onBalanceUpdate={setPredBalance}
           />
         )}
 
@@ -283,7 +294,7 @@ function App() {
           <Leaderboard userAddress={wallet.address} />
         )}
 
-        {activeTab === 'ai' && <AIAnalysis onAnalyze={achievements.onAIUsed} />}
+        {activeTab === 'ai' && <AIChat onAnalyze={achievements.onAIUsed} walletAddress={wallet.address} />}
 
         {activeTab === 'achievements' && (
           <Achievements
@@ -305,7 +316,7 @@ function App() {
             { id: 'portfolio' as Tab, icon: '💼', label: 'Portfolio' },
             { id: 'achievements' as Tab, icon: '🏅', label: 'Quests' },
             { id: 'leaderboard' as Tab, icon: '🏆', label: 'Ranks' },
-            { id: 'ai' as Tab, icon: '❓', label: 'Help' },
+            { id: 'ai' as Tab, icon: '🤖', label: 'AI' },
           ]).map((tab) => (
             <button
               key={tab.id}
