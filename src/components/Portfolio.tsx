@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Droplets, Loader2 } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl, isOPWalletAvailable, claimPredOnChain } from '../lib/opnet';
+import { getExplorerTxUrl, claimPredOnChain } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -12,31 +12,40 @@ interface PortfolioProps {
   walletAddress: string;
   onConnect: () => void;
   onBalanceUpdate: (balance: number) => void;
+  walletProvider: unknown;
+  walletNetwork: unknown;
 }
 
-export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork }: PortfolioProps) {
   const [claiming, setClaiming] = useState(false);
   const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const handleClaimFaucet = async () => {
     if (claiming || !walletAddress) return;
+    if (!walletProvider || !walletNetwork) {
+      setClaimMsg({ text: 'Wallet provider not ready. Reconnect OP_WALLET.', type: 'error' });
+      return;
+    }
     setClaiming(true);
     setClaimMsg(null);
     try {
-      // 1) Server-side faucet claim (credits PRED balance)
+      // 1) On-chain: mint PRED tokens via OP_WALLET (triggers signing popup)
+      setClaimMsg({ text: 'Подпишите транзакцию в OP_WALLET...', type: 'success' });
+      const txResult = await claimPredOnChain(walletProvider, walletNetwork, walletAddress, 500n);
+      if (!txResult.success) {
+        throw new Error(txResult.error || 'Claim rejected by wallet');
+      }
+
+      // 2) Server-side: credit balance (backup tracking)
       const result = await api.claimFaucet(walletAddress);
       onBalanceUpdate(result.newBalance);
 
-      // 2) On-chain claim via OP_WALLET (non-blocking)
-      if (isOPWalletAvailable()) {
-        claimPredOnChain(walletAddress, 50000n).then((tx) => {
-          if (tx.success && tx.txHash) {
-            setClaimMsg({ text: `Claimed! On-chain TX: ${tx.txHash.slice(0, 16)}...`, type: 'success' });
-          }
-        }).catch(() => {});
-      }
-
-      setClaimMsg({ text: result.message, type: 'success' });
+      setClaimMsg({
+        text: txResult.txHash
+          ? `✅ On-chain TX: ${txResult.txHash.slice(0, 20)}... | +500 PRED`
+          : result.message,
+        type: 'success',
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setClaimMsg({ text: msg, type: 'error' });

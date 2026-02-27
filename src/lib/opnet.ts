@@ -328,136 +328,166 @@ function getOPWallet(): OPWalletAPI | null {
 }
 
 // ─── On-chain helpers ───
-// All on-chain calls use: getContract() → method(args) [simulate] → sendTransaction({signer:null})
-// signer and mldsaSigner are ALWAYS null on frontend — OP_WALLET extension handles signing.
+// Per Bob (OPNet AI): use wallet's OWN provider from useWalletConnect(), NOT JSONRpcProvider.
+// Use OP_20_ABI from opnet package. Use IOP20Contract for type safety.
+// signer: null, mldsaSigner: null in sendTransaction() — wallet handles signing.
+// Access results via result.properties.balance (not result.decoded).
 
-async function getProvider() {
-  const { JSONRpcProvider } = await import('opnet');
-  const { opnetTestnet } = await import('@btc-vision/bitcoin');
-  return { provider: new JSONRpcProvider(OPNET_CONFIG.rpcUrl, opnetTestnet), network: opnetTestnet };
-}
+const MAX_SATS = 50000n;
 
-const PRED_ABI = [
-  { name: 'balanceOf', inputs: [{ name: 'owner', type: 'ADDRESS' }], outputs: [{ name: 'balance', type: 'UINT256' }], type: 'Function' },
-  { name: 'transfer', inputs: [{ name: 'to', type: 'ADDRESS' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'ok', type: 'BOOL' }], type: 'Function' },
-  { name: 'approve', inputs: [{ name: 'spender', type: 'ADDRESS' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'ok', type: 'BOOL' }], type: 'Function' },
-  { name: 'mint', inputs: [{ name: 'to', type: 'ADDRESS' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'ok', type: 'BOOL' }], type: 'Function' },
-];
-
-const MARKET_ABI = [
-  { name: 'buyShares', inputs: [{ name: 'marketId', type: 'UINT256' }, { name: 'isYes', type: 'BOOL' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'shares', type: 'UINT256' }], type: 'Function' },
-  { name: 'claimPayout', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'payout', type: 'UINT256' }], type: 'Function' },
-  { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'data', type: 'BYTES' }], type: 'Function' },
-];
-
-const MAX_SATS = 50000n; // max sats to spend on gas per tx
+// Re-export types for consumers
+export type { AbstractRpcProvider } from 'opnet';
 
 /**
- * Read PRED token balance on-chain via OP-20 balanceOf
+ * Get PRED token balance on-chain via OP-20 balanceOf.
+ * Uses wallet's provider from useWalletConnect().
  */
-export async function getPredBalanceOnChain(address: string): Promise<bigint> {
+export async function getPredBalanceOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddress: string,
+): Promise<bigint> {
+  if (!provider || !network) return 0n;
   try {
-    const { getContract } = await import('opnet');
-    const { provider, network } = await getProvider();
-    const token = getContract(OPNET_CONFIG.predTokenAddress, PRED_ABI, provider, network, address);
-    const result = await (token as any).balanceOf(address);
-    return result.decoded?.[0] ?? result.value ?? 0n;
+    const { getContract, OP_20_ABI } = await import('opnet');
+    const token = getContract(
+      OPNET_CONFIG.predTokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddress,
+    );
+    const result = await (token as any).balanceOf(senderAddress);
+    return result?.properties?.balance ?? 0n;
   } catch (err) {
-    console.warn('getPredBalanceOnChain failed:', err);
+    console.warn('getPredBalanceOnChain:', err instanceof Error ? err.message : err);
     return 0n;
   }
 }
 
 /**
- * Claim PRED tokens from on-chain faucet (calls mint on PRED token)
- * This triggers OP_WALLET to sign the transaction.
- */
-export async function claimPredOnChain(
-  senderAddress: string,
-  amount: bigint = 50000n,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  try {
-    const { getContract } = await import('opnet');
-    const { provider, network } = await getProvider();
-    const token = getContract(OPNET_CONFIG.predTokenAddress, PRED_ABI, provider, network, senderAddress);
-
-    const sim = await (token as any).mint(senderAddress, amount);
-    if (sim.revert) return { txHash: '', success: false, error: `Revert: ${sim.revert}` };
-
-    const receipt = await sim.sendTransaction({
-      signer: null, mldsaSigner: null,
-      refundTo: senderAddress,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-    });
-    return { txHash: receipt.transactionId || receipt.txid || '', success: true };
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
- * Approve PredictionMarket contract to spend PRED tokens
+ * Approve PredictionMarket contract to spend PRED tokens on-chain.
+ * Uses wallet's OWN provider (not testnet.opnet.org).
  */
 export async function approvePredSpending(
+  provider: unknown,
+  network: unknown,
   senderAddress: string,
   amount: bigint,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
-    const { getContract } = await import('opnet');
-    const { provider, network } = await getProvider();
-    const token = getContract(OPNET_CONFIG.predTokenAddress, PRED_ABI, provider, network, senderAddress);
+    const { getContract, OP_20_ABI } = await import('opnet');
+    const token = getContract(
+      OPNET_CONFIG.predTokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddress,
+    );
 
     const sim = await (token as any).approve(OPNET_CONFIG.contractAddress, amount);
-    if (sim.revert) return { txHash: '', success: false, error: `Revert: ${sim.revert}` };
+    if (sim?.revert) return { txHash: '', success: false, error: `Approve revert: ${sim.revert}` };
 
     const receipt = await sim.sendTransaction({
-      signer: null, mldsaSigner: null,
+      signer: null,
+      mldsaSigner: null,
       refundTo: senderAddress,
       maximumAllowedSatToSpend: MAX_SATS,
       network,
     });
-    return { txHash: receipt.transactionId || receipt.txid || '', success: true };
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 /**
- * Submit a prediction bet as a real OP_NET on-chain transaction.
- * Calls PredictionMarket.buyShares via opnet SDK.
- * Flow: getContract → simulate → sendTransaction({signer:null})
+ * Claim PRED tokens on-chain (calls mint on PRED OP-20 token).
+ * Triggers OP_WALLET signing popup.
+ */
+export async function claimPredOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddress: string,
+  amount: bigint = 500n,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
+  try {
+    const { getContract, OP_20_ABI } = await import('opnet');
+    const token = getContract(
+      OPNET_CONFIG.predTokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddress,
+    );
+
+    const sim = await (token as any).mint(senderAddress, amount);
+    if (sim?.revert) return { txHash: '', success: false, error: `Mint revert: ${sim.revert}` };
+
+    const receipt = await sim.sendTransaction({
+      signer: null,
+      mldsaSigner: null,
+      refundTo: senderAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Submit a prediction bet on-chain: approve PRED → buyShares on PredictionMarket.
+ * Uses wallet's OWN provider from useWalletConnect().
+ * Both TXs trigger OP_WALLET signing popups.
  */
 export async function submitBetTransaction(
   marketId: string,
   side: 'yes' | 'no',
   amountSats: number,
+  provider: unknown,
+  network: unknown,
   senderAddress: string,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract } = await import('opnet');
-    const { provider, network } = await getProvider();
 
+    // Step 1: Approve PRED spending for the PredictionMarket contract
+    const approveResult = await approvePredSpending(provider, network, senderAddress, BigInt(amountSats));
+    if (!approveResult.success) {
+      return { txHash: '', success: false, error: approveResult.error || 'Approve failed' };
+    }
+
+    // Step 2: Call buyShares on PredictionMarket
+    // Using a minimal ABI for the prediction market contract
+    const MARKET_ABI = [
+      { name: 'buyShares', inputs: [{ name: 'marketId', type: 'UINT256' }, { name: 'isYes', type: 'BOOL' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'shares', type: 'UINT256' }], type: 'Function' },
+    ];
     const contract = getContract(
       OPNET_CONFIG.contractAddress,
       MARKET_ABI,
-      provider,
-      network,
+      provider as never,
+      network as never,
       senderAddress,
     );
 
-    // Encode marketId as u256 from string
-    const marketIdBig = BigInt('0x' + Array.from(new TextEncoder().encode(marketId))
-      .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0'));
-    const isYes = side === 'yes';
+    // Encode marketId string → u256
+    const marketIdBytes = new TextEncoder().encode(marketId);
+    const marketIdHex = Array.from(marketIdBytes)
+      .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0').slice(0, 64);
+    const marketIdBig = BigInt('0x' + marketIdHex);
 
-    // Step 1: Simulate
-    const simulation = await (contract as any).buyShares(marketIdBig, isYes, BigInt(amountSats));
-    if (simulation.revert) {
-      return { txHash: '', success: false, error: `Contract revert: ${simulation.revert}` };
+    // Simulate
+    const simulation = await (contract as any).buyShares(marketIdBig, side === 'yes', BigInt(amountSats));
+    if (simulation?.revert) {
+      return { txHash: '', success: false, error: `buyShares revert: ${simulation.revert}` };
     }
 
-    // Step 2: Send — signer:null, OP_WALLET handles signing
+    // Send — signer:null, OP_WALLET handles signing
     const receipt = await simulation.sendTransaction({
       signer: null,
       mldsaSigner: null,
@@ -466,41 +496,50 @@ export async function submitBetTransaction(
       network,
     });
 
-    return {
-      txHash: receipt.transactionId || receipt.txid || '',
-      success: true,
-    };
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { txHash: '', success: false, error: msg };
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 /**
- * Claim on-chain payout for a resolved market
+ * Claim on-chain payout for a resolved market.
  */
 export async function claimPayoutOnChain(
   marketId: string,
+  provider: unknown,
+  network: unknown,
   senderAddress: string,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract } = await import('opnet');
-    const { provider, network } = await getProvider();
-    const contract = getContract(OPNET_CONFIG.contractAddress, MARKET_ABI, provider, network, senderAddress);
+    const MARKET_ABI = [
+      { name: 'claimPayout', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'payout', type: 'UINT256' }], type: 'Function' },
+    ];
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      MARKET_ABI,
+      provider as never,
+      network as never,
+      senderAddress,
+    );
 
-    const marketIdBig = BigInt('0x' + Array.from(new TextEncoder().encode(marketId))
-      .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0'));
+    const marketIdBytes = new TextEncoder().encode(marketId);
+    const marketIdHex = Array.from(marketIdBytes)
+      .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0').slice(0, 64);
 
-    const sim = await (contract as any).claimPayout(marketIdBig);
-    if (sim.revert) return { txHash: '', success: false, error: `Revert: ${sim.revert}` };
+    const sim = await (contract as any).claimPayout(BigInt('0x' + marketIdHex));
+    if (sim?.revert) return { txHash: '', success: false, error: `Revert: ${sim.revert}` };
 
     const receipt = await sim.sendTransaction({
-      signer: null, mldsaSigner: null,
+      signer: null,
+      mldsaSigner: null,
       refundTo: senderAddress,
       maximumAllowedSatToSpend: MAX_SATS,
       network,
     });
-    return { txHash: receipt.transactionId || receipt.txid || '', success: true };
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }

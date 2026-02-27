@@ -11,6 +11,9 @@ export function useWallet() {
     disconnect: sdkDisconnect,
     walletBalance,
     network,
+    provider,
+    signer,
+    address: addressObj,
   } = useWalletConnect();
 
   const [loading, setLoading] = useState(false);
@@ -22,17 +25,14 @@ export function useWallet() {
     network: 'testnet',
   }), [walletAddress, walletBalance]);
 
-  // Sync loading state with SDK connecting state
   useEffect(() => {
     setLoading(connecting);
   }, [connecting]);
 
   const connectOPWallet = useCallback(async () => {
     try {
-      // Try OP_WALLET first (official, supports MLDSA + quantum resistance)
       connectToWallet(SupportedWallets.OP_WALLET);
     } catch {
-      // Fallback: open the connect modal which lets user pick
       openConnectModal();
     }
   }, [connectToWallet, openConnectModal]);
@@ -41,9 +41,7 @@ export function useWallet() {
     sdkDisconnect();
   }, [sdkDisconnect]);
 
-  const refreshBalance = useCallback(async (_address: string) => {
-    // Balance is managed automatically by the SDK provider
-  }, []);
+  const refreshBalance = useCallback(async (_address: string) => {}, []);
 
   return {
     wallet,
@@ -52,6 +50,10 @@ export function useWallet() {
     disconnect,
     refreshBalance,
     isDemo: false,
-    network,
+    // From walletconnect SDK — use for ALL on-chain interactions
+    network,        // WalletConnectNetwork (extends Network)
+    provider,       // AbstractRpcProvider — wallet's own RPC, NOT testnet.opnet.org
+    signer,         // UnisatSigner — for sendTransaction
+    addressObj,     // Address object with MLDSA support
   };
 }
