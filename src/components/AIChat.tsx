@@ -13,10 +13,10 @@ interface Message {
 const QUICK_PROMPTS = [
   { icon: <TrendingUp size={13} />, label: 'Best value', text: 'Какие рынки сейчас дают лучший expected value? Рассчитай EV.' },
   { icon: <BarChart3 size={13} />, label: 'BTC analysis', text: 'Analyze the current BTC price markets — what\'s your signal?' },
-  { icon: <Sparkles size={13} />, label: 'Strategy', text: 'Build me a portfolio strategy: which markets to bet on and how much PRED to allocate?' },
+  { icon: <Sparkles size={13} />, label: 'Strategy', text: 'Build me a portfolio strategy: which markets to bet on and how much PUSD to allocate?' },
   { icon: <Shield size={13} />, label: 'OP_NET tech', text: 'Explain how OP_NET smart contracts work on Bitcoin L1 — Tapscript, WASM, the whole stack.' },
   { icon: <Zap size={13} />, label: 'How to start', text: 'Как начать пользоваться BitPredict? Пошагово: кошелёк, фаусет, ставки.' },
-  { icon: <Cpu size={13} />, label: 'On-chain flow', text: 'How does the on-chain bet flow work? Approve PRED → buyShares → claimPayout?' },
+  { icon: <Cpu size={13} />, label: 'On-chain flow', text: 'How does the on-chain bet flow work? Approve PUSD → buyShares → claimPayout?' },
 ];
 
 interface AIChatProps {

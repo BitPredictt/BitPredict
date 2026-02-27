@@ -4,7 +4,6 @@ import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
-import { submitBetTransaction } from './lib/opnet';
 import * as api from './lib/api';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
@@ -119,12 +118,6 @@ function App() {
     const market = markets.find((m) => m.id === marketId);
     if (!market || !wallet.connected) return;
 
-    // Require wallet provider for on-chain TX
-    if (!provider || !walletNetwork || !addressObj) {
-      setToast({ message: 'Wallet provider not ready. Reconnect OP_WALLET.', type: 'error' });
-      return;
-    }
-
     // Show pending
     const pendingId = `pending-${Date.now()}`;
     const pendingBet: Bet = {
@@ -133,39 +126,34 @@ function App() {
       timestamp: Date.now(), status: 'pending',
     };
     setBets((prev) => [pendingBet, ...prev]);
-    setToast({ message: 'Подпишите транзакцию в OP_WALLET...', type: 'success' });
+    setToast({ message: 'Placing on-chain bet...', type: 'success' });
 
     try {
-      // 1) ON-CHAIN: approve PRED → buyShares (triggers wallet signing popups)
-      const txResult = await submitBetTransaction(
-        marketId, side, amount, provider, walletNetwork, addressObj
-      );
-      if (!txResult.success || !txResult.txHash) {
-        throw new Error(txResult.error || 'Transaction rejected');
-      }
-
-      // 2) TX confirmed → record on server with txHash as proof
-      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txResult.txHash);
+      // Server executes on-chain PUSD transfer + AMM calculation, returns real txHash
+      const result = await api.placeBet(wallet.address, marketId, side, amount);
 
       setPredBalance(result.newBalance);
       const confirmedBet: Bet = {
         id: result.betId, marketId, side, amount,
         price: side === 'yes' ? market.yesPrice : market.noPrice,
         timestamp: Date.now(), status: 'active',
-        shares: result.shares, txHash: txResult.txHash,
+        shares: result.shares, txHash: result.txHash,
       };
       setBets((prev) => prev.map((b) => b.id === pendingId ? confirmedBet : b));
       setMarkets((prev) => prev.map((m) =>
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
-      setToast({ message: `✅ On-chain: ${txResult.txHash.slice(0, 20)}...`, type: 'success' });
+      const txMsg = result.txHash
+        ? `✅ On-chain TX: ${result.txHash.slice(0, 20)}...`
+        : `✅ Bet placed: ${result.shares} shares for ${amount} PUSD`;
+      setToast({ message: txMsg, type: 'success' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
-      setToast({ message: `Ставка отклонена: ${msg}`, type: 'error' });
+      setToast({ message: `Bet rejected: ${msg}`, type: 'error' });
     }
-  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markets, wallet.connected, wallet.address, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">

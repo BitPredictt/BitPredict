@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Clock, TrendingUp, Droplets, ChevronRight } from 'lucide-react';
 import type { Market } from '../types';
 
@@ -19,11 +20,29 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
   const endMs = market.endTime ? market.endTime * 1000 : new Date(market.endDate).getTime();
-  const msLeft = Math.max(0, endMs - Date.now());
-  const daysLeft = Math.ceil(msLeft / 86400000);
-  const hoursLeft = Math.floor(msLeft / 3600000);
-  const minsLeft = Math.floor((msLeft % 3600000) / 60000);
+
+  const [now, setNow] = useState(Date.now());
+  const msLeft = Math.max(0, endMs - now);
   const isEndingSoon = msLeft > 0 && msLeft < 86400000;
+  const isUrgent = msLeft > 0 && msLeft < 120000; // < 2 min
+
+  useEffect(() => {
+    if (msLeft <= 0) return;
+    const interval = setInterval(() => setNow(Date.now()), isUrgent ? 1000 : 60000);
+    return () => clearInterval(interval);
+  }, [msLeft, isUrgent]);
+
+  const formatTimeLeft = () => {
+    if (msLeft <= 0) return 'Ended';
+    const secs = Math.floor(msLeft / 1000);
+    const mins = Math.floor(msLeft / 60000);
+    const hrs = Math.floor(msLeft / 3600000);
+    const days = Math.ceil(msLeft / 86400000);
+    if (secs < 120) return `${secs}s`;
+    if (mins < 60) return `${mins}m`;
+    if (hrs < 24) return `${hrs}h ${Math.floor((msLeft % 3600000) / 60000)}m`;
+    return `${days}d left`;
+  };
 
   const formatVolume = (v: number) => {
     if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
@@ -44,7 +63,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         </span>
         <div className={`flex items-center gap-1 text-[10px] ${isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
           <Clock size={10} />
-          <span>{isEndingSoon ? `${hoursLeft}h ${minsLeft}m` : `${daysLeft}d left`}</span>
+          <span>{formatTimeLeft()}</span>
         </div>
       </div>
 
@@ -76,7 +95,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <div className="flex gap-3">
           <div className="flex items-center gap-1 text-[10px] text-gray-500">
             <TrendingUp size={10} />
-            <span>{formatVolume(market.volume)} PRED vol</span>
+            <span>{formatVolume(market.volume)} PUSD vol</span>
           </div>
           <div className="flex items-center gap-1 text-[10px] text-gray-500">
             <Droplets size={10} />

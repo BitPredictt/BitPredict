@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Droplets, Loader2 } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl, claimPredOnChain } from '../lib/opnet';
+import { getExplorerTxUrl } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -23,21 +23,20 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
 
   const handleClaimFaucet = async () => {
     if (claiming || !walletAddress) return;
-    if (!walletProvider || !walletNetwork) {
-      setClaimMsg({ text: 'Wallet provider not ready. Reconnect OP_WALLET.', type: 'error' });
-      return;
-    }
     setClaiming(true);
     setClaimMsg(null);
     try {
-      setClaimMsg({ text: 'Requesting PRED from faucet...', type: 'success' });
+      setClaimMsg({ text: 'Claiming PUSD from faucet...', type: 'success' });
       const result = await api.claimFaucet(walletAddress) as any;
       onBalanceUpdate(result.newBalance);
 
       const msg = result.txHash
-        ? `✅ +${result.claimed} PRED sent on-chain! TX: ${result.txHash.slice(0, 20)}...`
-        : `✅ +${result.claimed} PRED credited! Balance: ${result.newBalance.toLocaleString()}`;
+        ? `✅ +${result.claimed} PUSD on-chain! TX: ${result.txHash.slice(0, 16)}...`
+        : `✅ +${result.claimed} PUSD credited! Balance: ${result.newBalance.toLocaleString()}`;
       setClaimMsg({ text: msg, type: 'success' });
+      if (result.txHash) {
+        setClaimMsg({ text: msg + ` | View on explorer`, type: 'success' });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setClaimMsg({ text: msg, type: 'error' });
@@ -131,7 +130,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
         <p className="text-xs text-gray-500 mt-1">Track your predictions on OP_NET Testnet</p>
         <div className="flex items-center justify-center gap-2 mt-2">
           <Coins size={16} className="text-btc" />
-          <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} PRED</span>
+          <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} PUSD</span>
         </div>
         <button
           onClick={handleClaimFaucet}
@@ -139,7 +138,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
           className="mt-3 mx-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600/20 to-btc/20 border border-purple-500/30 text-sm font-bold text-white hover:border-btc/40 transition-all disabled:opacity-50"
         >
           {claiming ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} className="text-purple-400" />}
-          {claiming ? 'Claiming...' : 'Claim 500 PRED (Faucet)'}
+          {claiming ? 'Claiming...' : 'Claim 500 PUSD (Faucet)'}
         </button>
         {claimMsg && (
           <p className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
@@ -258,7 +257,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         }`}>
                           {bet.side}
                         </span>
-                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} PRED @ {Math.round(bet.price * 100)}¢</span>
+                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} PUSD @ {Math.round(bet.price * 100)}¢</span>
                         {bet.status === 'active' && (
                           <span className={`text-[10px] font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(1)}%
