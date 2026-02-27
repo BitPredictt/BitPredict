@@ -369,8 +369,20 @@ export async function approvePredSpending(
   }
 }
 
+/** Retry wrapper for flaky RPC simulations (matches vibe pattern) */
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i === retries) throw e;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error('Retry exhausted');
+}
+
 /**
- * On-chain publicMint — mints MINE tokens directly via MintableToken contract.
+ * On-chain publicMint — mints BPUSD tokens directly via MintableToken contract.
  * User's OP_WALLET signs the TX. No server faucet needed.
  * Pattern from vibe's SwapUI.tsx (proven working).
  */
@@ -402,7 +414,7 @@ export async function mintTokensOnChain(
     );
 
     const rawAmount = BitcoinUtils.expandToDecimals(OPNET_CONFIG.mintAmount, OPNET_CONFIG.tokenDecimals);
-    const sim = await (contract as any).publicMint(rawAmount);
+    const sim = await withRetry(() => (contract as any).publicMint(rawAmount)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `Mint reverted: ${sim.revert}` };
 
     // Build TX params with gas from provider
@@ -416,7 +428,7 @@ export async function mintTokensOnChain(
       signer: null,
       mldsaSigner: null,
       refundTo: walletAddress,
-      maximumAllowedSatToSpend: 100_000n,
+      maximumAllowedSatToSpend: 250_000n,
       network,
       feeRate,
       priorityFee,
