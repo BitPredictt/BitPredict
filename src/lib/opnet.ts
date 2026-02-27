@@ -341,17 +341,16 @@ export async function approvePredSpending(
       senderAddr as never, // Address object
     );
 
-    // OP-20 uses increaseAllowance(), NOT approve() (Bob audit: ATK-05 race condition)
-    // Resolve spender contract address to Address via provider.getPublicKeyInfo()
-    const spenderInfo = await (provider as any).getPublicKeyInfo(OPNET_CONFIG.contractAddress);
-    let spenderAddr: unknown;
-    if (spenderInfo?.publicKey) {
-      const { Address } = await import('@btc-vision/transaction');
-      spenderAddr = Address.fromString(spenderInfo.publicKey);
-    } else {
-      // Fallback: pass contract address string directly — SDK may handle it
-      spenderAddr = OPNET_CONFIG.contractAddress;
-    }
+    // OP-20 uses increaseAllowance(), NOT approve() (Bob: ATK-05)
+    // Get spender Address via getContract().contractAddress (NOT getPublicKeyInfo — fails for contracts)
+    const MARKET_ABI_STUB = [{ name: 'version', inputs: [], outputs: [{ name: 'v', type: 'UINT256' }], type: 'Function' }];
+    const marketContract = getContract(
+      OPNET_CONFIG.contractAddress,
+      MARKET_ABI_STUB,
+      provider as never,
+      network as never,
+    );
+    const spenderAddr = await marketContract.contractAddress; // Address object
 
     const sim = await (token as any).increaseAllowance(spenderAddr, amount);
     if (sim?.revert) return { txHash: '', success: false, error: `Allowance revert: ${sim.revert}` };
@@ -370,40 +369,18 @@ export async function approvePredSpending(
 }
 
 /**
- * Claim PRED tokens on-chain (calls mint on PRED OP-20 token).
- * senderAddr must be Address object from useWalletConnect().address
+ * Faucet claim is SERVER-SIDE ONLY.
+ * mint() is deployer-only on OP-20 — users cannot call it.
+ * Server credits balance in DB. No on-chain TX from user wallet.
  */
 export async function claimPredOnChain(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown, // Address object
-  amount: bigint = 500n,
+  _provider: unknown,
+  _network: unknown,
+  _senderAddr: unknown,
+  _amount: bigint = 500n,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
-  try {
-    const { getContract, OP_20_ABI } = await import('opnet');
-    const token = getContract(
-      OPNET_CONFIG.predTokenAddress,
-      OP_20_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never, // Address object
-    );
-
-    const sim = await (token as any).mint(senderAddr, amount);
-    if (sim?.revert) return { txHash: '', success: false, error: `Mint revert: ${sim.revert}` };
-
-    const receipt = await sim.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
-      refundTo: senderAddr,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-    });
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  // mint() restricted to deployer — faucet handled server-side
+  return { txHash: 'server-faucet', success: true };
 }
 
 /**

@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
-import { X, AlertCircle, Zap, Info } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { X, AlertCircle, Zap, Info, BrainCircuit, Loader2 } from 'lucide-react';
 import type { Market, WalletState } from '../types';
 import { calculateShares } from '../lib/opnet';
+import * as api from '../lib/api';
 
 interface BetModalProps {
   market: Market;
@@ -11,11 +12,49 @@ interface BetModalProps {
   onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number) => void;
 }
 
+// Bob AI signal cache
+const signalCache = new Map<string, { signal: string; ts: number }>();
+const SIGNAL_TTL = 300000; // 5 min
+
 export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: BetModalProps) {
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [amount, setAmount] = useState('1000');
   const [placing, setPlacing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [bobSignal, setBobSignal] = useState<string | null>(null);
+  const [loadingSignal, setLoadingSignal] = useState(false);
+
+  // Fetch Bob AI signal when modal opens
+  useEffect(() => {
+    const cached = signalCache.get(market.id);
+    if (cached && Date.now() - cached.ts < SIGNAL_TTL) {
+      setBobSignal(cached.signal);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSignal(true);
+    api.aiSignal(market.id).then(({ signal }) => {
+      if (!cancelled) {
+        setBobSignal(signal);
+        signalCache.set(market.id, { signal, ts: Date.now() });
+      }
+    }).catch(() => {
+      signalCache.set(market.id, { signal: '', ts: Date.now() });
+    }).finally(() => { if (!cancelled) setLoadingSignal(false); });
+    return () => { cancelled = true; };
+  }, [market.id]);
+
+  const getSignalType = (text: string | null): 'bullish' | 'bearish' | 'neutral' => {
+    if (!text) return 'neutral';
+    const lower = text.toLowerCase();
+    if (lower.includes('buy yes') || lower.includes('bullish') || lower.includes('high confidence')) return 'bullish';
+    if (lower.includes('buy no') || lower.includes('bearish') || lower.includes('sell')) return 'bearish';
+    return 'neutral';
+  };
+
+  const signalType = getSignalType(bobSignal);
+  const signalColor = signalType === 'bullish' ? 'text-green-400' : signalType === 'bearish' ? 'text-red-400' : 'text-yellow-400';
+  const signalBg = signalType === 'bullish' ? 'bg-green-500/10 border-green-500/20' : signalType === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
 
   const amountNum = parseInt(amount) || 0;
   const yesPct = Math.round(market.yesPrice * 100);
@@ -68,6 +107,31 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           <span className="text-[10px] font-bold uppercase tracking-wider text-btc">{market.category}</span>
           <h3 className="text-base font-bold text-white mt-1 pr-8">{market.question}</h3>
         </div>
+
+        {/* Bob AI Signal */}
+        {(bobSignal || loadingSignal) && (
+          <div className={`flex items-start gap-2 mb-4 px-3 py-2.5 rounded-xl border ${bobSignal ? signalBg : 'bg-purple-500/5 border-purple-500/10'}`}>
+            {loadingSignal && !bobSignal ? (
+              <>
+                <Loader2 size={14} className="text-purple-400 animate-spin mt-0.5 shrink-0" />
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold">Bob AI analyzing market...</span>
+                </div>
+              </>
+            ) : bobSignal ? (
+              <>
+                <BrainCircuit size={14} className="text-purple-400 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-[10px] font-bold text-purple-400">Bob AI</span>
+                    <span className={`text-[10px] font-black uppercase ${signalColor}`}>{signalType}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">{bobSignal}</p>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
 
         {/* Current odds */}
         <div className="flex gap-2 mb-5">
