@@ -469,13 +469,13 @@ app.post('/api/bet', (req, res) => {
     return res.status(400).json({ error: 'side must be yes or no' });
   }
   if (amount < 100) {
-    return res.status(400).json({ error: 'minimum bet is 100 PRED' });
+    return res.status(400).json({ error: 'minimum bet is 100 PUSD' });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) return res.status(404).json({ error: 'user not found' });
   if (user.balance < amount) {
-    return res.status(400).json({ error: `Insufficient balance: ${user.balance} PRED (need ${amount})` });
+    return res.status(400).json({ error: `Insufficient balance: ${user.balance} PUSD (need ${amount})` });
   }
 
   const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
@@ -628,12 +628,12 @@ app.post('/api/bet/onchain', (req, res) => {
     return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
   }
   if (side !== 'yes' && side !== 'no') return res.status(400).json({ error: 'side must be yes or no' });
-  if (amount < 100) return res.status(400).json({ error: 'minimum bet is 100 PRED' });
+  if (amount < 100) return res.status(400).json({ error: 'minimum bet is 100 PUSD' });
 
   try {
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (!user) return res.status(404).json({ error: 'user not found' });
-    if (user.balance < amount) return res.status(400).json({ error: `Insufficient balance: ${user.balance} PRED` });
+    if (user.balance < amount) return res.status(400).json({ error: `Insufficient balance: ${user.balance} PUSD` });
 
     const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
     if (!market) return res.status(404).json({ error: 'market not found' });
@@ -718,12 +718,12 @@ OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a roll
 - Faucet: https://faucet.opnet.org for testnet BTC
 
 ## BitPredict Architecture
-- PRED token: OP-20 token at opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph
+- PUSD token: OP-20 token at opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph
 - PredictionMarket contract: opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj
 - AMM: constant-product (x·y=k), 2% protocol fee (200 bps), fee rounds UP to favor protocol
-- Markets: binary YES/NO outcomes, shares priced 0–1 PRED
+- Markets: binary YES/NO outcomes, shares priced 0–1 PUSD
 - Resolution: oracle/creator resolves, winning shares redeem 1:1 from pool
-- On-chain flow: approve PRED → buyShares(marketId, isYes, amount) → claimPayout(marketId)
+- On-chain flow: approve PUSD → buyShares(marketId, isYes, amount) → claimPayout(marketId)
 - SDK pattern: getContract() → simulate() → sendTransaction({signer:null, mldsaSigner:null})
 - signer is ALWAYS null on frontend — OP_WALLET extension handles all signing
 - Security: reentrancy guards, tx.sender (not tx.origin), checked u256 math
@@ -773,7 +773,7 @@ app.post('/api/ai/chat', async (req, res) => {
         const betsCount = db.prepare('SELECT COUNT(*) as c FROM bets WHERE market_id = ?').get(m.id).c;
         const k = m.yes_pool * m.no_pool;
         marketContext = `\n## Focus Market: "${m.question}"
-YES: ${(m.yes_price * 100).toFixed(1)}% | NO: ${(m.no_price * 100).toFixed(1)}% | Volume: ${m.volume} PRED | Liquidity: ${m.liquidity} PRED
+YES: ${(m.yes_price * 100).toFixed(1)}% | NO: ${(m.no_price * 100).toFixed(1)}% | Volume: ${m.volume} PUSD | Liquidity: ${m.liquidity} PUSD
 YES pool: ${m.yes_pool} | NO pool: ${m.no_pool} | k=${k} | Bets placed: ${betsCount}
 Ends: ${new Date(m.end_time * 1000).toISOString().split('T')[0]} | Category: ${m.category}
 ${m.resolved ? `RESOLVED: ${m.outcome}` : 'ACTIVE'}`;
@@ -786,7 +786,7 @@ ${m.resolved ? `RESOLVED: ${m.outcome}` : 'ACTIVE'}`;
       const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
       const userBets = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status=\'won\' THEN 1 ELSE 0 END) as wins, SUM(amount) as volume FROM bets WHERE user_address = ?').get(address);
       if (user) {
-        userContext = `\nUser balance: ${user.balance} PRED | Bets: ${userBets?.total || 0} | Wins: ${userBets?.wins || 0} | Volume: ${userBets?.volume || 0} PRED`;
+        userContext = `\nUser balance: ${user.balance} PUSD | Bets: ${userBets?.total || 0} | Wins: ${userBets?.wins || 0} | Volume: ${userBets?.volume || 0} PUSD`;
       }
     }
 
@@ -807,7 +807,7 @@ ${BOB_OPNET_KNOWLEDGE}
 BTC: $${prices.btc.toLocaleString()} | ETH: $${prices.eth.toLocaleString()}
 
 Active markets:
-${activeMarkets.map(m => `• "${m.question}" → YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}% | Vol: ${m.volume} PRED | Liq: ${m.liquidity}`).join('\n')}
+${activeMarkets.map(m => `• "${m.question}" → YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}% | Vol: ${m.volume} PUSD | Liq: ${m.liquidity}`).join('\n')}
 
 ${recentResolved.length > 0 ? `Recently resolved:\n${recentResolved.map(m => `• "${m.question}" → ${m.outcome?.toUpperCase()}`).join('\n')}` : ''}
 ${marketContext}${userContext}
@@ -822,7 +822,7 @@ ${marketContext}${userContext}
 - Be opinionated on markets — give clear YES/NO recommendations with reasoning
 - Always calculate expected value: EV = (probability × payout) - cost
 - Warn about risks but don't be overly cautious — traders want actionable signals
-- If someone asks how to use the platform, walk them through: connect OP_WALLET → claim PRED from faucet → pick a market → place a bet
+- If someone asks how to use the platform, walk them through: connect OP_WALLET → claim PUSD from faucet → pick a market → place a bet
 - ALWAYS respond in the same language as the user's message (if Russian, reply in Russian, etc.)
 - Keep answers focused: 3-6 sentences for simple questions, longer for deep analysis
 - Sign off important analyses with "— Bob 🤖" when appropriate`;
@@ -931,7 +931,7 @@ app.get('/api/ai/signal/:marketId', async (req, res) => {
 
 Market: "${m.question}"
 Current odds: YES ${(m.yes_price * 100).toFixed(1)}% / NO ${(m.no_price * 100).toFixed(1)}%
-Volume: ${m.volume.toLocaleString()} PRED | Category: ${m.category} | Deadline: ${endDate}
+Volume: ${m.volume.toLocaleString()} PUSD | Category: ${m.category} | Deadline: ${endDate}
 Live prices: BTC $${prices.btc.toLocaleString()} | ETH $${prices.eth.toLocaleString()}
 
 Provide a concise 2-3 sentence trading signal. Include:
@@ -979,9 +979,9 @@ Be specific and analytical. Reference actual data points.`;
   }
 });
 
-// --- Faucet: claim PRED tokens ---
+// --- Faucet: claim PUSD tokens ---
 // TEMPORARY: no restrictions for testing. Production: once per 24h, only if balance=0
-const FAUCET_AMOUNT = 500; // 500 PRED per claim (small amount)
+const FAUCET_AMOUNT = 500; // 500 PUSD per claim (small amount)
 
 app.post('/api/faucet/claim', async (req, res) => {
   const { address } = req.body;
@@ -1025,8 +1025,8 @@ app.post('/api/faucet/claim', async (req, res) => {
     txHash,
     onChain: onChainSuccess,
     message: onChainSuccess
-      ? '+' + FAUCET_AMOUNT + ' PRED sent on-chain! TX: ' + txHash.slice(0, 16) + '...'
-      : '+' + FAUCET_AMOUNT + ' PRED credited (server-side)',
+      ? '+' + FAUCET_AMOUNT + ' PUSD sent on-chain! TX: ' + txHash.slice(0, 16) + '...'
+      : '+' + FAUCET_AMOUNT + ' PUSD credited (server-side)',
   });
 })
 
