@@ -1,5 +1,7 @@
-import { Clock, TrendingUp, Droplets, ChevronRight, BrainCircuit } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Clock, TrendingUp, Droplets, ChevronRight, BrainCircuit, Loader2 } from 'lucide-react';
 import type { Market } from '../types';
+import * as api from '../lib/api';
 
 interface MarketCardProps {
   market: Market;
@@ -15,36 +17,57 @@ const categoryColors: Record<string, string> = {
   Culture: 'bg-pink-500/15 text-pink-400 border-pink-500/20',
 };
 
-// Inline AI signal for each market
-const AI_SIGNALS: Record<string, { signal: 'bullish' | 'bearish' | 'neutral'; confidence: number; hint: string }> = {
-  'btc-100k-2026': { signal: 'bullish', confidence: 78, hint: 'Post-halving momentum + ETF inflows' },
-  'eth-etf-spot': { signal: 'neutral', confidence: 55, hint: 'Moderate inflows, ambitious target' },
-  'us-election-2026': { signal: 'neutral', confidence: 52, hint: 'Too early, mixed signals' },
-  'opnet-adoption': { signal: 'bullish', confidence: 72, hint: 'Ecosystem growing rapidly' },
-  'ai-agi-2027': { signal: 'bearish', confidence: 85, hint: 'Timeline too ambitious' },
-  'champions-league': { signal: 'bearish', confidence: 60, hint: 'Strong competition' },
-  'btc-dominance': { signal: 'bullish', confidence: 62, hint: 'Altcoin rotation slowing' },
-  'mars-mission': { signal: 'bearish', confidence: 70, hint: 'Technical delays likely' },
-  'nft-comeback': { signal: 'bearish', confidence: 75, hint: 'Market not recovering' },
-  'fed-rate-cut': { signal: 'neutral', confidence: 48, hint: 'Depends on inflation data' },
-  'solana-flip-eth': { signal: 'neutral', confidence: 50, hint: 'Both chains growing' },
-  'world-cup-2026': { signal: 'bearish', confidence: 65, hint: 'Many strong competitors' },
-};
+// Cache Bob signals in memory
+const signalCache = new Map<string, { signal: string; ts: number }>();
+const SIGNAL_TTL = 300000; // 5 min cache
 
 export function MarketCard({ market, onSelect, index }: MarketCardProps) {
+  const [bobSignal, setBobSignal] = useState<string | null>(null);
+  const [loadingSignal, setLoadingSignal] = useState(false);
+
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
   const daysLeft = Math.max(0, Math.ceil((new Date(market.endDate).getTime() - Date.now()) / 86400000));
-  const ai = AI_SIGNALS[market.id];
 
-  const formatVolume = (v: number) => {
-    if (v >= 1000000) return `$${(v / 1000000).toFixed(1)}M`;
-    if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
-    return `$${v}`;
+  // Fetch Bob signal on mount (with cache)
+  useEffect(() => {
+    const cached = signalCache.get(market.id);
+    if (cached && Date.now() - cached.ts < SIGNAL_TTL) {
+      setBobSignal(cached.signal);
+      return;
+    }
+    // Only fetch for non-5min markets (avoid spamming)
+    if (market.id.includes('-5min-')) return;
+
+    let cancelled = false;
+    setLoadingSignal(true);
+    api.aiSignal(market.id).then(({ signal }) => {
+      if (!cancelled) {
+        setBobSignal(signal);
+        signalCache.set(market.id, { signal, ts: Date.now() });
+      }
+    }).catch(() => {}).finally(() => { if (!cancelled) setLoadingSignal(false); });
+    return () => { cancelled = true; };
+  }, [market.id]);
+
+  // Parse signal direction from Bob's text
+  const getSignalType = (text: string | null): 'bullish' | 'bearish' | 'neutral' => {
+    if (!text) return 'neutral';
+    const lower = text.toLowerCase();
+    if (lower.includes('buy yes') || lower.includes('bullish') || lower.includes('high confidence')) return 'bullish';
+    if (lower.includes('buy no') || lower.includes('bearish') || lower.includes('sell')) return 'bearish';
+    return 'neutral';
   };
 
-  const signalColor = ai?.signal === 'bullish' ? 'text-green-400' : ai?.signal === 'bearish' ? 'text-red-400' : 'text-yellow-400';
-  const signalBg = ai?.signal === 'bullish' ? 'bg-green-500/10 border-green-500/20' : ai?.signal === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
+  const signalType = getSignalType(bobSignal);
+  const signalColor = signalType === 'bullish' ? 'text-green-400' : signalType === 'bearish' ? 'text-red-400' : 'text-yellow-400';
+  const signalBg = signalType === 'bullish' ? 'bg-green-500/10 border-green-500/20' : signalType === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
+
+  const formatVolume = (v: number) => {
+    if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
+    if (v >= 1000) return `${(v / 1000).toFixed(0)}K`;
+    return `${v}`;
+  };
 
   return (
     <div
@@ -68,13 +91,21 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         {market.question}
       </h3>
 
-      {/* AI Signal inline */}
-      {ai && (
-        <div className={`flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg border ${signalBg}`}>
-          <BrainCircuit size={12} className="text-purple-400" />
-          <span className={`text-[10px] font-black uppercase ${signalColor}`}>{ai.signal}</span>
-          <span className="text-[10px] text-gray-500">{ai.confidence}%</span>
-          <span className="text-[10px] text-gray-500 truncate flex-1">{ai.hint}</span>
+      {/* Bob AI Signal */}
+      {(bobSignal || loadingSignal) && (
+        <div className={`flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg border ${bobSignal ? signalBg : 'bg-purple-500/5 border-purple-500/10'}`}>
+          {loadingSignal && !bobSignal ? (
+            <>
+              <Loader2 size={11} className="text-purple-400 animate-spin" />
+              <span className="text-[10px] text-gray-500">Bob analyzing...</span>
+            </>
+          ) : (
+            <>
+              <BrainCircuit size={12} className="text-purple-400 shrink-0" />
+              <span className={`text-[10px] font-black uppercase ${signalColor} shrink-0`}>{signalType}</span>
+              <span className="text-[10px] text-gray-400 truncate flex-1">{bobSignal}</span>
+            </>
+          )}
         </div>
       )}
 
@@ -101,11 +132,11 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <div className="flex gap-3">
           <div className="flex items-center gap-1 text-[10px] text-gray-500">
             <TrendingUp size={10} />
-            <span>{formatVolume(market.volume)} vol</span>
+            <span>{formatVolume(market.volume)} PRED vol</span>
           </div>
           <div className="flex items-center gap-1 text-[10px] text-gray-500">
             <Droplets size={10} />
-            <span>{formatVolume(market.liquidity)}</span>
+            <span>{formatVolume(market.liquidity)} liq</span>
           </div>
         </div>
         <ChevronRight size={14} className="text-gray-600 group-hover:text-btc transition-colors" />

@@ -4,7 +4,7 @@ import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
-import { submitBetTransaction, isOPWalletAvailable, claimPredOnChain, approvePredSpending } from './lib/opnet';
+import { submitBetTransaction, isOPWalletAvailable, approvePredSpending } from './lib/opnet';
 import * as api from './lib/api';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
@@ -108,13 +108,43 @@ function App() {
     const market = markets.find((m) => m.id === marketId);
     if (!market || !wallet.connected) return;
 
-    try {
-      // 1) Place bet on server (deducts PRED balance, updates AMM)
-      const result = await api.placeBet(wallet.address, marketId, side, amount);
+    // OP_WALLET is REQUIRED — every bet must be signed on-chain
+    if (!isOPWalletAvailable()) {
+      setToast({ message: 'Установите OP_WALLET для on-chain ставок. Каждая ставка — транзакция в сети.', type: 'error' });
+      return;
+    }
 
-      // Update local state
+    // Show pending state
+    const pendingBet: Bet = {
+      id: `pending-${Date.now()}`,
+      marketId,
+      side,
+      amount,
+      price: side === 'yes' ? market.yesPrice : market.noPrice,
+      timestamp: Date.now(),
+      status: 'pending',
+    };
+    setBets((prev) => [pendingBet, ...prev]);
+    setToast({ message: 'Подпишите транзакцию в OP_WALLET...', type: 'success' });
+
+    try {
+      // 1) On-chain: approve PRED → buyShares on PredictionMarket contract
+      const approveResult = await approvePredSpending(wallet.address, BigInt(amount));
+      if (!approveResult.success) {
+        throw new Error(approveResult.error || 'PRED approve rejected');
+      }
+
+      const txResult = await submitBetTransaction(marketId, side, amount, wallet.address);
+      if (!txResult.success || !txResult.txHash) {
+        throw new Error(txResult.error || 'Transaction rejected by wallet');
+      }
+
+      // 2) TX signed! Now record on server with txHash as proof
+      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txResult.txHash);
+
+      // Update local state with confirmed bet
       setPredBalance(result.newBalance);
-      const newBet: Bet = {
+      const confirmedBet: Bet = {
         id: result.betId,
         marketId,
         side,
@@ -123,44 +153,27 @@ function App() {
         timestamp: Date.now(),
         status: 'active',
         shares: result.shares,
+        txHash: txResult.txHash,
       };
-      setBets((prev) => [newBet, ...prev]);
+      setBets((prev) => prev.map((b) => b.id === pendingBet.id ? confirmedBet : b));
 
-      // Update market prices locally
+      // Update market prices
       setMarkets((prev) => prev.map((m) =>
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
 
-      // 2) On-chain TX: approve PRED spending → place bet on contract
-      if (isOPWalletAvailable()) {
-        (async () => {
-          try {
-            // Approve PRED spending for the contract
-            await approvePredSpending(wallet.address, BigInt(amount));
-            // Submit bet on-chain
-            const txResult = await submitBetTransaction(marketId, side, amount, wallet.address);
-            if (txResult.success && txResult.txHash) {
-              setBets((prev) =>
-                prev.map((b) => b.id === newBet.id ? { ...b, txHash: txResult.txHash } : b)
-              );
-              // Record on-chain tx hash on server
-              api.recordOnChainBet(wallet.address, result.betId, txResult.txHash).catch(() => {});
-              setToast({ message: `On-chain TX: ${txResult.txHash.slice(0, 16)}...`, type: 'success' });
-            }
-          } catch {}
-        })();
-      }
-
       setToast({
-        message: `${side.toUpperCase()} — ${amount.toLocaleString()} PRED на «${market.question.slice(0, 40)}...»`,
+        message: `✅ ${side.toUpperCase()} — ${amount.toLocaleString()} PRED | TX: ${txResult.txHash.slice(0, 16)}...`,
         type: 'success',
       });
 
       // Track achievements
-      achievements.onBetPlaced(newBet, bets, market.category);
+      achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
+      // Remove pending bet on failure
+      setBets((prev) => prev.filter((b) => b.id !== pendingBet.id));
       const msg = err instanceof Error ? err.message : String(err);
-      setToast({ message: `Ошибка: ${msg}`, type: 'error' });
+      setToast({ message: `Ставка отклонена: ${msg}`, type: 'error' });
     }
   }, [markets, wallet.connected, wallet.address, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 

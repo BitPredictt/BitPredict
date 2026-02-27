@@ -132,14 +132,16 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
           <Coins size={16} className="text-btc" />
           <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} PRED</span>
         </div>
-        <button
-          onClick={handleClaimFaucet}
-          disabled={claiming}
-          className="mt-3 mx-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600/20 to-btc/20 border border-purple-500/30 text-sm font-bold text-white hover:border-btc/40 transition-all disabled:opacity-50"
-        >
-          {claiming ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} className="text-purple-400" />}
-          {claiming ? 'Claiming...' : 'Claim 50,000 PRED (Faucet)'}
-        </button>
+        {predBalance === 0 && (
+          <button
+            onClick={handleClaimFaucet}
+            disabled={claiming}
+            className="mt-3 mx-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600/20 to-btc/20 border border-purple-500/30 text-sm font-bold text-white hover:border-btc/40 transition-all disabled:opacity-50"
+          >
+            {claiming ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} className="text-purple-400" />}
+            {claiming ? 'Claiming...' : 'Claim 50,000 PRED (Faucet)'}
+          </button>
+        )}
         {claimMsg && (
           <p className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
             {claimMsg.text}

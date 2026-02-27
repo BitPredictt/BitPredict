@@ -135,11 +135,22 @@ export async function claimFaucet(address: string) {
   });
 }
 
-// --- On-chain bet record ---
-export async function recordOnChainBet(address: string, betId: string, txHash: string) {
-  return apiFetch<{ success: boolean; txHash: string }>('/api/bet/onchain', {
+// --- On-chain bet (requires txHash from wallet signature) ---
+export interface OnChainBetResult {
+  success: boolean;
+  betId: string;
+  shares: number;
+  fee: number;
+  txHash: string;
+  newBalance: number;
+  newYesPrice: number;
+  newNoPrice: number;
+}
+
+export async function placeOnChainBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string) {
+  return apiFetch<OnChainBetResult>('/api/bet/onchain', {
     method: 'POST',
-    body: JSON.stringify({ address, betId, txHash }),
+    body: JSON.stringify({ address, marketId, side, amount, txHash }),
   });
 }
 

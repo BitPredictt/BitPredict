@@ -63,7 +63,17 @@ db.exec(`
     price REAL NOT NULL,
     timestamp INTEGER NOT NULL DEFAULT (unixepoch())
   );
+
+  CREATE TABLE IF NOT EXISTS faucet_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    claimed_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
 `);
+
+// Add tx_hash column to bets if not exists
+try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT'); } catch {}
 
 // --- Price feed ---
 const PRICE_CACHE = { btc: { price: 0, ts: 0 }, eth: { price: 0, ts: 0 } };
@@ -266,7 +276,7 @@ app.post('/api/auth', (req, res) => {
 
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
-    db.prepare('INSERT INTO users (address, balance) VALUES (?, 100000)').run(address);
+    db.prepare('INSERT INTO users (address, balance) VALUES (?, 0)').run(address);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   }
   res.json({ address: user.address, balance: user.balance });
@@ -480,18 +490,79 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', ts: Date.now(), markets: db.prepare('SELECT COUNT(*) as c FROM markets').get().c });
 });
 
-// On-chain bet record (frontend sends txHash after wallet signs)
+// On-chain bet: frontend sends txHash FIRST, then server records the bet
+// Bet is NOT valid without a txHash from the on-chain transaction
 app.post('/api/bet/onchain', (req, res) => {
-  const { address, betId, txHash } = req.body;
-  if (!address || !betId || !txHash) return res.status(400).json({ error: 'address, betId, txHash required' });
+  const { address, marketId, side, amount, txHash } = req.body;
+  if (!address || !marketId || !side || !amount || !txHash) {
+    return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
+  }
+  if (side !== 'yes' && side !== 'no') return res.status(400).json({ error: 'side must be yes or no' });
+  if (amount < 100) return res.status(400).json({ error: 'minimum bet is 100 PRED' });
 
-  const bet = db.prepare('SELECT * FROM bets WHERE id = ? AND user_address = ?').get(betId, address);
-  if (!bet) return res.status(404).json({ error: 'bet not found' });
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    if (user.balance < amount) return res.status(400).json({ error: `Insufficient balance: ${user.balance} PRED` });
 
-  // Store txHash in a simple way (add column if not exists)
-  try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT'); } catch {} // ignore if exists
-  db.prepare('UPDATE bets SET tx_hash = ? WHERE id = ?').run(txHash, betId);
-  res.json({ success: true, txHash });
+    const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+    if (!market) return res.status(404).json({ error: 'market not found' });
+    if (market.resolved) return res.status(400).json({ error: 'market already resolved' });
+
+    const now = Math.floor(Date.now() / 1000);
+    if (market.end_time <= now) return res.status(400).json({ error: 'market has ended' });
+
+    // AMM: constant product
+    const fee = Math.ceil(amount * 0.02);
+    const netAmount = amount - fee;
+    const yesPool = market.yes_pool;
+    const noPool = market.no_pool;
+    const k = yesPool * noPool;
+
+    let shares, newYesPool, newNoPool;
+    if (side === 'yes') {
+      newNoPool = noPool + netAmount;
+      newYesPool = Math.floor(k / newNoPool);
+      shares = yesPool - newYesPool;
+    } else {
+      newYesPool = yesPool + netAmount;
+      newNoPool = Math.floor(k / newYesPool);
+      shares = noPool - newNoPool;
+    }
+    if (shares <= 0) return res.status(400).json({ error: 'trade too small' });
+
+    const price = side === 'yes' ? market.yes_price : market.no_price;
+    const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const txn = db.transaction(() => {
+      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amount, address);
+      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        betId, address, marketId, side, amount, price, shares, txHash
+      );
+      const prices = recalcPrices(newYesPool, newNoPool);
+      db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
+        newYesPool, newNoPool, prices.yes_price, prices.no_price, amount, newYesPool + newNoPool, marketId
+      );
+    });
+    txn();
+
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+
+    res.json({
+      success: true,
+      betId,
+      shares,
+      fee,
+      txHash,
+      newBalance,
+      newYesPrice: updatedMarket.yes_price,
+      newNoPrice: updatedMarket.no_price,
+    });
+  } catch (e) {
+    console.error('On-chain bet error:', e.message);
+    res.status(500).json({ error: 'Bet error: ' + e.message });
+  }
 });
 
 // --- Bob AI (OPNet Intelligence) + Gemini Engine ---
@@ -697,34 +768,44 @@ Include: signal direction (BUY YES/BUY NO/HOLD), confidence (low/med/high), brie
 });
 
 // --- Faucet: claim PRED tokens ---
-const FAUCET_COOLDOWN = 3600; // 1 hour between claims
+// Rules: once per 24h, ONLY if balance = 0 (user lost all PRED)
+const FAUCET_COOLDOWN = 86400; // 24 hours
 const FAUCET_AMOUNT = 50000; // 50k PRED per claim
 
 app.post('/api/faucet/claim', (req, res) => {
   const { address } = req.body;
   if (!address) return res.status(400).json({ error: 'address required' });
 
-  let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
-  if (!user) {
-    db.prepare('INSERT INTO users (address, balance) VALUES (?, 0)').run(address);
-    user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  try {
+    let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (!user) {
+      db.prepare('INSERT INTO users (address, balance) VALUES (?, 0)').run(address);
+      user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    }
+
+    // Only allow claim if balance is 0
+    if (user.balance > 0) {
+      return res.status(400).json({ error: `You still have ${user.balance} PRED. Faucet is only available when your balance is 0.` });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const lastClaim = db.prepare('SELECT MAX(claimed_at) as last FROM faucet_claims WHERE address = ?').get(address);
+    if (lastClaim?.last && now - lastClaim.last < FAUCET_COOLDOWN) {
+      const wait = FAUCET_COOLDOWN - (now - lastClaim.last);
+      const hours = Math.floor(wait / 3600);
+      const mins = Math.ceil((wait % 3600) / 60);
+      return res.status(429).json({ error: `Faucet cooldown: ${hours}h ${mins}m remaining`, cooldown: wait });
+    }
+
+    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(FAUCET_AMOUNT, address);
+    db.prepare('INSERT INTO faucet_claims (address, amount) VALUES (?, ?)').run(address, FAUCET_AMOUNT);
+
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    res.json({ success: true, claimed: FAUCET_AMOUNT, newBalance, message: `Claimed ${FAUCET_AMOUNT.toLocaleString()} PRED!` });
+  } catch (e) {
+    console.error('Faucet error:', e.message);
+    res.status(500).json({ error: 'Faucet error: ' + e.message });
   }
-
-  const now = Math.floor(Date.now() / 1000);
-  const lastClaim = db.prepare('SELECT MAX(created_at) as last FROM bets WHERE user_address = ? AND market_id = ?').get(address, '__faucet__');
-  if (lastClaim?.last && now - lastClaim.last < FAUCET_COOLDOWN) {
-    const wait = FAUCET_COOLDOWN - (now - lastClaim.last);
-    return res.status(429).json({ error: `Faucet cooldown: wait ${Math.ceil(wait / 60)} minutes`, cooldown: wait });
-  }
-
-  db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(FAUCET_AMOUNT, address);
-  // Record claim as a special "bet" for cooldown tracking
-  db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-    `faucet-${Date.now()}`, address, '__faucet__', 'yes', FAUCET_AMOUNT, 0, 0, 'cancelled'
-  );
-
-  const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
-  res.json({ success: true, claimed: FAUCET_AMOUNT, newBalance, message: `Claimed ${FAUCET_AMOUNT.toLocaleString()} PRED!` });
 });
 
 // --- Background jobs ---
