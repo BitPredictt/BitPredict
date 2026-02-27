@@ -364,13 +364,12 @@ export async function getPredBalanceOnChain(
 export async function approvePredSpending(
   provider: unknown,
   network: unknown,
-  senderAddr: unknown,  // Address object
+  senderAddr: unknown,  // Address object from walletconnect
   amount: bigint,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
-    const { Address } = await import('@btc-vision/transaction');
     const token = getContract(
       OPNET_CONFIG.predTokenAddress,
       OP_20_ABI,
@@ -379,10 +378,20 @@ export async function approvePredSpending(
       senderAddr as never, // Address object
     );
 
-    // spender must be Address object for OP-20 approve
-    const spenderAddr = Address.fromString(OPNET_CONFIG.contractAddress);
-    const sim = await (token as any).approve(spenderAddr, amount);
-    if (sim?.revert) return { txHash: '', success: false, error: `Approve revert: ${sim.revert}` };
+    // OP-20 uses increaseAllowance(), NOT approve() (Bob audit: ATK-05 race condition)
+    // Resolve spender contract address to Address via provider.getPublicKeyInfo()
+    const spenderInfo = await (provider as any).getPublicKeyInfo(OPNET_CONFIG.contractAddress);
+    let spenderAddr: unknown;
+    if (spenderInfo?.publicKey) {
+      const { Address } = await import('@btc-vision/transaction');
+      spenderAddr = Address.fromString(spenderInfo.publicKey);
+    } else {
+      // Fallback: pass contract address string directly — SDK may handle it
+      spenderAddr = OPNET_CONFIG.contractAddress;
+    }
+
+    const sim = await (token as any).increaseAllowance(spenderAddr, amount);
+    if (sim?.revert) return { txHash: '', success: false, error: `Allowance revert: ${sim.revert}` };
 
     const receipt = await sim.sendTransaction({
       signer: null,
