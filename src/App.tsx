@@ -80,8 +80,10 @@ function App() {
   const filteredMarkets = useMemo(() => {
     let list = [...markets];
 
-    if (category !== 'All') {
-      list = list.filter((m) => m.category === category);
+    if (category === 'Fast Bets') {
+      list = list.filter((m) => m.marketType === 'price_5min');
+    } else if (category !== 'All') {
+      list = list.filter((m) => m.category === category && m.marketType !== 'price_5min');
     }
 
     if (search.trim()) {

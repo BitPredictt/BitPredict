@@ -12,6 +12,7 @@ export interface Market {
   outcome?: 'yes' | 'no' | string | null;
   imageUrl?: string;
   tags: string[];
+  marketType?: string;
 }
 
 export interface Bet {
@@ -73,4 +74,4 @@ export interface LeaderboardEntry {
 }
 
 export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'achievements';
-export type CategoryFilter = 'All' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';
+export type CategoryFilter = 'All' | 'Fast Bets' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';

@@ -14,11 +14,22 @@ const categoryColors: Record<string, string> = {
   Sports: 'bg-green-500/15 text-green-400 border-green-500/20',
   Tech: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
   Culture: 'bg-pink-500/15 text-pink-400 border-pink-500/20',
+  'Fast Bets': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
 };
 
 export function MarketCard({ market, onSelect, index }: MarketCardProps) {
-  const yesPct = Math.round(market.yesPrice * 100);
-  const noPct = 100 - yesPct;
+  const yesRaw = market.yesPrice * 100;
+  const noRaw = market.noPrice * 100;
+  const fmtPct = (v: number) => {
+    if (v <= 0) return '0';
+    if (v < 1) return v.toFixed(1);
+    if (v > 99 && v < 100) return v.toFixed(1);
+    return Math.round(v).toString();
+  };
+  const yesPct = fmtPct(yesRaw);
+  const noPct = fmtPct(noRaw);
+  const yesWidth = Math.max(0.5, Math.min(99.5, yesRaw));
+  const noWidth = 100 - yesWidth;
   const endMs = market.endTime ? market.endTime * 1000 : new Date(market.endDate).getTime();
 
   const [now, setNow] = useState(Date.now());
@@ -61,8 +72,8 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
     >
       {/* Category badge */}
       <div className="flex items-center justify-between mb-3">
-        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${categoryColors[market.category] || 'bg-gray-500/15 text-gray-400 border-gray-500/20'}`}>
-          {market.category}
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${market.marketType === 'price_5min' ? categoryColors['Fast Bets'] : (categoryColors[market.category] || 'bg-gray-500/15 text-gray-400 border-gray-500/20')}`}>
+          {market.marketType === 'price_5min' ? '⚡ FAST' : market.category}
         </span>
         <div className={`flex items-center gap-1 text-[10px] ${isResolved ? 'text-purple-400 font-bold' : isEnded ? 'text-red-400 font-bold' : isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
           <Clock size={10} />
@@ -84,11 +95,11 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <div className="h-2 rounded-full bg-surface-3 overflow-hidden flex">
           <div
             className="progress-yes rounded-l-full transition-all duration-500"
-            style={{ width: `${yesPct}%` }}
+            style={{ width: `${yesWidth}%` }}
           />
           <div
             className="progress-no rounded-r-full transition-all duration-500"
-            style={{ width: `${noPct}%` }}
+            style={{ width: `${noWidth}%` }}
           />
         </div>
       </div>

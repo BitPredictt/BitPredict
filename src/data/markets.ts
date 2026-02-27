@@ -147,4 +147,4 @@ export const MOCK_MARKETS: Market[] = [
   },
 ];
 
-export const CATEGORIES = ['All', 'Crypto', 'Politics', 'Sports', 'Tech', 'Culture'] as const;
+export const CATEGORIES = ['All', 'Fast Bets', 'Crypto', 'Politics', 'Sports', 'Tech', 'Culture'] as const;
