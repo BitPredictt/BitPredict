@@ -181,7 +181,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '50kb' }));
 
 // Simple in-memory rate limiter
 const rateLimits = new Map(); // key -> { count, resetAt }
@@ -539,7 +539,8 @@ function settleBets(marketId, outcome) {
   const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
   for (const b of bets) {
     if (b.side === outcome) {
-      const payout = Math.round(b.amount / b.price);
+      const rawPayout = b.price > 0 ? Math.round(b.amount / b.price) : b.amount;
+      const payout = Math.min(rawPayout, b.amount * 100); // cap at 100x to prevent overflow
       db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
       db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
     } else {
@@ -774,9 +775,12 @@ app.post('/api/auth', (req, res) => {
   const { address } = req.body;
   if (!address) return res.status(400).json({ error: 'address required' });
 
+  if (typeof address !== 'string' || !address.startsWith('opt1') || address.length > 120) {
+    return res.status(400).json({ error: 'Invalid address: must be an OPNet testnet address (opt1...)' });
+  }
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
-    db.prepare('INSERT INTO users (address, balance) VALUES (?, 0)').run(address);
+    db.prepare('INSERT INTO users (address, balance) VALUES (?, 1000)').run(address);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   }
   res.json({ address: user.address, balance: user.balance });
@@ -830,7 +834,7 @@ app.get('/api/markets/:id', (req, res) => {
     endDate: new Date(m.end_time * 1000).toISOString().split('T')[0],
     endTime: m.end_time,
     resolved: !!m.resolved, outcome: m.outcome,
-    tags: JSON.parse(m.tags || '[]'), marketType: m.market_type,
+    tags: (() => { try { const t = JSON.parse(m.tags || '[]'); return Array.isArray(t) ? t.filter(x => typeof x === 'string') : []; } catch(e) { return []; } })(), marketType: m.market_type,
     yesPool: m.yes_pool, noPool: m.no_pool,
   });
 });
@@ -871,6 +875,7 @@ app.post('/api/bet', async (req, res) => {
   const netAmount = amountInt - fee;
   const yesPool = market.yes_pool;
   const noPool = market.no_pool;
+  if (yesPool <= 0 || noPool <= 0) return res.status(400).json({ error: 'market pool empty' });
   const k = yesPool * noPool;
 
   let shares, newYesPool, newNoPool;
@@ -929,13 +934,18 @@ app.post('/api/bet', async (req, res) => {
 
 // Get user bets
 app.get('/api/bets/:address', (req, res) => {
+  const addr = req.params.address;
+  if (typeof addr !== 'string' || !addr.startsWith('opt1') || addr.length > 120) {
+    return res.status(400).json({ error: 'Invalid address' });
+  }
   const bets = db.prepare(`
     SELECT b.*, m.question, m.category, m.resolved as market_resolved, m.outcome as market_outcome,
            m.yes_price as current_yes_price, m.no_price as current_no_price
     FROM bets b JOIN markets m ON b.market_id = m.id
     WHERE b.user_address = ?
     ORDER BY b.created_at DESC
-  `).all(req.params.address);
+    LIMIT 200
+  `).all(addr);
 
   res.json(bets.map(b => ({
     id: b.id,
@@ -1054,6 +1064,7 @@ app.post('/api/bet/onchain', (req, res) => {
     const netAmount = onchainAmt - fee;
     const yesPool = market.yes_pool;
     const noPool = market.no_pool;
+    if (yesPool <= 0 || noPool <= 0) return res.status(400).json({ error: 'market pool empty' });
     const k = yesPool * noPool;
 
     let shares, newYesPool, newNoPool;
