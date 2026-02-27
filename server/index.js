@@ -734,43 +734,65 @@ ${marketContext}${userContext}
   }
 });
 
-// Bob quick analysis endpoint — for market cards
+// Bob quick analysis endpoint — for market cards (with server-side cache)
+const signalCache = new Map(); // { marketId: { signal, ts } }
+const SIGNAL_CACHE_TTL = 600000; // 10 min cache
+let signalQueue = Promise.resolve(); // Sequential queue to avoid rate limits
+
 app.get('/api/ai/signal/:marketId', async (req, res) => {
-  const m = db.prepare('SELECT * FROM markets WHERE id = ?').get(req.params.marketId);
+  const marketId = req.params.marketId;
+  const m = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
   if (!m) return res.status(404).json({ error: 'market not found' });
 
-  try {
-    const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
-    const prompt = `You are Bob, OP_NET AI. Give a 1-2 sentence trading signal for this prediction market:
+  // Check cache first
+  const cached = signalCache.get(marketId);
+  if (cached && Date.now() - cached.ts < SIGNAL_CACHE_TTL) {
+    return res.json({ marketId, signal: cached.signal, source: 'bob (cached)' });
+  }
+
+  // Queue the request to avoid overwhelming Gemini
+  signalQueue = signalQueue.then(async () => {
+    try {
+      const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
+      const prompt = `You are Bob, OP_NET AI. Give a 1 sentence trading signal for this prediction market:
 "${m.question}" — YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}%
 Volume: ${m.volume} PRED | Category: ${m.category} | BTC=$${prices.btc.toLocaleString()}
-Include: signal direction (BUY YES/BUY NO/HOLD), confidence (low/med/high), brief reason.`;
+Format: "[BUY YES/BUY NO/HOLD] (confidence) — reason"`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 150, temperature: 0.6 },
-        }),
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 80, temperature: 0.5 },
+          }),
+        }
+      );
+
+      if (!geminiRes.ok) {
+        signalCache.set(marketId, { signal: '', ts: Date.now() });
+        return res.json({ marketId, signal: '', source: 'bob' });
       }
-    );
-
-    if (!geminiRes.ok) return res.status(500).json({ error: 'signal unavailable' });
-    const data = await geminiRes.json();
-    const signal = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    res.json({ marketId: m.id, signal, source: 'bob' });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+      const data = await geminiRes.json();
+      const signal = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      signalCache.set(marketId, { signal, ts: Date.now() });
+      res.json({ marketId, signal, source: 'bob' });
+    } catch (e) {
+      signalCache.set(marketId, { signal: '', ts: Date.now() });
+      res.json({ marketId, signal: '', source: 'bob' });
+    }
+    // Small delay between requests
+    await new Promise(r => setTimeout(r, 500));
+  }).catch(() => {
+    res.status(500).json({ error: 'signal queue error' });
+  });
 });
 
 // --- Faucet: claim PRED tokens ---
-// Rules: once per 24h, ONLY if balance = 0 (user lost all PRED)
-const FAUCET_COOLDOWN = 86400; // 24 hours
-const FAUCET_AMOUNT = 50000; // 50k PRED per claim
+// TEMPORARY: no restrictions for testing. Production: once per 24h, only if balance=0
+const FAUCET_AMOUNT = 500; // 500 PRED per claim (small amount)
 
 app.post('/api/faucet/claim', (req, res) => {
   const { address } = req.body;
@@ -783,25 +805,11 @@ app.post('/api/faucet/claim', (req, res) => {
       user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     }
 
-    // Only allow claim if balance is 0
-    if (user.balance > 0) {
-      return res.status(400).json({ error: `You still have ${user.balance} PRED. Faucet is only available when your balance is 0.` });
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const lastClaim = db.prepare('SELECT MAX(claimed_at) as last FROM faucet_claims WHERE address = ?').get(address);
-    if (lastClaim?.last && now - lastClaim.last < FAUCET_COOLDOWN) {
-      const wait = FAUCET_COOLDOWN - (now - lastClaim.last);
-      const hours = Math.floor(wait / 3600);
-      const mins = Math.ceil((wait % 3600) / 60);
-      return res.status(429).json({ error: `Faucet cooldown: ${hours}h ${mins}m remaining`, cooldown: wait });
-    }
-
     db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(FAUCET_AMOUNT, address);
     db.prepare('INSERT INTO faucet_claims (address, amount) VALUES (?, ?)').run(address, FAUCET_AMOUNT);
 
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
-    res.json({ success: true, claimed: FAUCET_AMOUNT, newBalance, message: `Claimed ${FAUCET_AMOUNT.toLocaleString()} PRED!` });
+    res.json({ success: true, claimed: FAUCET_AMOUNT, newBalance, message: `+${FAUCET_AMOUNT} PRED claimed!` });
   } catch (e) {
     console.error('Faucet error:', e.message);
     res.status(500).json({ error: 'Faucet error: ' + e.message });

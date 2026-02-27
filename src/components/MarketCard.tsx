@@ -27,28 +27,39 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
 
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
-  const daysLeft = Math.max(0, Math.ceil((new Date(market.endDate).getTime() - Date.now()) / 86400000));
+  const endMs = market.endTime ? market.endTime * 1000 : new Date(market.endDate).getTime();
+  const msLeft = Math.max(0, endMs - Date.now());
+  const daysLeft = Math.ceil(msLeft / 86400000);
+  const hoursLeft = Math.floor(msLeft / 3600000);
+  const minsLeft = Math.floor((msLeft % 3600000) / 60000);
+  const isEndingSoon = msLeft > 0 && msLeft < 86400000;
 
-  // Fetch Bob signal on mount (with cache)
+  // Fetch Bob signal on mount (with cache, debounced)
   useEffect(() => {
     const cached = signalCache.get(market.id);
     if (cached && Date.now() - cached.ts < SIGNAL_TTL) {
       setBobSignal(cached.signal);
       return;
     }
-    // Only fetch for non-5min markets (avoid spamming)
     if (market.id.includes('-5min-')) return;
 
     let cancelled = false;
-    setLoadingSignal(true);
-    api.aiSignal(market.id).then(({ signal }) => {
-      if (!cancelled) {
-        setBobSignal(signal);
-        signalCache.set(market.id, { signal, ts: Date.now() });
-      }
-    }).catch(() => {}).finally(() => { if (!cancelled) setLoadingSignal(false); });
-    return () => { cancelled = true; };
-  }, [market.id]);
+    // Stagger requests to avoid rate limits
+    const delay = index * 800;
+    const timer = setTimeout(() => {
+      setLoadingSignal(true);
+      api.aiSignal(market.id).then(({ signal }) => {
+        if (!cancelled) {
+          setBobSignal(signal);
+          signalCache.set(market.id, { signal, ts: Date.now() });
+        }
+      }).catch(() => {
+        // Cache empty on error to avoid retries
+        signalCache.set(market.id, { signal: '', ts: Date.now() });
+      }).finally(() => { if (!cancelled) setLoadingSignal(false); });
+    }, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [market.id, index]);
 
   // Parse signal direction from Bob's text
   const getSignalType = (text: string | null): 'bullish' | 'bearish' | 'neutral' => {
@@ -80,9 +91,9 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${categoryColors[market.category] || 'bg-gray-500/15 text-gray-400 border-gray-500/20'}`}>
           {market.category}
         </span>
-        <div className="flex items-center gap-1 text-[10px] text-gray-500">
+        <div className={`flex items-center gap-1 text-[10px] ${isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
           <Clock size={10} />
-          <span>{daysLeft}d left</span>
+          <span>{isEndingSoon ? `${hoursLeft}h ${minsLeft}m` : `${daysLeft}d left`}</span>
         </div>
       </div>
 

@@ -24,7 +24,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'volume' | 'ending' | 'liquidity'>('volume');
+  const [sortBy, setSortBy] = useState<'volume' | 'ending' | 'liquidity' | 'ending_soon'>('volume');
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -99,6 +99,17 @@ function App() {
       case 'liquidity':
         list.sort((a, b) => b.liquidity - a.liquidity);
         break;
+      case 'ending_soon':
+        list = list.filter((m) => {
+          const end = m.endTime ? m.endTime * 1000 : new Date(m.endDate).getTime();
+          return end > Date.now() && end - Date.now() < 86400000;
+        });
+        list.sort((a, b) => {
+          const endA = a.endTime ? a.endTime * 1000 : new Date(a.endDate).getTime();
+          const endB = b.endTime ? b.endTime * 1000 : new Date(b.endDate).getTime();
+          return endA - endB;
+        });
+        break;
     }
 
     return list;
@@ -108,43 +119,12 @@ function App() {
     const market = markets.find((m) => m.id === marketId);
     if (!market || !wallet.connected) return;
 
-    // OP_WALLET is REQUIRED — every bet must be signed on-chain
-    if (!isOPWalletAvailable()) {
-      setToast({ message: 'Установите OP_WALLET для on-chain ставок. Каждая ставка — транзакция в сети.', type: 'error' });
-      return;
-    }
-
-    // Show pending state
-    const pendingBet: Bet = {
-      id: `pending-${Date.now()}`,
-      marketId,
-      side,
-      amount,
-      price: side === 'yes' ? market.yesPrice : market.noPrice,
-      timestamp: Date.now(),
-      status: 'pending',
-    };
-    setBets((prev) => [pendingBet, ...prev]);
-    setToast({ message: 'Подпишите транзакцию в OP_WALLET...', type: 'success' });
-
     try {
-      // 1) On-chain: approve PRED → buyShares on PredictionMarket contract
-      const approveResult = await approvePredSpending(wallet.address, BigInt(amount));
-      if (!approveResult.success) {
-        throw new Error(approveResult.error || 'PRED approve rejected');
-      }
+      // 1) Place bet on server (deducts PRED, updates AMM — instant)
+      const result = await api.placeBet(wallet.address, marketId, side, amount);
 
-      const txResult = await submitBetTransaction(marketId, side, amount, wallet.address);
-      if (!txResult.success || !txResult.txHash) {
-        throw new Error(txResult.error || 'Transaction rejected by wallet');
-      }
-
-      // 2) TX signed! Now record on server with txHash as proof
-      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txResult.txHash);
-
-      // Update local state with confirmed bet
       setPredBalance(result.newBalance);
-      const confirmedBet: Bet = {
+      const newBet: Bet = {
         id: result.betId,
         marketId,
         side,
@@ -153,27 +133,39 @@ function App() {
         timestamp: Date.now(),
         status: 'active',
         shares: result.shares,
-        txHash: txResult.txHash,
       };
-      setBets((prev) => prev.map((b) => b.id === pendingBet.id ? confirmedBet : b));
+      setBets((prev) => [newBet, ...prev]);
 
-      // Update market prices
       setMarkets((prev) => prev.map((m) =>
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
 
       setToast({
-        message: `✅ ${side.toUpperCase()} — ${amount.toLocaleString()} PRED | TX: ${txResult.txHash.slice(0, 16)}...`,
+        message: `✅ ${side.toUpperCase()} — ${amount.toLocaleString()} PRED`,
         type: 'success',
       });
 
-      // Track achievements
-      achievements.onBetPlaced(confirmedBet, bets, market.category);
+      // 2) On-chain TX in background (non-blocking, may fail if testnet is down)
+      if (isOPWalletAvailable()) {
+        (async () => {
+          try {
+            await approvePredSpending(wallet.address, BigInt(amount));
+            const txResult = await submitBetTransaction(marketId, side, amount, wallet.address);
+            if (txResult.success && txResult.txHash) {
+              setBets((prev) =>
+                prev.map((b) => b.id === newBet.id ? { ...b, txHash: txResult.txHash } : b)
+              );
+              api.placeOnChainBet(wallet.address, marketId, side, amount, txResult.txHash).catch(() => {});
+              setToast({ message: `On-chain TX: ${txResult.txHash.slice(0, 16)}...`, type: 'success' });
+            }
+          } catch {}
+        })();
+      }
+
+      achievements.onBetPlaced(newBet, bets, market.category);
     } catch (err) {
-      // Remove pending bet on failure
-      setBets((prev) => prev.filter((b) => b.id !== pendingBet.id));
       const msg = err instanceof Error ? err.message : String(err);
-      setToast({ message: `Ставка отклонена: ${msg}`, type: 'error' });
+      setToast({ message: `Ошибка: ${msg}`, type: 'error' });
     }
   }, [markets, wallet.connected, wallet.address, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -245,6 +237,7 @@ function App() {
                 >
                   <option value="volume">Top Volume</option>
                   <option value="ending">Ending Soon</option>
+                  <option value="ending_soon">⏱ Ending &lt;24h</option>
                   <option value="liquidity">Highest Liquidity</option>
                 </select>
               </div>
@@ -356,15 +349,15 @@ function App() {
         />
       )}
 
-      {/* Achievement unlock notification */}
+      {/* Achievement unlock notification — centered on screen */}
       {achievements.newUnlock && (
-        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[200] animate-fade-in pointer-events-none">
-          <div className="bg-gradient-to-r from-btc/30 to-purple-500/30 border border-btc/40 rounded-2xl px-6 py-3 backdrop-blur-2xl shadow-2xl flex items-center gap-3">
-            <span className="text-2xl">{achievements.newUnlock.icon}</span>
+        <div className="fixed inset-0 z-[300] flex items-center justify-center pointer-events-none">
+          <div className="bg-gradient-to-r from-btc/40 to-purple-600/40 border border-btc/50 rounded-2xl px-8 py-5 backdrop-blur-2xl shadow-2xl flex items-center gap-4 animate-fade-in">
+            <span className="text-4xl">{achievements.newUnlock.icon}</span>
             <div>
-              <div className="text-xs font-black text-btc">Achievement Unlocked!</div>
-              <div className="text-sm font-bold text-white">{achievements.newUnlock.title}</div>
-              <div className="text-[10px] text-gray-400">+{achievements.newUnlock.xpReward} XP</div>
+              <div className="text-sm font-black text-btc">Achievement Unlocked!</div>
+              <div className="text-lg font-bold text-white">{achievements.newUnlock.title}</div>
+              <div className="text-xs text-gray-300">+{achievements.newUnlock.xpReward} XP</div>
             </div>
           </div>
         </div>
