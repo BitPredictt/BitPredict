@@ -239,23 +239,14 @@ export function isValidOPNetAddress(address: string): boolean {
 }
 
 /**
- * Fetch current block height from OP_NET RPC
+ * Fetch current block height using wallet's provider (NOT testnet.opnet.org).
+ * Pass provider from useWalletConnect().
  */
-export async function fetchBlockHeight(): Promise<number | null> {
+export async function fetchBlockHeight(walletProvider?: unknown): Promise<number | null> {
+  if (!walletProvider) return null;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(OPNET_CONFIG.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'btc_blockNumber', params: [] }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.result) return Number(data.result);
-    return null;
+    const result = await (walletProvider as any).getBlockNumber();
+    return typeof result === 'number' ? result : Number(result);
   } catch {
     return null;
   }
@@ -341,13 +332,14 @@ export type { AbstractRpcProvider } from 'opnet';
 /**
  * Get PRED token balance on-chain via OP-20 balanceOf.
  * Uses wallet's provider from useWalletConnect().
+ * senderAddr must be Address object from useWalletConnect().address
  */
 export async function getPredBalanceOnChain(
   provider: unknown,
   network: unknown,
-  senderAddress: string,
+  senderAddr: unknown, // Address object from walletconnect
 ): Promise<bigint> {
-  if (!provider || !network) return 0n;
+  if (!provider || !network || !senderAddr) return 0n;
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const token = getContract(
@@ -355,9 +347,9 @@ export async function getPredBalanceOnChain(
       OP_20_ABI,
       provider as never,
       network as never,
-      senderAddress,
+      senderAddr as never, // Address object, NOT string
     );
-    const result = await (token as any).balanceOf(senderAddress);
+    const result = await (token as any).balanceOf(senderAddr);
     return result?.properties?.balance ?? 0n;
   } catch (err) {
     console.warn('getPredBalanceOnChain:', err instanceof Error ? err.message : err);
@@ -367,32 +359,35 @@ export async function getPredBalanceOnChain(
 
 /**
  * Approve PredictionMarket contract to spend PRED tokens on-chain.
- * Uses wallet's OWN provider (not testnet.opnet.org).
+ * senderAddr must be Address object from useWalletConnect().address
  */
 export async function approvePredSpending(
   provider: unknown,
   network: unknown,
-  senderAddress: string,
+  senderAddr: unknown,  // Address object
   amount: bigint,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
+    const { Address } = await import('@btc-vision/transaction');
     const token = getContract(
       OPNET_CONFIG.predTokenAddress,
       OP_20_ABI,
       provider as never,
       network as never,
-      senderAddress,
+      senderAddr as never, // Address object
     );
 
-    const sim = await (token as any).approve(OPNET_CONFIG.contractAddress, amount);
+    // spender must be Address object for OP-20 approve
+    const spenderAddr = Address.fromString(OPNET_CONFIG.contractAddress);
+    const sim = await (token as any).approve(spenderAddr, amount);
     if (sim?.revert) return { txHash: '', success: false, error: `Approve revert: ${sim.revert}` };
 
     const receipt = await sim.sendTransaction({
       signer: null,
       mldsaSigner: null,
-      refundTo: senderAddress,
+      refundTo: senderAddr,
       maximumAllowedSatToSpend: MAX_SATS,
       network,
     });
@@ -404,15 +399,15 @@ export async function approvePredSpending(
 
 /**
  * Claim PRED tokens on-chain (calls mint on PRED OP-20 token).
- * Triggers OP_WALLET signing popup.
+ * senderAddr must be Address object from useWalletConnect().address
  */
 export async function claimPredOnChain(
   provider: unknown,
   network: unknown,
-  senderAddress: string,
+  senderAddr: unknown, // Address object
   amount: bigint = 500n,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const token = getContract(
@@ -420,16 +415,16 @@ export async function claimPredOnChain(
       OP_20_ABI,
       provider as never,
       network as never,
-      senderAddress,
+      senderAddr as never, // Address object
     );
 
-    const sim = await (token as any).mint(senderAddress, amount);
+    const sim = await (token as any).mint(senderAddr, amount);
     if (sim?.revert) return { txHash: '', success: false, error: `Mint revert: ${sim.revert}` };
 
     const receipt = await sim.sendTransaction({
       signer: null,
       mldsaSigner: null,
-      refundTo: senderAddress,
+      refundTo: senderAddr,
       maximumAllowedSatToSpend: MAX_SATS,
       network,
     });
@@ -450,20 +445,19 @@ export async function submitBetTransaction(
   amountSats: number,
   provider: unknown,
   network: unknown,
-  senderAddress: string,
+  senderAddr: unknown, // Address object from walletconnect
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract } = await import('opnet');
 
-    // Step 1: Approve PRED spending for the PredictionMarket contract
-    const approveResult = await approvePredSpending(provider, network, senderAddress, BigInt(amountSats));
+    // Step 1: Approve PRED spending
+    const approveResult = await approvePredSpending(provider, network, senderAddr, BigInt(amountSats));
     if (!approveResult.success) {
       return { txHash: '', success: false, error: approveResult.error || 'Approve failed' };
     }
 
-    // Step 2: Call buyShares on PredictionMarket
-    // Using a minimal ABI for the prediction market contract
+    // Step 2: buyShares on PredictionMarket
     const MARKET_ABI = [
       { name: 'buyShares', inputs: [{ name: 'marketId', type: 'UINT256' }, { name: 'isYes', type: 'BOOL' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'shares', type: 'UINT256' }], type: 'Function' },
     ];
@@ -472,26 +466,23 @@ export async function submitBetTransaction(
       MARKET_ABI,
       provider as never,
       network as never,
-      senderAddress,
+      senderAddr as never, // Address object
     );
 
-    // Encode marketId string → u256
     const marketIdBytes = new TextEncoder().encode(marketId);
     const marketIdHex = Array.from(marketIdBytes)
       .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0').slice(0, 64);
     const marketIdBig = BigInt('0x' + marketIdHex);
 
-    // Simulate
     const simulation = await (contract as any).buyShares(marketIdBig, side === 'yes', BigInt(amountSats));
     if (simulation?.revert) {
       return { txHash: '', success: false, error: `buyShares revert: ${simulation.revert}` };
     }
 
-    // Send — signer:null, OP_WALLET handles signing
     const receipt = await simulation.sendTransaction({
       signer: null,
       mldsaSigner: null,
-      refundTo: senderAddress,
+      refundTo: senderAddr,
       maximumAllowedSatToSpend: BigInt(amountSats) + MAX_SATS,
       network,
     });
@@ -509,9 +500,9 @@ export async function claimPayoutOnChain(
   marketId: string,
   provider: unknown,
   network: unknown,
-  senderAddress: string,
+  senderAddr: unknown, // Address object
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network) return { txHash: '', success: false, error: 'Wallet provider not available' };
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
     const { getContract } = await import('opnet');
     const MARKET_ABI = [
@@ -522,7 +513,7 @@ export async function claimPayoutOnChain(
       MARKET_ABI,
       provider as never,
       network as never,
-      senderAddress,
+      senderAddr as never, // Address object
     );
 
     const marketIdBytes = new TextEncoder().encode(marketId);
@@ -535,7 +526,7 @@ export async function claimPayoutOnChain(
     const receipt = await sim.sendTransaction({
       signer: null,
       mldsaSigner: null,
-      refundTo: senderAddress,
+      refundTo: senderAddr,
       maximumAllowedSatToSpend: MAX_SATS,
       network,
     });

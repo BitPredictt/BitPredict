@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import { Activity, Box, Cpu, Zap, ExternalLink } from 'lucide-react';
 import { fetchBlockHeight } from '../lib/opnet';
 
+interface NetworkStatsProps {
+  walletProvider?: unknown;
+}
+
 interface NetworkStat {
   label: string;
   value: string;
@@ -9,14 +13,15 @@ interface NetworkStat {
   change?: string;
 }
 
-export function NetworkStats() {
+export function NetworkStats({ walletProvider }: NetworkStatsProps) {
   const [blockHeight, setBlockHeight] = useState<number | null>(null);
   const [live, setLive] = useState(false);
 
   useEffect(() => {
+    if (!walletProvider) return;
     let mounted = true;
     const poll = async () => {
-      const height = await fetchBlockHeight();
+      const height = await fetchBlockHeight(walletProvider);
       if (mounted && height !== null) {
         setBlockHeight(height);
         setLive(true);
@@ -25,7 +30,7 @@ export function NetworkStats() {
     poll();
     const interval = setInterval(poll, 15000);
     return () => { mounted = false; clearInterval(interval); };
-  }, []);
+  }, [walletProvider]);
 
   const stats: NetworkStat[] = [
     {

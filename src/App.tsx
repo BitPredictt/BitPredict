@@ -19,7 +19,7 @@ import { HowItWorks } from './components/HowItWorks';
 import { Achievements } from './components/Achievements';
 
 function App() {
-  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork } = useWallet();
+  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj } = useWallet();
   const achievements = useAchievements();
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
@@ -120,7 +120,7 @@ function App() {
     if (!market || !wallet.connected) return;
 
     // Require wallet provider for on-chain TX
-    if (!provider || !walletNetwork) {
+    if (!provider || !walletNetwork || !addressObj) {
       setToast({ message: 'Wallet provider not ready. Reconnect OP_WALLET.', type: 'error' });
       return;
     }
@@ -138,7 +138,7 @@ function App() {
     try {
       // 1) ON-CHAIN: approve PRED → buyShares (triggers wallet signing popups)
       const txResult = await submitBetTransaction(
-        marketId, side, amount, provider, walletNetwork, wallet.address
+        marketId, side, amount, provider, walletNetwork, addressObj
       );
       if (!txResult.success || !txResult.txHash) {
         throw new Error(txResult.error || 'Transaction rejected');
@@ -165,7 +165,7 @@ function App() {
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ message: `Ставка отклонена: ${msg}`, type: 'error' });
     }
-  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">
@@ -177,7 +177,7 @@ function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
-      <NetworkStats />
+      <NetworkStats walletProvider={provider} />
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === 'markets' && (
@@ -293,6 +293,7 @@ function App() {
             onBalanceUpdate={setPredBalance}
             walletProvider={provider}
             walletNetwork={walletNetwork}
+            walletAddressObj={addressObj}
           />
         )}
 

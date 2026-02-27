@@ -14,9 +14,10 @@ interface PortfolioProps {
   onBalanceUpdate: (balance: number) => void;
   walletProvider: unknown;
   walletNetwork: unknown;
+  walletAddressObj: unknown; // Address object from walletconnect
 }
 
-export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [claiming, setClaiming] = useState(false);
   const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -31,7 +32,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     try {
       // 1) On-chain: mint PRED tokens via OP_WALLET (triggers signing popup)
       setClaimMsg({ text: 'Подпишите транзакцию в OP_WALLET...', type: 'success' });
-      const txResult = await claimPredOnChain(walletProvider, walletNetwork, walletAddress, 500n);
+      const txResult = await claimPredOnChain(walletProvider, walletNetwork, walletAddressObj, 500n);
       if (!txResult.success) {
         throw new Error(txResult.error || 'Claim rejected by wallet');
       }
