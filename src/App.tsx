@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signBetProof } from './lib/opnet';
+import { signBetProof, signRewardClaimProof } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -307,6 +307,7 @@ function App() {
             predBalance={predBalance}
             walletConnected={wallet.connected}
             walletAddress={wallet.address}
+            walletBtcBalance={wallet.balanceSats}
             onConnect={connectOPWallet}
             onBalanceUpdate={setPredBalance}
             walletProvider={provider}
@@ -331,6 +332,10 @@ function App() {
             onFaucetVisited={achievements.onFaucetVisited}
             walletAddress={wallet.address}
             onClaimReward={async (rewardId, rewardType, amount) => {
+              // Step 1: Real on-chain TX (increaseAllowance for the reward amount)
+              const proof = await signRewardClaimProof(provider, walletNetwork, addressObj, wallet.address, amount);
+              if (!proof.success) throw new Error(proof.error || 'On-chain TX failed');
+              // Step 2: Server-side claim (credits BPUSD balance)
               const result = await achievements.claimReward(wallet.address, rewardId, rewardType, amount);
               setPredBalance(result.newBalance);
             }}

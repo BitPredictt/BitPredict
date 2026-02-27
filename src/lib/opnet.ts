@@ -289,6 +289,9 @@ function getOPWallet(): OPWalletAPI | null {
 
 const MAX_SATS = 50000n;
 
+// Minimum BTC balance (in sats) required to perform any on-chain action (gas fees)
+export const MIN_BTC_FOR_TX = 10_000; // 10,000 sats = 0.0001 BTC
+
 // Re-export types for consumers
 export type { AbstractRpcProvider } from 'opnet';
 
@@ -371,17 +374,41 @@ export async function signBetProof(
 }
 
 /**
- * Sign a claim proof TX — user signs a small increaseAllowance as proof of wallet ownership.
+ * Sign a claim TX — user signs increaseAllowance for the exact claim amount.
+ * This creates a REAL on-chain TX with the actual BPUSD payout value.
  * Used when claiming winnings from resolved markets.
+ * @param claimAmount - payout amount in BPUSD (will be expanded to token decimals)
  */
 export async function signClaimProof(
   provider: unknown,
   network: unknown,
   senderAddr: unknown,
   walletAddress: string,
+  claimAmount: number = 1,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  // Claim proof = approve 1 unit (minimal) as wallet ownership proof
-  return signBetProof(provider, network, senderAddr, walletAddress, 1n);
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { BitcoinUtils } = await import('opnet');
+    const expandedAmount = BitcoinUtils.expandToDecimals(claimAmount, OPNET_CONFIG.tokenDecimals);
+    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Sign a reward claim TX — user signs increaseAllowance for the reward amount.
+ * Used when claiming achievement/quest BPUSD rewards.
+ * @param rewardAmount - reward in BPUSD (will be expanded to token decimals)
+ */
+export async function signRewardClaimProof(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  rewardAmount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  return signClaimProof(provider, network, senderAddr, walletAddress, rewardAmount);
 }
 
 /** Retry wrapper for flaky RPC simulations (matches vibe pattern) */

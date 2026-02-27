@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl, mintTokensOnChain, signClaimProof, OPNET_CONFIG } from '../lib/opnet';
+import { getExplorerTxUrl, mintTokensOnChain, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -10,6 +10,7 @@ interface PortfolioProps {
   predBalance: number;
   walletConnected: boolean;
   walletAddress: string;
+  walletBtcBalance: number;
   onConnect: () => void;
   onBalanceUpdate: (balance: number) => void;
   walletProvider: unknown;
@@ -17,7 +18,7 @@ interface PortfolioProps {
   walletAddressObj: unknown; // Address object from walletconnect
 }
 
-export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
@@ -48,11 +49,13 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
 
   const handleClaim = async (betId: string) => {
     if (claimingBetId || !walletAddress) return;
+    const bet = bets.find(b => b.id === betId);
+    if (!bet || !bet.payout) return;
     setClaimingBetId(betId);
     setClaimMsg(null);
     try {
-      setClaimMsg({ text: 'Sign claim TX in OP_WALLET...', type: 'success' });
-      const proof = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress);
+      setClaimMsg({ text: `Sign claim TX for ${bet.payout.toLocaleString()} BPUSD in OP_WALLET...`, type: 'success' });
+      const proof = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.payout);
       if (!proof.success) throw new Error(proof.error || 'Claim TX failed');
       const result = await api.claimPayout(walletAddress, betId, proof.txHash);
       onBalanceUpdate(result.newBalance);
@@ -162,6 +165,12 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
           {minting ? 'Minting...' : `Mint ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} (On-Chain)`}
         </button>
         <p className="text-[10px] text-gray-600 mt-1">Real on-chain mint via OP_WALLET — requires testnet BTC for gas</p>
+        {walletBtcBalance < MIN_BTC_FOR_TX && walletBtcBalance >= 0 && (
+          <div className="mt-3 mx-auto max-w-sm p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-400 font-bold text-center">
+            Low BTC balance: {satsToBtc(walletBtcBalance)} BTC — need at least {satsToBtc(MIN_BTC_FOR_TX)} BTC for on-chain TXs.
+            <a href={OPNET_CONFIG.faucetUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-btc underline">Get testnet BTC</a>
+          </div>
+        )}
         {mintMsg && (
           <div className={`text-xs mt-2 text-center font-bold ${mintMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
             <span>{mintMsg.text}</span>

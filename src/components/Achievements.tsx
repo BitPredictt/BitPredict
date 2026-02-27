@@ -185,6 +185,7 @@ export function Achievements({
   onClaimReward,
 }: AchievementsProps) {
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
   const completedQuests = quests.filter((q) => q.completed).length;
   const totalBPUSD = achievements.filter(a => a.rewardClaimed).reduce((s, a) => s + a.xpReward, 0)
@@ -196,7 +197,12 @@ export function Achievements({
     const ach = achievements.find(a => a.id === id);
     if (!ach) return;
     setClaimingId(id);
-    try { await onClaimReward(id, 'achievement', ach.xpReward); } finally { setClaimingId(null); }
+    setClaimError(null);
+    try {
+      await onClaimReward(id, 'achievement', ach.xpReward);
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : String(err));
+    } finally { setClaimingId(null); }
   };
 
   const handleClaimQuest = async (id: string) => {
@@ -204,7 +210,12 @@ export function Achievements({
     const q = quests.find(q => q.id === id);
     if (!q) return;
     setClaimingId(id);
-    try { await onClaimReward(id, 'quest', q.xpReward); } finally { setClaimingId(null); }
+    setClaimError(null);
+    try {
+      await onClaimReward(id, 'quest', q.xpReward);
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : String(err));
+    } finally { setClaimingId(null); }
   };
 
   const handleQuestAction = (quest: Quest) => {
@@ -234,6 +245,12 @@ export function Achievements({
         <p className="text-xs text-gray-500 mt-1">
           Complete challenges, earn BPUSD tokens on OP_NET
         </p>
+        <p className="text-[10px] text-gray-600 mt-1">Claiming requires an on-chain TX — make sure you have testnet BTC for gas</p>
+        {claimError && (
+          <div className="mt-2 mx-auto max-w-sm p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-red-400 font-bold text-center">
+            {claimError}
+          </div>
+        )}
       </div>
 
       {/* Level & XP Bar */}
