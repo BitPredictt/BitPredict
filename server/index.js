@@ -263,6 +263,8 @@ db.exec(`
 // Safe migrations for existing DB
 try { db.exec('ALTER TABLE bets ADD COLUMN claim_tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT DEFAULT ""'); } catch(e) { /* already exists */ }
+// Index for O(1) txHash replay lookup
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_bets_tx_hash ON bets(tx_hash) WHERE tx_hash != ""'); } catch(e) { /* ignore */ }
 
 // Migration: add image_url column if missing
 try { db.exec('ALTER TABLE markets ADD COLUMN image_url TEXT'); } catch(e) { /* already exists */ }
@@ -1288,6 +1290,11 @@ ${marketContext}${userContext}
 // Bob quick analysis endpoint — for market cards (with server-side cache)
 const signalCache = new Map(); // { marketId: { signal, ts } }
 const SIGNAL_CACHE_TTL = 600000; // 10 min cache
+// Cleanup expired signal cache entries every 15 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of signalCache.entries()) { if (now - v.ts > SIGNAL_CACHE_TTL) signalCache.delete(k); }
+}, 15 * 60 * 1000);
 // AI signal endpoint - Gemini with smart fallback
 function generateFallbackSignal(market) {
   const yp = market.yes_price;
