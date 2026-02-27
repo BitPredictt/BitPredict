@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Droplets, Loader2 } from 'lucide-react';
 import type { Bet, Market } from '../types';
-import { getExplorerTxUrl } from '../lib/opnet';
+import { getExplorerTxUrl, mintTokensOnChain, OPNET_CONFIG } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -18,27 +18,29 @@ interface PortfolioProps {
 }
 
 export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
-  const [claiming, setClaiming] = useState(false);
-  const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
+  const [minting, setMinting] = useState(false);
+  const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
 
-  const handleClaimFaucet = async () => {
-    if (claiming || !walletAddress) return;
-    setClaiming(true);
-    setClaimMsg(null);
+  const handleMint = async () => {
+    if (minting || !walletAddress) return;
+    setMinting(true);
+    setMintMsg(null);
     try {
-      setClaimMsg({ text: 'Claiming PUSD...', type: 'success' });
-      const result = await api.claimFaucet(walletAddress) as any;
-      onBalanceUpdate(result.newBalance);
-
-      const msg = result.txHash
-        ? `✅ +${result.claimed} PUSD on-chain!`
-        : `✅ +${result.claimed} PUSD credited! Balance: ${result.newBalance.toLocaleString()}`;
-      setClaimMsg({ text: msg, type: 'success', txHash: result.txHash || undefined });
+      setMintMsg({ text: `Minting ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol}... (sign in OP_WALLET)`, type: 'success' });
+      const result = await mintTokensOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
+      if (result.success) {
+        setMintMsg({
+          text: `+${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} minted on-chain!`,
+          type: 'success',
+          txHash: result.txHash,
+        });
+      } else {
+        setMintMsg({ text: result.error || 'Mint failed', type: 'error' });
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setClaimMsg({ text: msg, type: 'error' });
+      setMintMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
     } finally {
-      setClaiming(false);
+      setMinting(false);
     }
   };
 
@@ -127,28 +129,29 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
         <p className="text-xs text-gray-500 mt-1">Track your predictions on OP_NET Testnet</p>
         <div className="flex items-center justify-center gap-2 mt-2">
           <Coins size={16} className="text-btc" />
-          <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} PUSD</span>
+          <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} {OPNET_CONFIG.tokenSymbol}</span>
         </div>
         <button
-          onClick={handleClaimFaucet}
-          disabled={claiming}
+          onClick={handleMint}
+          disabled={minting}
           className="mt-3 mx-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600/20 to-btc/20 border border-purple-500/30 text-sm font-bold text-white hover:border-btc/40 transition-all disabled:opacity-50"
         >
-          {claiming ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} className="text-purple-400" />}
-          {claiming ? 'Claiming...' : 'Claim 500 PUSD (Faucet)'}
+          {minting ? <Loader2 size={16} className="animate-spin" /> : <Coins size={16} className="text-purple-400" />}
+          {minting ? 'Minting...' : `Mint ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} (On-Chain)`}
         </button>
-        {claimMsg && (
-          <div className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-            <span>{claimMsg.text}</span>
-            {claimMsg.txHash && (
+        <p className="text-[10px] text-gray-600 mt-1">Real on-chain mint via OP_WALLET — requires testnet BTC for gas</p>
+        {mintMsg && (
+          <div className={`text-xs mt-2 text-center font-bold ${mintMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            <span>{mintMsg.text}</span>
+            {mintMsg.txHash && (
               <a
-                href={getExplorerTxUrl(claimMsg.txHash)}
+                href={getExplorerTxUrl(mintMsg.txHash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ml-2 inline-flex items-center gap-1 text-btc hover:underline"
               >
                 <ExternalLink size={10} />
-                View TX on Explorer
+                View TX
               </a>
             )}
           </div>
@@ -265,7 +268,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         }`}>
                           {bet.side}
                         </span>
-                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} PUSD @ {Math.round(bet.price * 100)}¢</span>
+                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} BPUSD @ {Math.round(bet.price * 100)}¢</span>
                         {bet.status === 'active' && (
                           <span className={`text-[10px] font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(1)}%

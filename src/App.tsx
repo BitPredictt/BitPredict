@@ -129,7 +129,7 @@ function App() {
     setToast({ message: 'Placing on-chain bet...', type: 'success' });
 
     try {
-      // Server executes on-chain PUSD transfer + AMM calculation, returns real txHash
+      // Server executes on-chain BPUSD transfer + AMM calculation, returns real txHash
       const result = await api.placeBet(wallet.address, marketId, side, amount);
 
       setPredBalance(result.newBalance);
@@ -145,7 +145,7 @@ function App() {
       ));
       const txMsg = result.txHash
         ? `✅ Bet confirmed on-chain!`
-        : `✅ Bet placed: ${result.shares} shares for ${amount} PUSD`;
+        : `✅ Bet placed: ${result.shares} shares for ${amount} BPUSD`;
       const txLink = result.txHash ? `https://opscan.org/transactions/${result.txHash}?network=op_testnet` : undefined;
       setToast({ message: txMsg, type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);

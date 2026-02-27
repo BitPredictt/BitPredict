@@ -21,15 +21,13 @@ export const OPNET_CONFIG = {
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
   contractAddress: 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj', // Deployed PredictionMarket
-  tokenAddress: 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph', // $PRED OP-20 Token (on-chain)
+  tokenAddress: 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d', // BPUSD MintableToken (our own, publicMint enabled)
+  tokenPubkey: '0x1fc02c213008668e4a8bde3a600b5dc9afd6b3ad0b5c558c2e6dc128f4d14195',
   tokenDecimals: 8,
-  tokenSymbol: 'PUSD',
+  tokenSymbol: 'BPUSD',
+  mintAmount: 1000, // Fixed 1000 tokens per mint
+  maxMintPerTx: 10_000_000, // 10M BPUSD per tx
 };
-
-// SDK pattern (from vibe): use networks.testnet + JSONRpcProvider with full RPC path
-// import { JSONRpcProvider, getContract, OP_20_ABI } from 'opnet';
-// import { networks } from '@btc-vision/bitcoin';
-// const provider = new JSONRpcProvider('https://testnet.opnet.org/api/v1/json-rpc', networks.testnet);
 
 // Contract method selectors (SHA256 first 4 bytes — OPNet uses SHA256, NOT keccak256)
 export const CONTRACT_METHODS = {
@@ -295,7 +293,7 @@ const MAX_SATS = 50000n;
 export type { AbstractRpcProvider } from 'opnet';
 
 /**
- * Get PRED token balance on-chain via OP-20 balanceOf.
+ * Get MINE token balance on-chain via OP-20 balanceOf.
  * Uses wallet's provider from useWalletConnect().
  * senderAddr must be Address object from useWalletConnect().address
  */
@@ -323,7 +321,7 @@ export async function getPredBalanceOnChain(
 }
 
 /**
- * Approve PredictionMarket contract to spend PRED tokens on-chain.
+ * Approve PredictionMarket contract to spend MINE tokens on-chain.
  * senderAddr must be Address object from useWalletConnect().address
  */
 export async function approvePredSpending(
@@ -372,10 +370,66 @@ export async function approvePredSpending(
 }
 
 /**
- * Faucet claim — server-side on-chain proof (increaseAllowance on PRED token).
- * Creates a real verifiable TX on opscan.org. Server also credits DB balance.
- * PRED is a standard OP-20 without publicMint, so server's deployer wallet signs.
+ * On-chain publicMint — mints MINE tokens directly via MintableToken contract.
+ * User's OP_WALLET signs the TX. No server faucet needed.
+ * Pattern from vibe's SwapUI.tsx (proven working).
  */
+export async function mintTokensOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown, // Address object from walletconnect
+  walletAddress: string,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, ABIDataTypes, BitcoinAbiTypes, BitcoinUtils } = await import('opnet');
+
+    const MINTABLE_ABI = [
+      {
+        name: 'publicMint',
+        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+      },
+    ] as any;
+
+    const contract = getContract(
+      OPNET_CONFIG.tokenAddress,
+      MINTABLE_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const rawAmount = BitcoinUtils.expandToDecimals(OPNET_CONFIG.mintAmount, OPNET_CONFIG.tokenDecimals);
+    const sim = await (contract as any).publicMint(rawAmount);
+    if (sim?.revert) return { txHash: '', success: false, error: `Mint reverted: ${sim.revert}` };
+
+    // Build TX params with gas from provider
+    const gas = await (provider as any).gasParameters();
+    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
+    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
+    const priorityFeeSats = gas.baseGas / gasPerSat;
+    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+
+    const receipt = await sim.sendTransaction({
+      signer: null,
+      mldsaSigner: null,
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: 100_000n,
+      network,
+      feeRate,
+      priorityFee,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    return { txHash, success: true };
+  } catch (err) {
+    let msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
+    return { txHash: '', success: false, error: msg };
+  }
+}
 
 /**
  * Submit a prediction bet on-chain: approve PRED → buyShares on PredictionMarket.

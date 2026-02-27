@@ -169,7 +169,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
 
         {/* Amount */}
         <div className="mb-4">
-          <label className="text-xs font-semibold text-gray-400 mb-2 block">Amount (PUSD) — Balance: {predBalance.toLocaleString()}</label>
+          <label className="text-xs font-semibold text-gray-400 mb-2 block">Amount (BPUSD) — Balance: {predBalance.toLocaleString()}</label>
           <input
             type="number"
             value={amount}
@@ -199,11 +199,11 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           <div className="bg-surface-2 rounded-xl p-4 mb-5 space-y-2">
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">You pay</span>
-              <span className="text-white font-bold">{amountNum.toLocaleString()} PUSD</span>
+              <span className="text-white font-bold">{amountNum.toLocaleString()} BPUSD</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Protocol fee (2%)</span>
-              <span className="text-gray-400 font-medium">-{fee.toLocaleString()} PUSD</span>
+              <span className="text-gray-400 font-medium">-{fee.toLocaleString()} BPUSD</span>
             </div>
             {ammResult && (
               <div className="flex justify-between text-xs">
@@ -213,11 +213,11 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
             )}
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Potential payout</span>
-              <span className="text-white font-bold">{potentialPayout.toLocaleString()} PUSD</span>
+              <span className="text-white font-bold">{potentialPayout.toLocaleString()} BPUSD</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-2">
               <span className="text-gray-500">Potential profit</span>
-              <span className="text-green-400 font-bold">+{potentialProfit.toLocaleString()} PUSD</span>
+              <span className="text-green-400 font-bold">+{potentialProfit.toLocaleString()} BPUSD</span>
             </div>
 
             {/* AMM Details toggle */}
@@ -277,7 +277,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
         {insufficientBalance && wallet.connected && amountNum > 0 && (
           <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
             <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-red-400">Insufficient balance: {predBalance.toLocaleString()} PUSD (need {amountNum.toLocaleString()})</p>
+            <p className="text-xs text-red-400">Insufficient balance: {predBalance.toLocaleString()} BPUSD (need {amountNum.toLocaleString()})</p>
           </div>
         )}
 
@@ -299,13 +299,13 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           ) : (
             <>
               <Zap size={16} />
-              Place {side.toUpperCase()} — {amountNum.toLocaleString()} PUSD
+              Place {side.toUpperCase()} — {amountNum.toLocaleString()} BPUSD
             </>
           )}
         </button>
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
-          Powered by OP_NET · Bitcoin Layer 1 · Testnet · PUSD virtual currency
+          Powered by OP_NET · Bitcoin Layer 1 · Testnet · BPUSD virtual currency
         </p>
       </div>
     </div>

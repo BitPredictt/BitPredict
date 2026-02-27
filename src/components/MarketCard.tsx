@@ -95,7 +95,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <div className="flex gap-3">
           <div className="flex items-center gap-1 text-[10px] text-gray-500">
             <TrendingUp size={10} />
-            <span>{formatVolume(market.volume)} PUSD vol</span>
+            <span>{formatVolume(market.volume)} BPUSD vol</span>
           </div>
           <div className="flex items-center gap-1 text-[10px] text-gray-500">
             <Droplets size={10} />
