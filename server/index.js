@@ -25,10 +25,11 @@ async function initDeployerWallet() {
     const { Mnemonic, MLDSASecurityLevel, AddressTypes } = await import('@btc-vision/transaction');
     const { networks } = await import('@btc-vision/bitcoin');
 
-    const network = networks.opnetTestnet;
-    const provider = new JSONRpcProvider({ url: 'https://testnet.opnet.org', network });
-    const m = new Mnemonic(seed, '', network, MLDSASecurityLevel.LEVEL2);
-    const wallet = m.deriveOPWallet(AddressTypes.P2TR, 0);
+    // Construct opnetTestnet: same as testnet but with bech32='opt' prefix for opt1 addresses
+    const opnetTestnet = { ...networks.testnet, bech32: networks.testnet.bech32Opnet || 'opt' };
+    const provider = new JSONRpcProvider('https://testnet.opnet.org', opnetTestnet);
+    const m = new Mnemonic(seed, '', opnetTestnet, MLDSASecurityLevel.LEVEL2);
+    const wallet = m.deriveUnisat ? m.deriveUnisat(AddressTypes.P2TR, 0) : m.deriveOPWallet(AddressTypes.P2TR, 0);
 
     deployerWallet = wallet;
     opnetProvider = provider;
@@ -43,7 +44,7 @@ async function transferPredToUser(userAddress, amount) {
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
     const { networks } = await import('@btc-vision/bitcoin');
-    const network = networks.opnetTestnet;
+    const network = { ...networks.testnet, bech32: networks.testnet.bech32Opnet || 'opt' };
 
     const predTokenAddress = 'opt1sqzc2a3tg6g9u04hlzu8afwwtdy87paeha5c3paph';
     const token = getContract(predTokenAddress, OP_20_ABI, opnetProvider, network, deployerWallet.address);
@@ -863,10 +864,21 @@ app.get('/api/ai/signal/:marketId', async (req, res) => {
     if (GEMINI_API_KEY) {
       try {
         const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
-        const prompt = 'You are Bob, OP_NET AI. Give a 1-sentence trading signal for this prediction market: "' +
-          m.question + '" — YES ' + (m.yes_price * 100).toFixed(0) + '% / NO ' + (m.no_price * 100).toFixed(0) +
-          '%. Volume: ' + m.volume + ' PRED | Category: ' + m.category + ' | BTC=$' + prices.btc.toLocaleString() +
-          '. Format: "[BUY YES/BUY NO/HOLD] (confidence) — reason"';
+        const endDate = m.end_date ? new Date(m.end_date * 1000).toLocaleDateString() : 'TBD';
+        const prompt = `You are Bob, an expert AI analyst for BitPredict — a Bitcoin-native prediction market on OP_NET.
+
+Market: "${m.question}"
+Current odds: YES ${(m.yes_price * 100).toFixed(1)}% / NO ${(m.no_price * 100).toFixed(1)}%
+Volume: ${m.volume.toLocaleString()} PRED | Category: ${m.category} | Deadline: ${endDate}
+Live prices: BTC $${prices.btc.toLocaleString()} | ETH $${prices.eth.toLocaleString()}
+
+Provide a concise 2-3 sentence trading signal. Include:
+1. Direction: BUY YES, BUY NO, or HOLD
+2. Confidence: High, Medium, or Low
+3. Brief reasoning based on market data, current prices, and probability assessment
+
+Format your response as: "[DIRECTION] ([Confidence] confidence) — [reasoning]"
+Be specific and analytical. Reference actual data points.`;
 
         const geminiRes = await fetch(
           'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY,

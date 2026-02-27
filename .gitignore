@@ -38,6 +38,8 @@ id_ed25519*
 *.p12
 .gh_token
 ghp_*
+.seed
+.opnet_seed
 
 # Server database
 server/*.db
