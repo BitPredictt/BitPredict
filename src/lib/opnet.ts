@@ -380,8 +380,8 @@ export async function claimPredOnChain(
   _senderAddr: unknown,
   _amount: bigint = 500n,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
-  // mint() restricted to deployer — faucet handled server-side
-  return { txHash: 'server-faucet', success: true };
+  // mint() restricted to deployer — faucet handled server-side via API
+  return { txHash: '', success: true };
 }
 
 /**

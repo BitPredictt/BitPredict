@@ -83,8 +83,34 @@ async function transferPredToUser(userAddress, amount) {
 
 // Init deployer wallet on startup
 initDeployerWallet();
-app.use(cors());
-app.use(express.json());
+
+// CORS: restrict to known origins
+const ALLOWED_ORIGINS = [
+  'https://bitpredictt.github.io',
+  'http://localhost:5173',
+  'http://localhost:4173',
+];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.some(o => origin.startsWith(o))) cb(null, true);
+    else cb(null, true); // Allow all for now (testnet), log unknown
+  },
+}));
+app.use(express.json({ limit: '1mb' }));
+
+// Simple in-memory rate limiter
+const rateLimits = new Map(); // key -> { count, resetAt }
+function rateLimit(key, maxPerWindow, windowMs) {
+  const now = Date.now();
+  const entry = rateLimits.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return false; // not limited
+  }
+  if (entry.count >= maxPerWindow) return true; // limited
+  entry.count++;
+  return false;
+}
 
 // --- Database setup ---
 const db = new Database(join(__dirname, 'bitpredict.db'));
@@ -150,28 +176,57 @@ db.exec(`
 // Add tx_hash column to bets if not exists
 try { db.exec('ALTER TABLE bets ADD COLUMN tx_hash TEXT'); } catch {}
 
-// --- Price feed ---
+// --- Price feed (multi-source with fallback chain) ---
 const PRICE_CACHE = { btc: { price: 0, ts: 0 }, eth: { price: 0, ts: 0 } };
+
+async function fetchFromBinance(asset) {
+  const sym = asset === 'btc' ? 'BTCUSDT' : 'ETHUSDT';
+  const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}`, { signal: AbortSignal.timeout(5000) });
+  const data = await res.json();
+  return parseFloat(data.price) || 0;
+}
+
+async function fetchFromCoinGecko(asset) {
+  const ids = asset === 'btc' ? 'bitcoin' : 'ethereum';
+  const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`, { signal: AbortSignal.timeout(5000) });
+  const data = await res.json();
+  return data[ids]?.usd || 0;
+}
+
+async function fetchFromCryptoCompare(asset) {
+  const sym = asset === 'btc' ? 'BTC' : 'ETH';
+  const res = await fetch(`https://min-api.cryptocompare.com/data/price?fsym=${sym}&tsyms=USD`, { signal: AbortSignal.timeout(5000) });
+  const data = await res.json();
+  return data.USD || 0;
+}
 
 async function fetchPrice(asset) {
   const now = Date.now();
   const cached = PRICE_CACHE[asset];
   if (cached && now - cached.ts < 15000) return cached.price; // 15s cache
 
-  try {
-    const ids = asset === 'btc' ? 'bitcoin' : 'ethereum';
-    const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
-    const data = await res.json();
-    const price = data[ids]?.usd || 0;
-    if (price > 0) {
-      PRICE_CACHE[asset] = { price, ts: now };
-      db.prepare('INSERT INTO price_snapshots (asset, price) VALUES (?, ?)').run(asset, price);
+  // Try sources in order: Binance → CoinGecko → CryptoCompare
+  const sources = [
+    { name: 'Binance', fn: fetchFromBinance },
+    { name: 'CoinGecko', fn: fetchFromCoinGecko },
+    { name: 'CryptoCompare', fn: fetchFromCryptoCompare },
+  ];
+
+  for (const src of sources) {
+    try {
+      const price = await src.fn(asset);
+      if (price > 0) {
+        PRICE_CACHE[asset] = { price, ts: now };
+        db.prepare('INSERT INTO price_snapshots (asset, price) VALUES (?, ?)').run(asset, price);
+        return price;
+      }
+    } catch (e) {
+      // Silent fallthrough to next source
     }
-    return price;
-  } catch (e) {
-    console.error('Price fetch error:', e.message);
-    return cached?.price || 0;
   }
+
+  console.error('All price sources failed for', asset);
+  return cached?.price || 0;
 }
 
 // --- Seed default markets ---
@@ -695,7 +750,14 @@ const MAX_HISTORY = 20;
 
 app.post('/api/ai/chat', async (req, res) => {
   const { message, address, marketId } = req.body;
-  if (!message) return res.status(400).json({ error: 'message required' });
+  if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message required' });
+  if (message.length > 2000) return res.status(400).json({ error: 'message too long (max 2000 chars)' });
+
+  // Rate limit: 10 messages per minute per address
+  const chatKey = 'chat:' + (address || req.ip);
+  if (rateLimit(chatKey, 10, 60000)) {
+    return res.status(429).json({ error: 'Too many messages. Wait a moment.' });
+  }
 
   try {
     // Build live context
@@ -923,7 +985,14 @@ const FAUCET_AMOUNT = 500; // 500 PRED per claim (small amount)
 
 app.post('/api/faucet/claim', async (req, res) => {
   const { address } = req.body;
-  if (!address) return res.status(400).json({ error: 'address required' });
+  if (!address || typeof address !== 'string' || address.length > 120) {
+    return res.status(400).json({ error: 'valid address required' });
+  }
+
+  // Rate limit: 1 claim per 5 minutes per address
+  if (rateLimit('faucet:' + address, 1, 5 * 60 * 1000)) {
+    return res.status(429).json({ error: 'Faucet cooldown: try again in 5 minutes' });
+  }
 
   // Credit in DB first
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
