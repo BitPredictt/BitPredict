@@ -30,23 +30,14 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     setClaiming(true);
     setClaimMsg(null);
     try {
-      // 1) On-chain: mint PRED tokens via OP_WALLET (triggers signing popup)
-      setClaimMsg({ text: 'Подпишите транзакцию в OP_WALLET...', type: 'success' });
-      const txResult = await claimPredOnChain(walletProvider, walletNetwork, walletAddressObj, 500n);
-      if (!txResult.success) {
-        throw new Error(txResult.error || 'Claim rejected by wallet');
-      }
-
-      // 2) Server-side: credit balance (backup tracking)
-      const result = await api.claimFaucet(walletAddress);
+      setClaimMsg({ text: 'Requesting PRED from faucet...', type: 'success' });
+      const result = await api.claimFaucet(walletAddress) as any;
       onBalanceUpdate(result.newBalance);
 
-      setClaimMsg({
-        text: txResult.txHash
-          ? `✅ On-chain TX: ${txResult.txHash.slice(0, 20)}... | +500 PRED`
-          : result.message,
-        type: 'success',
-      });
+      const msg = result.txHash
+        ? `✅ +${result.claimed} PRED sent on-chain! TX: ${result.txHash.slice(0, 20)}...`
+        : `✅ +${result.claimed} PRED credited! Balance: ${result.newBalance.toLocaleString()}`;
+      setClaimMsg({ text: msg, type: 'success' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setClaimMsg({ text: msg, type: 'error' });

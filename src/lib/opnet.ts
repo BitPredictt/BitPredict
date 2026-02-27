@@ -343,7 +343,8 @@ export async function approvePredSpending(
 
     // OP-20 uses increaseAllowance(), NOT approve() (Bob: ATK-05)
     // Get spender Address via getContract().contractAddress (NOT getPublicKeyInfo — fails for contracts)
-    const MARKET_ABI_STUB = [{ name: 'version', inputs: [], outputs: [{ name: 'v', type: 'UINT256' }], type: 'Function' }];
+    const { ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
+    const MARKET_ABI_STUB = [{ name: 'version', inputs: [], outputs: [{ name: 'v', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function, constant: true }];
     const marketContract = getContract(
       OPNET_CONFIG.contractAddress,
       MARKET_ABI_STUB,
@@ -407,8 +408,9 @@ export async function submitBetTransaction(
     }
 
     // Step 2: buyShares on PredictionMarket
+    const { ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
     const MARKET_ABI = [
-      { name: 'buyShares', inputs: [{ name: 'marketId', type: 'UINT256' }, { name: 'isYes', type: 'BOOL' }, { name: 'amount', type: 'UINT256' }], outputs: [{ name: 'shares', type: 'UINT256' }], type: 'Function' },
+      { name: 'buyShares', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'shares', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
     ];
     const contract = getContract(
       OPNET_CONFIG.contractAddress,
@@ -453,9 +455,9 @@ export async function claimPayoutOnChain(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
   try {
-    const { getContract } = await import('opnet');
+    const { getContract, ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
     const MARKET_ABI = [
-      { name: 'claimPayout', inputs: [{ name: 'marketId', type: 'UINT256' }], outputs: [{ name: 'payout', type: 'UINT256' }], type: 'Function' },
+      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
     ];
     const contract = getContract(
       OPNET_CONFIG.contractAddress,
