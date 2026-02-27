@@ -527,12 +527,37 @@ function create5minMarkets() {
   }
 }
 
+// --- Settle bets helper ---
+function settleBets(marketId, outcome) {
+  const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
+  for (const b of bets) {
+    if (b.side === outcome) {
+      const payout = Math.round(b.amount / b.price);
+      db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
+    } else {
+      db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
+    }
+  }
+}
+
+// --- Refund bets helper (for cancelled/unresolvable markets) ---
+function refundBets(marketId) {
+  const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
+  for (const b of bets) {
+    db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('cancelled', b.id);
+    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(b.amount, b.user_address);
+  }
+  return bets.length;
+}
+
 // --- Auto-resolve markets ---
 async function resolveExpiredMarkets() {
   const now = Math.floor(Date.now() / 1000);
   const expired = db.prepare('SELECT * FROM markets WHERE resolved = 0 AND end_time <= ?').all(now);
 
   for (const m of expired) {
+    // 1. Price-based 5-min markets
     if (m.market_type === 'price_5min' && m.resolution_source) {
       try {
         const src = JSON.parse(m.resolution_source);
@@ -541,21 +566,52 @@ async function resolveExpiredMarkets() {
 
         const outcome = currentPrice > src.threshold ? 'yes' : 'no';
         db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
-
-        // Settle bets — winners get 'won' + auto-credit balance
-        const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(m.id, 'active');
-        for (const b of bets) {
-          if (b.side === outcome) {
-            const payout = Math.round(b.amount / b.price);
-            db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
-            db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
-          } else {
-            db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
-          }
-        }
+        settleBets(m.id, outcome);
         console.log(`Resolved ${m.id}: ${outcome} (price: $${currentPrice}, threshold: $${src.threshold})`);
       } catch (e) {
         console.error(`Failed to resolve ${m.id}:`, e.message);
+      }
+      continue;
+    }
+
+    // 2. Polymarket markets: try to fetch resolution from Gamma API
+    if (m.market_type === 'polymarket') {
+      try {
+        // Extract conditionId from market id (poly-0x{conditionId})
+        const condId = m.id.replace('poly-', '');
+        const res = await fetch(`${GAMMA_HOST}/markets?conditionIds=${condId}&limit=1`, {
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const pm = Array.isArray(data) ? data[0] : (data.markets || [])[0];
+        if (!pm) continue;
+
+        if (pm.resolved === true || pm.closed === true) {
+          // Determine outcome from resolved prices
+          const prices = JSON.parse(pm.outcomePrices || '[]');
+          const yesResolved = parseFloat(prices[0]) || 0;
+          const outcome = yesResolved >= 0.9 ? 'yes' : (yesResolved <= 0.1 ? 'no' : null);
+          if (!outcome) continue; // ambiguous, skip
+
+          db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
+          settleBets(m.id, outcome);
+          console.log(`Resolved polymarket ${m.id}: ${outcome}`);
+        }
+      } catch (e) { /* API error, try next time */ }
+      continue;
+    }
+
+    // 3. Manual markets that expired >7 days ago with active bets: refund
+    const sevenDaysAgo = now - 7 * 86400;
+    if (m.market_type === 'manual' && m.end_time < sevenDaysAgo) {
+      const refunded = refundBets(m.id);
+      if (refunded > 0) {
+        db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run('cancelled', m.id);
+        console.log(`Cancelled manual market ${m.id}, refunded ${refunded} bets`);
+      } else {
+        // No active bets, just mark resolved
+        db.prepare('UPDATE markets SET resolved = 1 WHERE id = ?').run(m.id);
       }
     }
   }
@@ -971,6 +1027,10 @@ app.post('/api/bet/onchain', (req, res) => {
   if (!Number.isFinite(onchainAmt) || onchainAmt < 100) return res.status(400).json({ error: 'minimum bet is 100 BPUSD' });
 
   try {
+    // Replay attack prevention: reject reused txHashes
+    const existingTx = db.prepare('SELECT id FROM bets WHERE tx_hash = ? AND tx_hash != ""').get(txHash);
+    if (existingTx) return res.status(400).json({ error: 'txHash already used — replay detected' });
+
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (!user) return res.status(404).json({ error: 'user not found' });
     if (user.balance < onchainAmt) return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD` });
