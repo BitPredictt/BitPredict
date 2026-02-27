@@ -196,6 +196,11 @@ function rateLimit(key, maxPerWindow, windowMs) {
   entry.count++;
   return false;
 }
+// Cleanup expired rate limit entries every 10 min to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimits.entries()) { if (now > v.resetAt) rateLimits.delete(k); }
+}, 10 * 60 * 1000);
 
 // --- Database setup ---
 const db = new Database(join(__dirname, 'bitpredict.db'));
@@ -1147,6 +1152,14 @@ OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a roll
 // Chat history per session (in-memory, keyed by address)
 const chatHistories = new Map();
 const MAX_HISTORY = 20;
+const MAX_CHAT_SESSIONS = 500;
+// LRU eviction: if >MAX_CHAT_SESSIONS, delete oldest entries
+function pruneHistories() {
+  if (chatHistories.size > MAX_CHAT_SESSIONS) {
+    const oldest = [...chatHistories.keys()].slice(0, chatHistories.size - MAX_CHAT_SESSIONS);
+    for (const k of oldest) chatHistories.delete(k);
+  }
+}
 
 app.post('/api/ai/chat', async (req, res) => {
   const { message, address, marketId } = req.body;
@@ -1163,7 +1176,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Build live context
     const activeMarkets = db.prepare('SELECT id, question, category, yes_price, no_price, volume, liquidity, end_time FROM markets WHERE resolved = 0 ORDER BY volume DESC LIMIT 15').all();
     const recentResolved = db.prepare('SELECT id, question, outcome, yes_price, no_price FROM markets WHERE resolved = 1 ORDER BY end_time DESC LIMIT 5').all();
-    const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
+    const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0, sol: PRICE_CACHE.sol?.price || 0 };
 
     // If user asks about a specific market, pull extra data
     let marketContext = '';
@@ -1192,7 +1205,7 @@ ${m.resolved ? `RESOLVED: ${m.outcome}` : 'ACTIVE'}`;
 
     // Manage conversation history
     const sessionKey = address || 'anon';
-    if (!chatHistories.has(sessionKey)) chatHistories.set(sessionKey, []);
+    if (!chatHistories.has(sessionKey)) { chatHistories.set(sessionKey, []); pruneHistories(); }
     const history = chatHistories.get(sessionKey);
     history.push({ role: 'user', parts: [{ text: message }] });
     if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
@@ -1204,7 +1217,7 @@ Your intelligence combines deep OPNet protocol knowledge with real-time market a
 ${BOB_OPNET_KNOWLEDGE}
 
 ## Live Market Data (right now)
-BTC: $${prices.btc.toLocaleString()} | ETH: $${prices.eth.toLocaleString()}
+BTC: $${prices.btc.toLocaleString()} | ETH: $${prices.eth.toLocaleString()} | SOL: $${prices.sol.toLocaleString()}
 
 Active markets:
 ${activeMarkets.map(m => `• "${m.question}" → YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}% | Vol: ${m.volume} BPUSD | Liq: ${m.liquidity}`).join('\n')}
@@ -1326,7 +1339,7 @@ app.get('/api/ai/signal/:marketId', async (req, res) => {
     // Try Gemini if API key is available
     if (GEMINI_API_KEY) {
       try {
-        const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0 };
+        const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0, sol: PRICE_CACHE.sol?.price || 0 };
         const endDate = m.end_date ? new Date(m.end_date * 1000).toLocaleDateString() : 'TBD';
         const prompt = `You are Bob, an expert AI analyst for BitPredict — a Bitcoin-native prediction market on OP_NET.
 
