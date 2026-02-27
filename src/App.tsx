@@ -28,6 +28,7 @@ function App() {
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [markets, setMarkets] = useState<Market[]>([]);
+  const [marketsLoading, setMarketsLoading] = useState(true);
   const [predBalance, setPredBalance] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
   const marketsLoaded = useRef(false);
@@ -36,7 +37,7 @@ function App() {
   useEffect(() => {
     if (marketsLoaded.current) return;
     marketsLoaded.current = true;
-    api.getMarkets().then(setMarkets).catch((e) => console.error('Failed to load markets:', e));
+    api.getMarkets().then((m) => { setMarkets(m); setMarketsLoading(false); }).catch((e) => { console.error('Failed to load markets:', e); setMarketsLoading(false); });
     // Refresh every 10s for real-time updates
     const iv = setInterval(() => {
       api.getMarkets().then(setMarkets).catch(() => {});
@@ -262,7 +263,20 @@ function App() {
             </div>
 
             {/* Markets grid */}
-            {filteredMarkets.length === 0 ? (
+            {marketsLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="bg-surface-2 rounded-2xl p-5 border border-white/5 animate-pulse">
+                    <div className="h-4 bg-surface-3 rounded w-3/4 mb-3" />
+                    <div className="h-3 bg-surface-3 rounded w-1/2 mb-4" />
+                    <div className="flex gap-2">
+                      <div className="h-8 bg-surface-3 rounded-lg flex-1" />
+                      <div className="h-8 bg-surface-3 rounded-lg flex-1" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredMarkets.length === 0 ? (
               <div className="text-center py-16">
                 <Filter size={40} className="text-gray-700 mx-auto mb-3" />
                 <h3 className="text-sm font-bold text-gray-400">No markets found</h3>

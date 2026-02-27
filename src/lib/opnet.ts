@@ -284,7 +284,7 @@ function getOPWallet(): OPWalletAPI | null {
 // ─── On-chain helpers ───
 // Per Bob (OPNet AI): use wallet's OWN provider from useWalletConnect(), NOT JSONRpcProvider.
 // Use OP_20_ABI from opnet package. Use IOP20Contract for type safety.
-// signer: null, mldsaSigner: null in sendTransaction() — wallet handles signing.
+// wallet handles signing automatically via OP_WALLET extension.
 // Access results via result.properties.balance (not result.decoded).
 
 const MAX_SATS = 50000n;
@@ -356,8 +356,6 @@ export async function signBetProof(
     const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
 
     const receipt = await sim.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
       refundTo: walletAddress,
       maximumAllowedSatToSpend: 250_000n,
       network,
@@ -442,8 +440,6 @@ export async function mintTokensOnChain(
     const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
 
     const receipt = await sim.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
       refundTo: walletAddress,
       maximumAllowedSatToSpend: 250_000n,
       network,
@@ -507,8 +503,6 @@ export async function submitBetTransaction(
     }
 
     const receipt = await simulation.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
       refundTo: senderAddr,
       maximumAllowedSatToSpend: BigInt(amountSats) + MAX_SATS,
       network,
@@ -551,8 +545,6 @@ export async function claimPayoutOnChain(
     if (sim?.revert) return { txHash: '', success: false, error: `Revert: ${sim.revert}` };
 
     const receipt = await sim.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
       refundTo: senderAddr,
       maximumAllowedSatToSpend: MAX_SATS,
       network,

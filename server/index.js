@@ -541,8 +541,8 @@ function settleBets(marketId, outcome) {
     if (b.side === outcome) {
       const rawPayout = b.price > 0 ? Math.round(b.amount / b.price) : b.amount;
       const payout = Math.min(rawPayout, b.amount * 100); // cap at 100x to prevent overflow
-      db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('won', payout, b.id);
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(payout, b.user_address);
+      // Set to 'claimable' — user must explicitly claim via /api/claim
+      db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
     } else {
       db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
     }
@@ -793,12 +793,15 @@ app.get('/api/balance/:address', (req, res) => {
   res.json({ balance: user.balance });
 });
 
-// List all markets (filter out old resolved 5min markets >1h old)
+// List all markets (filter out old resolved markets)
 app.get('/api/markets', (req, res) => {
-  const cutoff = Math.floor(Date.now() / 1000) - 3600; // 1h ago
+  const cutoff5min = Math.floor(Date.now() / 1000) - 3600; // 1h for 5min markets
+  const cutoff7d = Math.floor(Date.now() / 1000) - 7 * 86400; // 7d for others
   const markets = db.prepare(`SELECT * FROM markets 
     WHERE NOT (market_type = 'price_5min' AND resolved = 1 AND end_time < ?)
-    ORDER BY volume DESC, end_time ASC`).all(cutoff);
+    AND NOT (market_type != 'price_5min' AND resolved = 1 AND end_time < ?)
+    ORDER BY resolved ASC, volume DESC, end_time ASC
+    LIMIT 300`).all(cutoff5min, cutoff7d);
   const mapped = markets.map(m => {
     let tags = [];
     try { tags = JSON.parse(m.tags || '[]'); } catch(e) { tags = []; }
