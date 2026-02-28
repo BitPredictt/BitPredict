@@ -766,9 +766,38 @@ async function syncPolymarketEvents() {
         const polyId = `poly-${(m.conditionId || m.id || '').slice(0, 16)}`;
         if (!polyId || polyId === 'poly-') continue;
 
-        // Extract outcome label from outcomes array or question
-        const outcomes = JSON.parse(m.outcomes || '[]');
-        const outcomeLabel = (outcomes[0] || '').toString() || m.question.replace(/\?$/, '').split(' ').slice(-3).join(' ');
+        // Extract outcome label: for multi-outcome, derive from question (outcomes array is always Yes/No)
+        let outcomeLabel;
+        if (isMultiOutcome && eventTitle) {
+          let q = (m.question || '').replace(/\?$/g, '').trim();
+          // Strip common prefixes
+          q = q.replace(/^(Will |Does |Is |Are |Has |Can |Should |Do |the )/i, '').trim();
+          // Build set of "noise" words from event title to strip
+          const titleWords = new Set(eventTitle.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 2));
+          // Remove event-title words + common connectors from question
+          const noise = new Set([...titleWords, 'the', 'win', 'will', 'for', 'and', 'next', 'new', 'from', 'before', 'after', 'this', 'that', 'its', 'his', 'her', 'their', 'with', 'what', 'when', 'which']);
+          const words = q.split(/\s+/);
+          // Find the longest contiguous span NOT in noise
+          let best = '', cur = '';
+          for (const w of words) {
+            if (noise.has(w.toLowerCase().replace(/[^a-z0-9]/g, ''))) {
+              if (cur.length > best.length) best = cur;
+              cur = '';
+            } else {
+              cur = cur ? cur + ' ' + w : w;
+            }
+          }
+          if (cur.length > best.length) best = cur;
+          // Fallback: if best is too short, use cleaned question
+          if (best.length < 3) best = q.replace(/\b(the|win|will|be|as|in|of|to|a|an|on|by|at|or|is|it|no|if|so|do)\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+          // Trim trailing filler words
+          best = best.replace(/\b(as|the|be|in|of|to|a|an|on|by|at|or|is|it)$/i, '').trim();
+          outcomeLabel = best.length > 40 ? best.slice(0, 40) + '…' : best;
+          if (outcomeLabel.length < 2) outcomeLabel = q.slice(0, 40);
+        } else {
+          const outcomes = JSON.parse(m.outcomes || '[]');
+          outcomeLabel = (outcomes[0] || '').toString() || m.question.replace(/\?$/, '').trim();
+        }
 
         const existing = db.prepare('SELECT id FROM markets WHERE id = ?').get(polyId);
         if (existing) {
