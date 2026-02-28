@@ -299,6 +299,9 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_bets_tx_hash ON bets(tx_hash) WHER
 
 // Migration: add image_url column if missing
 try { db.exec('ALTER TABLE markets ADD COLUMN image_url TEXT'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE markets ADD COLUMN event_id TEXT'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE markets ADD COLUMN event_title TEXT'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE markets ADD COLUMN outcome_label TEXT'); } catch(e) { /* already exists */ }
 
 // Wipe polymarket markets for category re-sync on deploy
 try {
@@ -754,21 +757,33 @@ async function syncPolymarketEvents() {
       const markets = ev.markets || [];
       if (!markets.length) continue;
 
+      const isMultiOutcome = markets.length > 1;
+      const eventId = ev.slug || ev.id || '';
+      const eventTitle = ev.title || '';
+
       for (const m of markets) {
         if (!m.question || m.question.length < 10) continue;
         const polyId = `poly-${(m.conditionId || m.id || '').slice(0, 16)}`;
         if (!polyId || polyId === 'poly-') continue;
 
+        // Extract outcome label from outcomes array or question
+        const outcomes = JSON.parse(m.outcomes || '[]');
+        const outcomeLabel = (outcomes[0] || '').toString() || m.question.replace(/\?$/, '').split(' ').slice(-3).join(' ');
+
         const existing = db.prepare('SELECT id FROM markets WHERE id = ?').get(polyId);
         if (existing) {
-          // Update prices from Polymarket
+          // Update prices + event info from Polymarket
           const prices = JSON.parse(m.outcomePrices || '[]');
           const yesPrice = parseFloat(prices[0]) || 0.5;
           const noPrice = parseFloat(prices[1]) || (1 - yesPrice);
           const vol = Math.round(parseFloat(m.volume || 0));
           const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
-          db.prepare('UPDATE markets SET yes_price = ?, no_price = ?, volume = ?, liquidity = ? WHERE id = ? AND market_type = ?')
-            .run(Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000, vol, liq, polyId, 'polymarket');
+          db.prepare(`UPDATE markets SET yes_price = ?, no_price = ?, volume = ?, liquidity = ?,
+            event_id = ?, event_title = ?, outcome_label = ?
+            WHERE id = ? AND market_type = ?`)
+            .run(Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000, vol, liq,
+              isMultiOutcome ? eventId : null, isMultiOutcome ? eventTitle : null, outcomeLabel,
+              polyId, 'polymarket');
           continue;
         }
 
@@ -787,7 +802,7 @@ async function syncPolymarketEvents() {
         const noPrice = parseFloat(prices[1]) || (1 - yesPrice);
         const vol = Math.round(parseFloat(m.volume || 0));
         const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
-        const category = mapPolyCategory(ev.category || m.category || '', m.question);
+        const category = mapPolyCategory(ev.category || m.category || '', m.question || eventTitle);
         const rawTags = (ev.tags || []).slice(0, 3).map(t => typeof t === 'string' ? t : (t.label || t.slug || '')).filter(Boolean);
         const tags = JSON.stringify([category.toLowerCase(), 'polymarket', ...rawTags]);
 
@@ -799,12 +814,16 @@ async function syncPolymarketEvents() {
 
         try {
           db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price,
-            yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, image_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'polymarket', ?)`).run(
+            yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, image_url,
+            event_id, event_title, outcome_label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'polymarket', ?, ?, ?, ?)`).run(
             polyId, m.question, category,
             Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000,
             yesPool, noPool, scaledVol, scaledLiq, endTime, tags,
-            m.image || ev.image || null
+            m.image || ev.image || null,
+            isMultiOutcome ? eventId : null,
+            isMultiOutcome ? eventTitle : null,
+            outcomeLabel
           );
           synced++;
         } catch (e) { /* duplicate or constraint error, skip */ }
@@ -858,10 +877,26 @@ app.get('/api/markets', (req, res) => {
     AND NOT (market_type != 'price_5min' AND resolved = 1 AND end_time < ?)
     ORDER BY resolved ASC, volume DESC, end_time ASC
     LIMIT 300`).all(cutoff5min, cutoff7d);
-  const mapped = markets.map(m => {
+  // Build event groups for multi-outcome Polymarket markets
+  const eventGroups = new Map();
+  for (const m of markets) {
+    if (m.event_id) {
+      if (!eventGroups.has(m.event_id)) eventGroups.set(m.event_id, []);
+      eventGroups.get(m.event_id).push(m);
+    }
+  }
+
+  // Track which markets were already merged into a group
+  const mergedIds = new Set();
+  const result = [];
+
+  for (const m of markets) {
+    if (mergedIds.has(m.id)) continue;
+
     let tags = [];
     try { tags = JSON.parse(m.tags || '[]'); } catch(e) { tags = []; }
-    return {
+
+    const base = {
       id: m.id,
       question: m.question,
       category: m.category,
@@ -877,9 +912,50 @@ app.get('/api/markets', (req, res) => {
       marketType: m.market_type,
       yesPool: m.yes_pool,
       noPool: m.no_pool,
+      imageUrl: m.image_url || null,
     };
-  });
-  res.json(mapped);
+
+    // Multi-outcome: group sibling markets into outcomes array
+    if (m.event_id && eventGroups.has(m.event_id)) {
+      const siblings = eventGroups.get(m.event_id);
+      if (siblings.length > 1) {
+        // Use event title as the card question
+        base.question = m.event_title || m.question;
+        base.eventId = m.event_id;
+
+        // Build outcomes sorted by price descending
+        const outcomes = siblings.map(s => ({
+          marketId: s.id,
+          label: s.outcome_label || s.question,
+          price: s.yes_price,
+          volume: s.volume,
+        })).sort((a, b) => b.price - a.price);
+
+        base.outcomes = outcomes;
+
+        // Top outcome price as the main card percentage
+        base.yesPrice = outcomes[0].price;
+        base.noPrice = 1 - outcomes[0].price;
+
+        // Aggregate volume/liquidity
+        base.volume = siblings.reduce((s, x) => s + x.volume, 0);
+        base.liquidity = siblings.reduce((s, x) => s + x.liquidity, 0);
+
+        // Use image from first sibling with one
+        base.imageUrl = siblings.find(s => s.image_url)?.image_url || null;
+
+        // Mark all siblings as merged
+        for (const s of siblings) mergedIds.add(s.id);
+
+        result.push(base);
+        continue;
+      }
+    }
+
+    result.push(base);
+  }
+
+  res.json(result);
 });
 
 // Get single market

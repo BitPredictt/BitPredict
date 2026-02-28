@@ -86,23 +86,45 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         {market.question}
       </h3>
 
-      {/* Progress bar */}
-      <div className="mb-3">
-        <div className="flex justify-between mb-1.5">
-          <span className="text-xs font-bold text-green-400">Yes {yesPct}%</span>
-          <span className="text-xs font-bold text-red-400">No {noPct}%</span>
+      {/* Progress bar / Outcomes */}
+      {market.outcomes && market.outcomes.length > 1 ? (
+        <div className="mb-3 space-y-1.5">
+          {market.outcomes.slice(0, 4).map((o, i) => {
+            const pct = Math.round(o.price * 100);
+            const barW = Math.max(2, Math.min(98, pct));
+            const colors = ['text-green-400 bg-green-500/20', 'text-blue-400 bg-blue-500/20', 'text-purple-400 bg-purple-500/20', 'text-yellow-400 bg-yellow-500/20'];
+            return (
+              <div key={o.marketId || i} className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-400 font-medium truncate w-[45%]">{o.label}</span>
+                <div className="flex-1 h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                  <div className={`h-full rounded-full ${colors[i % colors.length].split(' ')[1]}`} style={{ width: `${barW}%` }} />
+                </div>
+                <span className={`text-[10px] font-bold min-w-[32px] text-right ${colors[i % colors.length].split(' ')[0]}`}>{pct}%</span>
+              </div>
+            );
+          })}
+          {market.outcomes.length > 4 && (
+            <span className="text-[9px] text-gray-600 font-medium">+{market.outcomes.length - 4} more outcomes</span>
+          )}
         </div>
-        <div className="h-2 rounded-full bg-surface-3 overflow-hidden flex">
-          <div
-            className="progress-yes rounded-l-full transition-all duration-500"
-            style={{ width: `${yesWidth}%` }}
-          />
-          <div
-            className="progress-no rounded-r-full transition-all duration-500"
-            style={{ width: `${noWidth}%` }}
-          />
+      ) : (
+        <div className="mb-3">
+          <div className="flex justify-between mb-1.5">
+            <span className="text-xs font-bold text-green-400">Yes {yesPct}%</span>
+            <span className="text-xs font-bold text-red-400">No {noPct}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-surface-3 overflow-hidden flex">
+            <div
+              className="progress-yes rounded-l-full transition-all duration-500"
+              style={{ width: `${yesWidth}%` }}
+            />
+            <div
+              className="progress-no rounded-r-full transition-all duration-500"
+              style={{ width: `${noWidth}%` }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Stats */}
       <div className="flex items-center justify-between">

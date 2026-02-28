@@ -1,3 +1,10 @@
+export interface MarketOutcome {
+  marketId: string;
+  label: string;
+  price: number;
+  volume: number;
+}
+
 export interface Market {
   id: string;
   question: string;
@@ -13,6 +20,8 @@ export interface Market {
   imageUrl?: string;
   tags: string[];
   marketType?: string;
+  eventId?: string;
+  outcomes?: MarketOutcome[];
 }
 
 export interface Bet {

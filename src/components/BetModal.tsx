@@ -17,12 +17,18 @@ const signalCache = new Map<string, { signal: string; ts: number }>();
 const SIGNAL_TTL = 300000; // 5 min
 
 export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: BetModalProps) {
+  const isMultiOutcome = !!(market.outcomes && market.outcomes.length > 1);
   const [side, setSide] = useState<'yes' | 'no'>('yes');
+  const [selectedOutcome, setSelectedOutcome] = useState<number>(0); // index into outcomes
   const [amount, setAmount] = useState('1000');
   const [placing, setPlacing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [bobSignal, setBobSignal] = useState<string | null>(null);
   const [loadingSignal, setLoadingSignal] = useState(false);
+
+  // For multi-outcome, the active market is the selected outcome's sub-market
+  const activeMarketId = isMultiOutcome ? (market.outcomes![selectedOutcome]?.marketId || market.id) : market.id;
+  const activePrice = isMultiOutcome ? (market.outcomes![selectedOutcome]?.price || 0.5) : (side === 'yes' ? market.yesPrice : market.noPrice);
 
   // Fetch Bob AI signal when modal opens
   useEffect(() => {
@@ -63,15 +69,15 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
   // Real AMM calculation using constant-product formula
   const ammResult = useMemo(() => {
     if (amountNum <= 0) return null;
-    // Virtual reserves derived from market price (1M initial liquidity)
     const totalReserve = 1_000_000n;
-    const yesReserve = BigInt(Math.round(Number(totalReserve) * (1 - market.yesPrice)));
+    const priceForCalc = isMultiOutcome ? activePrice : market.yesPrice;
+    const yesReserve = BigInt(Math.round(Number(totalReserve) * (1 - priceForCalc)));
     const noReserve = totalReserve - yesReserve;
-    return calculateShares(BigInt(amountNum), side === 'yes', yesReserve, noReserve);
-  }, [amountNum, side, market.yesPrice]);
+    return calculateShares(BigInt(amountNum), isMultiOutcome ? true : side === 'yes', yesReserve, noReserve);
+  }, [amountNum, side, market.yesPrice, activePrice, isMultiOutcome, selectedOutcome]);
 
-  const price = side === 'yes' ? market.yesPrice : market.noPrice;
-  const potentialPayout = amountNum > 0 ? Math.round(amountNum / price) : 0;
+  const price = activePrice;
+  const potentialPayout = amountNum > 0 && price > 0 ? Math.round(amountNum / price) : 0;
   const potentialProfit = potentialPayout - amountNum;
   const fee = Math.round(amountNum * 0.02); // 2% fee (200 bps)
   const priceImpact = ammResult
@@ -84,7 +90,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
     if (amountNum <= 0 || !wallet.connected || insufficientBalance) return;
     setPlacing(true);
     try {
-      await onPlaceBet(market.id, side, amountNum);
+      await onPlaceBet(activeMarketId, isMultiOutcome ? 'yes' : side, amountNum);
     } finally {
       setPlacing(false);
       onClose();
@@ -133,39 +139,65 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           </div>
         )}
 
-        {/* Current odds */}
-        <div className="flex gap-2 mb-5">
-          <div className="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden flex">
-            <div className="progress-yes rounded-l-full" style={{ width: `${yesPct}%` }} />
-            <div className="progress-no rounded-r-full" style={{ width: `${noPct}%` }} />
+        {/* Side / Outcome selection */}
+        {isMultiOutcome ? (
+          <div className="mb-5 space-y-2 max-h-[240px] overflow-y-auto pr-1">
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Choose outcome</p>
+            {market.outcomes!.map((o, i) => {
+              const pct = Math.round(o.price * 100);
+              const isSelected = selectedOutcome === i;
+              const colors = ['border-green-500 bg-green-500/10', 'border-blue-500 bg-blue-500/10', 'border-purple-500 bg-purple-500/10', 'border-yellow-500 bg-yellow-500/10'];
+              const textColors = ['text-green-400', 'text-blue-400', 'text-purple-400', 'text-yellow-400'];
+              return (
+                <button
+                  key={o.marketId}
+                  onClick={() => setSelectedOutcome(i)}
+                  className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${
+                    isSelected ? colors[i % colors.length] : 'border-white/5 bg-surface-2 hover:border-white/10'
+                  }`}
+                >
+                  <span className={`text-sm font-bold truncate mr-2 ${isSelected ? textColors[i % textColors.length] : 'text-gray-400'}`}>{o.label}</span>
+                  <span className={`text-sm font-black shrink-0 ${isSelected ? textColors[i % textColors.length] : 'text-gray-500'}`}>{pct}%</span>
+                </button>
+              );
+            })}
           </div>
-        </div>
-
-        {/* Side selection */}
-        <div className="grid grid-cols-2 gap-3 mb-5">
-          <button
-            onClick={() => setSide('yes')}
-            className={`p-4 rounded-xl border-2 transition-all text-center ${
-              side === 'yes'
-                ? 'border-green-500 bg-green-500/10 shadow-lg shadow-green-500/10'
-                : 'border-white/5 bg-surface-2 hover:border-white/10'
-            }`}
-          >
-            <div className={`text-2xl font-black ${side === 'yes' ? 'text-green-400' : 'text-gray-500'}`}>YES</div>
-            <div className="text-xs text-gray-400 mt-1">{yesPct}¢ per share</div>
-          </button>
-          <button
-            onClick={() => setSide('no')}
-            className={`p-4 rounded-xl border-2 transition-all text-center ${
-              side === 'no'
-                ? 'border-red-500 bg-red-500/10 shadow-lg shadow-red-500/10'
-                : 'border-white/5 bg-surface-2 hover:border-white/10'
-            }`}
-          >
-            <div className={`text-2xl font-black ${side === 'no' ? 'text-red-400' : 'text-gray-500'}`}>NO</div>
-            <div className="text-xs text-gray-400 mt-1">{noPct}¢ per share</div>
-          </button>
-        </div>
+        ) : (
+          <>
+            {/* Current odds bar */}
+            <div className="flex gap-2 mb-5">
+              <div className="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden flex">
+                <div className="progress-yes rounded-l-full" style={{ width: `${yesPct}%` }} />
+                <div className="progress-no rounded-r-full" style={{ width: `${noPct}%` }} />
+              </div>
+            </div>
+            {/* Yes/No buttons */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <button
+                onClick={() => setSide('yes')}
+                className={`p-4 rounded-xl border-2 transition-all text-center ${
+                  side === 'yes'
+                    ? 'border-green-500 bg-green-500/10 shadow-lg shadow-green-500/10'
+                    : 'border-white/5 bg-surface-2 hover:border-white/10'
+                }`}
+              >
+                <div className={`text-2xl font-black ${side === 'yes' ? 'text-green-400' : 'text-gray-500'}`}>YES</div>
+                <div className="text-xs text-gray-400 mt-1">{yesPct}¢ per share</div>
+              </button>
+              <button
+                onClick={() => setSide('no')}
+                className={`p-4 rounded-xl border-2 transition-all text-center ${
+                  side === 'no'
+                    ? 'border-red-500 bg-red-500/10 shadow-lg shadow-red-500/10'
+                    : 'border-white/5 bg-surface-2 hover:border-white/10'
+                }`}
+              >
+                <div className={`text-2xl font-black ${side === 'no' ? 'text-red-400' : 'text-gray-500'}`}>NO</div>
+                <div className="text-xs text-gray-400 mt-1">{noPct}¢ per share</div>
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Amount */}
         <div className="mb-4">
@@ -299,7 +331,9 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           ) : (
             <>
               <Zap size={16} />
-              Place {side.toUpperCase()} — {amountNum.toLocaleString()} BPUSD
+              {isMultiOutcome
+                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${amountNum.toLocaleString()} BPUSD`
+                : `Place ${side.toUpperCase()} — ${amountNum.toLocaleString()} BPUSD`}
             </>
           )}
         </button>
