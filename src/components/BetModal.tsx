@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { X, AlertCircle, Zap, Info, BrainCircuit, Loader2 } from 'lucide-react';
+import { X, AlertCircle, Zap, Info, BrainCircuit, Loader2, MessageCircle, Send, TrendingUp } from 'lucide-react';
 import type { Market, WalletState } from '../types';
 import { calculateShares } from '../lib/opnet';
 import * as api from '../lib/api';
@@ -25,6 +25,11 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
   const [showDetails, setShowDetails] = useState(false);
   const [bobSignal, setBobSignal] = useState<string | null>(null);
   const [loadingSignal, setLoadingSignal] = useState(false);
+  const [activity, setActivity] = useState<api.ActivityItem[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [priceHistory, setPriceHistory] = useState<api.MarketPricePoint[]>([]);
 
   // For multi-outcome, the active market is the selected outcome's sub-market
   const activeMarketId = isMultiOutcome ? (market.outcomes![selectedOutcome]?.marketId || market.id) : market.id;
@@ -49,6 +54,23 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
     }).finally(() => { if (!cancelled) setLoadingSignal(false); });
     return () => { cancelled = true; };
   }, [market.id]);
+
+  // Fetch activity feed + price history
+  useEffect(() => {
+    api.getMarketActivity(market.id).then(setActivity).catch(() => {});
+    api.getMarketPriceHistory(market.id).then(setPriceHistory).catch(() => {});
+  }, [market.id]);
+
+  const handlePostComment = async () => {
+    if (!commentText.trim() || !wallet.connected || postingComment) return;
+    setPostingComment(true);
+    try {
+      await api.postComment(wallet.address, market.id, commentText.trim());
+      setCommentText('');
+      api.getMarketActivity(market.id).then(setActivity).catch(() => {});
+    } catch { /* */ }
+    setPostingComment(false);
+  };
 
   const getSignalType = (text: string | null): 'bullish' | 'bearish' | 'neutral' => {
     if (!text) return 'neutral';
@@ -347,6 +369,80 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
             </>
           )}
         </button>
+
+        {/* Activity Feed Toggle */}
+        <button
+          onClick={() => setShowActivity(!showActivity)}
+          className="w-full mt-4 flex items-center justify-center gap-2 py-2 text-[11px] text-gray-500 hover:text-white transition-colors"
+        >
+          <MessageCircle size={12} />
+          {showActivity ? 'Hide' : 'Show'} Activity & Comments ({activity.length})
+        </button>
+
+        {showActivity && (
+          <div className="mt-2 border-t border-white/5 pt-3 space-y-2 max-h-48 overflow-y-auto">
+            {/* Price chart mini */}
+            {priceHistory.length > 1 && (
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp size={10} className="text-gray-500" />
+                <div className="flex-1 flex items-end gap-px h-6">
+                  {priceHistory.slice(-20).map((p, i) => (
+                    <div key={i} className="flex-1 bg-green-500/30 rounded-t" style={{ height: `${Math.max(4, p.yes_price * 100)}%` }} />
+                  ))}
+                </div>
+                <span className="text-[9px] text-gray-600">{priceHistory.length} trades</span>
+              </div>
+            )}
+
+            {/* Comment input */}
+            {wallet.connected && (
+              <div className="flex gap-2">
+                <input
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handlePostComment()}
+                  placeholder="Add a comment..."
+                  className="flex-1 bg-surface-2 border border-white/5 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-btc/30 focus:outline-none"
+                  maxLength={500}
+                />
+                <button
+                  onClick={handlePostComment}
+                  disabled={!commentText.trim() || postingComment}
+                  className="px-3 py-1.5 rounded-lg bg-btc/20 text-btc text-xs font-bold hover:bg-btc/30 disabled:opacity-40 transition-all"
+                >
+                  <Send size={12} />
+                </button>
+              </div>
+            )}
+
+            {/* Activity items */}
+            {activity.length === 0 ? (
+              <p className="text-[10px] text-gray-600 text-center py-3">No activity yet — be the first!</p>
+            ) : (
+              activity.slice(0, 15).map((item) => (
+                <div key={`${item.type}-${item.id}`} className="flex items-start gap-2 py-1">
+                  <div className={`w-1 h-1 rounded-full mt-1.5 shrink-0 ${item.type === 'bet' ? 'bg-btc' : 'bg-purple-400'}`} />
+                  <div className="flex-1 min-w-0">
+                    {item.type === 'bet' ? (
+                      <span className="text-[10px] text-gray-400">
+                        <span className="text-white font-bold">{item.address?.slice(0, 10)}...</span>
+                        {' '}bet {item.amount?.toLocaleString()} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side?.toUpperCase()}</span>
+                      </span>
+                    ) : (
+                      <div>
+                        <span className="text-[10px] text-white font-bold">{item.address?.slice(0, 10)}...</span>
+                        <p className="text-[10px] text-gray-400">{item.text}</p>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[9px] text-gray-600 shrink-0">
+                    {new Date(item.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
           Powered by OP_NET · Bitcoin Layer 1 · Testnet · BPUSD virtual currency

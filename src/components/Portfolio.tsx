@@ -24,11 +24,14 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
   const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
+  const [sellingBetId, setSellingBetId] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<api.PortfolioMetrics | null>(null);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
 
   useEffect(() => {
     if (walletAddress) {
       api.getPortfolioPnl(walletAddress).then(setPnlData).catch(() => {});
+      api.getPortfolioMetrics(walletAddress).then(setMetrics).catch(() => {});
     }
   }, [walletAddress, bets.length]);
 
@@ -72,6 +75,21 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
       setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
     } finally {
       setClaimingBetId(null);
+    }
+  };
+
+  const handleSell = async (betId: string) => {
+    if (sellingBetId || !walletAddress) return;
+    setSellingBetId(betId);
+    setClaimMsg(null);
+    try {
+      const result = await api.sellShares(walletAddress, betId);
+      onBalanceUpdate(result.newBalance);
+      setClaimMsg({ text: `Sold for ${result.payout.toLocaleString()} BPUSD (fee: ${result.fee})`, type: 'success' });
+    } catch (err) {
+      setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+    } finally {
+      setSellingBetId(null);
     }
   };
 
@@ -341,6 +359,50 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
         </div>
       )}
 
+      {/* Risk Metrics */}
+      {metrics && metrics.totalBets > 0 && (
+        <div className="bg-surface-2/50 rounded-xl p-4 border border-white/5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Target size={14} className="text-btc" />
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Prediction Score</h3>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className={`text-2xl font-black ${metrics.predictionScore >= 70 ? 'text-green-400' : metrics.predictionScore >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>
+                {metrics.predictionScore}
+              </span>
+              <span className="text-[10px] text-gray-500">/100</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-black/30 rounded-lg p-2 text-center">
+              <div className="text-sm font-bold text-white">{metrics.winRate}%</div>
+              <div className="text-[9px] text-gray-500">Win Rate</div>
+            </div>
+            <div className="bg-black/30 rounded-lg p-2 text-center">
+              <div className="text-sm font-bold text-white">{metrics.profitFactor}x</div>
+              <div className="text-[9px] text-gray-500">Profit Factor</div>
+            </div>
+            <div className="bg-black/30 rounded-lg p-2 text-center">
+              <div className={`text-sm font-bold ${metrics.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>{metrics.roi > 0 ? '+' : ''}{metrics.roi}%</div>
+              <div className="text-[9px] text-gray-500">ROI</div>
+            </div>
+            <div className="bg-black/30 rounded-lg p-2 text-center">
+              <div className="text-sm font-bold text-orange-400">{metrics.bestStreak}</div>
+              <div className="text-[9px] text-gray-500">Best Streak</div>
+            </div>
+            <div className="bg-black/30 rounded-lg p-2 text-center">
+              <div className="text-sm font-bold text-red-400">{formatSats(metrics.maxDrawdown)}</div>
+              <div className="text-[9px] text-gray-500">Max DD</div>
+            </div>
+            <div className="bg-black/30 rounded-lg p-2 text-center">
+              <div className="text-sm font-bold text-white">{formatSats(metrics.avgBet)}</div>
+              <div className="text-[9px] text-gray-500">Avg Bet</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bets list */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Bet History</h3>
@@ -408,6 +470,16 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         >
                           {claimingBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
                           {claimingBetId === bet.id ? 'Claiming...' : 'Claim'}
+                        </button>
+                      )}
+                      {bet.status === 'active' && (bet.shares ?? 0) > 0 && (
+                        <button
+                          onClick={() => handleSell(bet.id)}
+                          disabled={!!sellingBetId}
+                          className="mt-1 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-blue-600/30 to-purple-600/30 border border-blue-500/40 text-[10px] font-bold text-blue-300 hover:border-blue-400/60 transition-all disabled:opacity-50"
+                        >
+                          {sellingBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <TrendingDown size={10} />}
+                          {sellingBetId === bet.id ? 'Selling...' : `Sell ${bet.shares} shares`}
                         </button>
                       )}
                       {bet.status === 'won' && (bet.payout ?? 0) > 0 && (

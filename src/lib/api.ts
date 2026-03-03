@@ -16,10 +16,10 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 // --- Auth / Balance ---
-export async function authUser(address: string) {
-  return apiFetch<{ address: string; balance: number }>('/api/auth', {
+export async function authUser(address: string, referrer?: string) {
+  return apiFetch<{ address: string; balance: number; referrer: string | null }>('/api/auth', {
     method: 'POST',
-    body: JSON.stringify({ address }),
+    body: JSON.stringify({ address, referrer }),
   });
 }
 
@@ -280,4 +280,136 @@ export async function getTopPredictors() {
 // --- Portfolio PnL ---
 export async function getPortfolioPnl(address: string) {
   return apiFetch<PnlData>(`/api/portfolio/pnl/${address}`);
+}
+
+// --- Sell Shares ---
+export interface SellResult {
+  success: boolean;
+  payout: number;
+  fee: number;
+  sharesSold: number;
+  remainingShares: number;
+  newBalance: number;
+  newYesPrice: number;
+  newNoPrice: number;
+}
+
+export async function sellShares(address: string, betId: string, sharesToSell?: number) {
+  return apiFetch<SellResult>('/api/bet/sell', {
+    method: 'POST',
+    body: JSON.stringify({ address, betId, sharesToSell }),
+  });
+}
+
+// --- User Market Creation ---
+export async function createMarket(address: string, question: string, endTime: number, category?: string, initialLiquidity?: number, tags?: string[]) {
+  return apiFetch<{ success: boolean; marketId: string; newBalance: number }>('/api/markets/create', {
+    method: 'POST',
+    body: JSON.stringify({ address, question, category, endTime, initialLiquidity, tags }),
+  });
+}
+
+// --- Comments ---
+export interface Comment {
+  id: number;
+  market_id: string;
+  address: string;
+  text: string;
+  created_at: number;
+}
+
+export async function getComments(marketId: string) {
+  return apiFetch<Comment[]>(`/api/comments/${marketId}`);
+}
+
+export async function postComment(address: string, marketId: string, text: string) {
+  return apiFetch<Comment>('/api/comments', {
+    method: 'POST',
+    body: JSON.stringify({ address, marketId, text }),
+  });
+}
+
+// --- Activity Feed ---
+export interface ActivityItem {
+  id: number | string;
+  type: 'bet' | 'comment';
+  address: string;
+  timestamp: number;
+  side?: string;
+  amount?: number;
+  shares?: number;
+  text?: string;
+}
+
+export async function getMarketActivity(marketId: string) {
+  return apiFetch<ActivityItem[]>(`/api/markets/${marketId}/activity`);
+}
+
+// --- Market Price History ---
+export interface MarketPricePoint {
+  yes_price: number;
+  no_price: number;
+  volume: number;
+  timestamp: number;
+}
+
+export async function getMarketPriceHistory(marketId: string) {
+  return apiFetch<MarketPricePoint[]>(`/api/markets/${marketId}/price-history`);
+}
+
+// --- Referral ---
+export async function setReferral(address: string, referrer: string) {
+  return apiFetch<{ success: boolean }>('/api/referral', {
+    method: 'POST',
+    body: JSON.stringify({ address, referrer }),
+  });
+}
+
+export async function getReferralStats(address: string) {
+  return apiFetch<{ referralCount: number; totalEarned: number }>(`/api/referral/stats/${address}`);
+}
+
+// --- Portfolio Metrics ---
+export interface PortfolioMetrics {
+  winRate: number;
+  totalBets: number;
+  resolvedBets: number;
+  avgBet: number;
+  biggestWin: number;
+  biggestLoss: number;
+  maxDrawdown: number;
+  profitFactor: number;
+  currentStreak: number;
+  bestStreak: number;
+  predictionScore: number;
+  roi: number;
+  totalInvested: number;
+  totalReturn: number;
+}
+
+export async function getPortfolioMetrics(address: string) {
+  return apiFetch<PortfolioMetrics>(`/api/portfolio/metrics/${address}`);
+}
+
+// --- Notifications ---
+export interface Notification {
+  id: number;
+  address: string;
+  type: string;
+  title: string;
+  body: string;
+  market_id: string | null;
+  read: number;
+  created_at: number;
+}
+
+export async function getNotifications(address: string) {
+  return apiFetch<{ notifications: Notification[]; unreadCount: number }>(`/api/notifications/${address}`);
+}
+
+export async function markNotificationsRead(address: string, notificationId?: number) {
+  return apiFetch<{ success: boolean }>('/api/notifications/read', {
+    method: 'POST',
+    body: JSON.stringify({ address, notificationId }),
+  });
 }

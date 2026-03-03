@@ -1,6 +1,7 @@
 import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Trophy, HelpCircle } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
+import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   wallet: WalletState;
@@ -76,6 +77,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
                   <div className="text-xs font-bold text-btc">{formatSats(wallet.balanceSats)}</div>
                   <div className="text-[10px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>
                 </div>
+                <NotificationBell walletAddress={wallet.address} />
                 <button
                   onClick={onDisconnect}
                   className="p-2 rounded-lg bg-surface-2 hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-all"

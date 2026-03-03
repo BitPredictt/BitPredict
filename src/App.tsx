@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Search, Filter, ExternalLink, Github, BarChart3, Lock, Briefcase, Trophy, Bot } from 'lucide-react';
+import { Search, Filter, ExternalLink, Github, BarChart3, Lock, Briefcase, Trophy, Bot, Plus } from 'lucide-react';
 import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
@@ -10,6 +10,7 @@ import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
 import { BetModal } from './components/BetModal';
+import { CreateMarketModal } from './components/CreateMarketModal';
 import { Leaderboard } from './components/Leaderboard';
 import { AIChat } from './components/AIChat';
 import { Portfolio } from './components/Portfolio';
@@ -33,6 +34,7 @@ function App() {
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [predBalance, setPredBalance] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
+  const [showCreateMarket, setShowCreateMarket] = useState(false);
   const marketsLoaded = useRef(false);
 
   // Load markets from server
@@ -54,7 +56,8 @@ function App() {
 
     achievements.syncClaimedRewards(wallet.address);
     const loadBets = () => {
-      api.authUser(wallet.address).then((u) => setPredBalance(u.balance)).catch(() => {});
+      const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
+      api.authUser(wallet.address, ref).then((u) => setPredBalance(u.balance)).catch(() => {});
       api.getUserBets(wallet.address).then((serverBets) => {
         setBets(serverBets.map((b) => ({
           id: b.id,
@@ -254,6 +257,15 @@ function App() {
                   <option value="ending_soon">Ending Soon</option>
                   <option value="liquidity">Highest Liquidity</option>
                 </select>
+                {wallet.connected && (
+                  <button
+                    onClick={() => setShowCreateMarket(true)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-btc to-orange-500 text-white text-xs font-bold hover:from-btc-light hover:to-orange-400 transition-all"
+                  >
+                    <Plus size={14} />
+                    Create
+                  </button>
+                )}
               </div>
             </div>
 
@@ -400,6 +412,21 @@ function App() {
           predBalance={predBalance}
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
+        />
+      )}
+
+      {/* Create Market modal */}
+      {showCreateMarket && wallet.connected && (
+        <CreateMarketModal
+          walletAddress={wallet.address}
+          balance={predBalance}
+          onClose={() => setShowCreateMarket(false)}
+          onCreated={(marketId, newBalance) => {
+            setPredBalance(newBalance);
+            setShowCreateMarket(false);
+            setToast({ message: `Market created! ID: ${marketId.slice(0, 20)}...`, type: 'success' });
+            api.getMarkets().then(setMarkets).catch(() => {});
+          }}
         />
       )}
 

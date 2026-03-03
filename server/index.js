@@ -400,6 +400,42 @@ db.exec(`
 `);
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_pnl_addr ON pnl_snapshots(address, timestamp)'); } catch(e) { /* ignore */ }
 
+// --- New tables for comments, notifications, referrals, market price history ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    address TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    market_id TEXT,
+    read INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS market_price_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    yes_price REAL NOT NULL,
+    no_price REAL NOT NULL,
+    volume INTEGER NOT NULL DEFAULT 0,
+    timestamp INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+`);
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_comments_market ON comments(market_id, created_at)'); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_notif_addr ON notifications(address, read, created_at)'); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_mph_market ON market_price_history(market_id, timestamp)'); } catch(e) {}
+// Add referrer column to users if not exists
+try { db.exec('ALTER TABLE users ADD COLUMN referrer TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
+// Add creator_address column to markets if not exists
+try { db.exec('ALTER TABLE markets ADD COLUMN creator_address TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
+
 // Vault global state (in-memory, synced to DB)
 let VAULT_TOTAL_STAKED = 0;
 let VAULT_REWARDS_PER_SHARE = 0; // scaled by 1e12
@@ -977,7 +1013,7 @@ function getVaultPendingRewards(address) {
 
 // Get or create user, return balance
 app.post('/api/auth', (req, res) => {
-  const { address } = req.body;
+  const { address, referrer } = req.body;
   if (!address) return res.status(400).json({ error: 'address required' });
 
   if (typeof address !== 'string' || !address.startsWith('opt1') || address.length > 120) {
@@ -985,10 +1021,16 @@ app.post('/api/auth', (req, res) => {
   }
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
-    db.prepare('INSERT INTO users (address, balance) VALUES (?, 1000)').run(address);
+    const ref = (referrer && referrer !== address && db.prepare('SELECT address FROM users WHERE address = ?').get(referrer)) ? referrer : null;
+    db.prepare('INSERT INTO users (address, balance, referrer) VALUES (?, 1000, ?)').run(address, ref);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (ref) {
+      db.prepare('INSERT INTO notifications (address, type, title, body) VALUES (?, ?, ?, ?)').run(
+        ref, 'referral', 'New Referral!', `${address.slice(0, 16)}... joined via your link`
+      );
+    }
   }
-  res.json({ address: user.address, balance: user.balance });
+  res.json({ address: user.address, balance: user.balance, referrer: user.referrer || null });
 });
 
 // Get user balance
@@ -1443,10 +1485,29 @@ app.post('/api/bet/onchain', (req, res) => {
       db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
         newYesPool, newNoPool, prices.yes_price, prices.no_price, onchainAmt, newYesPool + newNoPool, marketId
       );
+      // Record price history for per-market charts
+      db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
+        marketId, prices.yes_price, prices.no_price, onchainAmt
+      );
+      // Notification for user
+      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+        address, 'bet', 'Bet Placed', `${side.toUpperCase()} ${onchainAmt} BPUSD — ${shares} shares`, marketId
+      );
     });
     txn();
     // Distribute fee to vault stakers
     distributeToVault(fee, marketId);
+    // Referral bonus: 1% of fee to referrer
+    try {
+      const u = db.prepare('SELECT referrer FROM users WHERE address = ?').get(address);
+      if (u?.referrer) {
+        const refBonus = Math.max(1, Math.floor(fee * 0.5));
+        db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refBonus, u.referrer);
+        db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+          u.referrer, 'referral_bonus', 'Referral Bonus', `+${refBonus} BPUSD from ${address.slice(0, 12)}... bet`, marketId
+        );
+      }
+    } catch(e) { /* non-critical */ }
 
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
@@ -1465,6 +1526,356 @@ app.post('/api/bet/onchain', (req, res) => {
     console.error('On-chain bet error:', e.message);
     res.status(500).json({ error: 'Bet error: ' + e.message });
   }
+});
+
+// ==========================================================================
+// SELL SHARES — exit position before market resolution
+// ==========================================================================
+app.post('/api/bet/sell', (req, res) => {
+  const { address, betId, sharesToSell } = req.body;
+  if (!address || !betId) return res.status(400).json({ error: 'address and betId required' });
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+
+    const bet = db.prepare('SELECT * FROM bets WHERE id = ? AND user_address = ?').get(betId, address);
+    if (!bet) return res.status(404).json({ error: 'bet not found' });
+    if (bet.status !== 'active') return res.status(400).json({ error: 'can only sell active positions' });
+
+    const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
+    if (!market) return res.status(404).json({ error: 'market not found' });
+    if (market.resolved) return res.status(400).json({ error: 'market already resolved' });
+
+    const sellShares = Math.floor(Number(sharesToSell) || bet.shares);
+    if (sellShares <= 0 || sellShares > bet.shares) {
+      return res.status(400).json({ error: `Invalid shares: you have ${bet.shares}` });
+    }
+
+    // AMM reverse: selling shares back to the pool
+    // If user sells YES shares: yesPool increases, noPool decreases (k stays constant)
+    const yesPool = market.yes_pool;
+    const noPool = market.no_pool;
+    const k = yesPool * noPool;
+
+    let payout, newYesPool, newNoPool;
+    if (bet.side === 'yes') {
+      newYesPool = yesPool + sellShares;
+      newNoPool = Math.floor(k / newYesPool);
+      payout = noPool - newNoPool;
+    } else {
+      newNoPool = noPool + sellShares;
+      newYesPool = Math.floor(k / newNoPool);
+      payout = yesPool - newYesPool;
+    }
+
+    if (payout <= 0) return res.status(400).json({ error: 'trade too small — no payout' });
+
+    // 2% fee on sell proceeds
+    const fee = Math.ceil(payout * 0.02);
+    const netPayout = payout - fee;
+
+    const txn = db.transaction(() => {
+      // Credit user
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(netPayout, address);
+
+      // Update or close bet
+      const remainingShares = bet.shares - sellShares;
+      if (remainingShares <= 0) {
+        db.prepare("UPDATE bets SET status = 'cancelled', shares = 0, payout = ? WHERE id = ?").run(netPayout, betId);
+      } else {
+        db.prepare('UPDATE bets SET shares = ? WHERE id = ?').run(remainingShares, betId);
+      }
+
+      // Update market pools
+      const prices = recalcPrices(newYesPool, newNoPool);
+      db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
+        newYesPool, newNoPool, prices.yes_price, prices.no_price, netPayout, newYesPool + newNoPool, bet.market_id
+      );
+
+      // Record price history
+      const prices2 = recalcPrices(newYesPool, newNoPool);
+      db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
+        bet.market_id, prices2.yes_price, prices2.no_price, netPayout
+      );
+
+      // Notification
+      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+        address, 'sell', 'Position Sold',
+        `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} BPUSD`, bet.market_id
+      );
+    });
+    txn();
+
+    distributeToVault(fee, bet.market_id);
+
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
+
+    res.json({
+      success: true,
+      payout: netPayout,
+      fee,
+      sharesSold: sellShares,
+      remainingShares: bet.shares - sellShares,
+      newBalance,
+      newYesPrice: updatedMarket.yes_price,
+      newNoPrice: updatedMarket.no_price,
+    });
+  } catch (e) {
+    console.error('Sell shares error:', e.message);
+    res.status(500).json({ error: 'Sell error: ' + e.message });
+  }
+});
+
+// ==========================================================================
+// USER MARKET CREATION
+// ==========================================================================
+app.post('/api/markets/create', (req, res) => {
+  const { address, question, category, endTime, initialLiquidity, tags } = req.body;
+  if (!address || !question || !endTime) {
+    return res.status(400).json({ error: 'address, question, endTime required' });
+  }
+  if (typeof question !== 'string' || question.length < 10 || question.length > 300) {
+    return res.status(400).json({ error: 'Question must be 10-300 characters' });
+  }
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+
+    const endTs = Math.floor(Number(endTime));
+    const now = Math.floor(Date.now() / 1000);
+    if (endTs <= now + 300) return res.status(400).json({ error: 'Market must end at least 5 minutes from now' });
+
+    const liq = Math.floor(Number(initialLiquidity) || 1000);
+    if (liq < 500) return res.status(400).json({ error: 'Minimum initial liquidity is 500 BPUSD' });
+    if (user.balance < liq) return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD` });
+
+    const cat = category || 'Community';
+    const marketId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pool = Math.floor(liq / 2); // 50/50 split for initial pools
+    const marketTags = tags ? JSON.stringify(tags) : JSON.stringify(['community', cat.toLowerCase()]);
+
+    const txn = db.transaction(() => {
+      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(liq, address);
+      db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price, yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, creator_address)
+        VALUES (?, ?, ?, 0.5, 0.5, ?, ?, 0, ?, ?, ?, 'community', ?)`).run(
+        marketId, question, cat, pool, pool, liq, endTs, marketTags, address
+      );
+      // Notification
+      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+        address, 'market_created', 'Market Created',
+        `Your market "${question.slice(0, 50)}..." is now live!`, marketId
+      );
+    });
+    txn();
+
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    res.json({ success: true, marketId, newBalance });
+  } catch (e) {
+    console.error('Create market error:', e.message);
+    res.status(500).json({ error: 'Create market error: ' + e.message });
+  }
+});
+
+// ==========================================================================
+// COMMENTS per market
+// ==========================================================================
+app.get('/api/comments/:marketId', (req, res) => {
+  const rows = db.prepare('SELECT * FROM comments WHERE market_id = ? ORDER BY created_at DESC LIMIT 50').all(req.params.marketId);
+  res.json(rows);
+});
+
+app.post('/api/comments', (req, res) => {
+  const { address, marketId, text } = req.body;
+  if (!address || !marketId || !text) return res.status(400).json({ error: 'address, marketId, text required' });
+  if (typeof text !== 'string' || text.length < 1 || text.length > 500) {
+    return res.status(400).json({ error: 'Comment must be 1-500 characters' });
+  }
+
+  const user = db.prepare('SELECT address FROM users WHERE address = ?').get(address);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+
+  db.prepare('INSERT INTO comments (market_id, address, text) VALUES (?, ?, ?)').run(marketId, address, text);
+  const comment = db.prepare('SELECT * FROM comments WHERE market_id = ? ORDER BY created_at DESC LIMIT 1').get(marketId);
+  res.json(comment);
+});
+
+// ==========================================================================
+// ACTIVITY FEED per market (recent bets + comments)
+// ==========================================================================
+app.get('/api/markets/:id/activity', (req, res) => {
+  try {
+    const marketId = req.params.id;
+    const bets = db.prepare(`SELECT id, user_address as address, side, amount, shares, created_at as timestamp, 'bet' as type FROM bets WHERE market_id = ? ORDER BY created_at DESC LIMIT 20`).all(marketId);
+    const comments = db.prepare(`SELECT id, address, text, created_at as timestamp, 'comment' as type FROM comments WHERE market_id = ? ORDER BY created_at DESC LIMIT 20`).all(marketId);
+    const activity = [...bets, ...comments].sort((a, b) => b.timestamp - a.timestamp).slice(0, 30);
+    res.json(activity);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================================================
+// MARKET PRICE HISTORY (for per-market charts)
+// ==========================================================================
+app.get('/api/markets/:id/price-history', (req, res) => {
+  try {
+    const rows = db.prepare('SELECT yes_price, no_price, volume, timestamp FROM market_price_history WHERE market_id = ? ORDER BY timestamp ASC LIMIT 200').all(req.params.id);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================================================
+// REFERRAL SYSTEM
+// ==========================================================================
+app.post('/api/referral', (req, res) => {
+  const { address, referrer } = req.body;
+  if (!address || !referrer) return res.status(400).json({ error: 'address and referrer required' });
+  if (address === referrer) return res.status(400).json({ error: 'cannot refer yourself' });
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    if (user.referrer) return res.status(400).json({ error: 'referral already set' });
+
+    const ref = db.prepare('SELECT address FROM users WHERE address = ?').get(referrer);
+    if (!ref) return res.status(404).json({ error: 'referrer not found' });
+
+    db.prepare('UPDATE users SET referrer = ? WHERE address = ?').run(referrer, address);
+    // Notify referrer
+    db.prepare('INSERT INTO notifications (address, type, title, body) VALUES (?, ?, ?, ?)').run(
+      referrer, 'referral', 'New Referral!', `${address.slice(0, 12)}... joined via your referral link`
+    );
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/referral/stats/:address', (req, res) => {
+  try {
+    const referrals = db.prepare('SELECT COUNT(*) as count FROM users WHERE referrer = ?').get(req.params.address);
+    // Sum winnings of referees
+    const refereeAddresses = db.prepare('SELECT address FROM users WHERE referrer = ?').all(req.params.address);
+    let totalEarned = 0;
+    for (const r of refereeAddresses) {
+      const won = db.prepare("SELECT COALESCE(SUM(payout),0) as total FROM bets WHERE user_address = ? AND status IN ('won','claimable')").get(r.address);
+      totalEarned += Math.floor((won.total || 0) * 0.01); // 1% of winnings
+    }
+    res.json({ referralCount: referrals.count, totalEarned });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================================================
+// PORTFOLIO RISK METRICS
+// ==========================================================================
+app.get('/api/portfolio/metrics/:address', (req, res) => {
+  try {
+    const address = req.params.address;
+    const bets = db.prepare('SELECT * FROM bets WHERE user_address = ? ORDER BY created_at ASC').all(address);
+    if (bets.length === 0) return res.json({ winRate: 0, totalBets: 0, avgBet: 0, biggestWin: 0, biggestLoss: 0, maxDrawdown: 0, profitFactor: 0, currentStreak: 0, bestStreak: 0, predictionScore: 0, roi: 0, totalInvested: 0, totalReturn: 0 });
+
+    const resolved = bets.filter(b => b.status === 'won' || b.status === 'lost' || b.status === 'claimable');
+    const wins = resolved.filter(b => b.status === 'won' || b.status === 'claimable');
+    const losses = resolved.filter(b => b.status === 'lost');
+    const winRate = resolved.length > 0 ? wins.length / resolved.length : 0;
+
+    const totalInvested = bets.reduce((s, b) => s + b.amount, 0);
+    const totalReturn = wins.reduce((s, b) => s + (b.payout || 0), 0);
+    const roi = totalInvested > 0 ? ((totalReturn - totalInvested) / totalInvested) : 0;
+
+    const avgBet = bets.length > 0 ? Math.round(totalInvested / bets.length) : 0;
+    const biggestWin = wins.length > 0 ? Math.max(...wins.map(b => (b.payout || 0) - b.amount)) : 0;
+    const biggestLoss = losses.length > 0 ? Math.max(...losses.map(b => b.amount)) : 0;
+
+    // Gross profit / gross loss
+    const grossProfit = wins.reduce((s, b) => s + Math.max(0, (b.payout || 0) - b.amount), 0);
+    const grossLoss = losses.reduce((s, b) => s + b.amount, 0);
+    const profitFactor = grossLoss > 0 ? Math.round((grossProfit / grossLoss) * 100) / 100 : grossProfit > 0 ? 999 : 0;
+
+    // Streak calculation
+    let currentStreak = 0, bestStreak = 0, streak = 0;
+    for (const b of resolved) {
+      if (b.status === 'won' || b.status === 'claimable') {
+        streak++;
+        if (streak > bestStreak) bestStreak = streak;
+      } else {
+        streak = 0;
+      }
+    }
+    // Current streak
+    for (let i = resolved.length - 1; i >= 0; i--) {
+      if (resolved[i].status === 'won' || resolved[i].status === 'claimable') currentStreak++;
+      else break;
+    }
+
+    // Max drawdown (from PnL series)
+    let cumPnl = 0, peak = 0, maxDrawdown = 0;
+    for (const b of resolved) {
+      if (b.status === 'won' || b.status === 'claimable') cumPnl += (b.payout || 0) - b.amount;
+      else cumPnl -= b.amount;
+      if (cumPnl > peak) peak = cumPnl;
+      const dd = peak - cumPnl;
+      if (dd > maxDrawdown) maxDrawdown = dd;
+    }
+
+    // Prediction Score (0-100): weighted formula
+    const accuracyScore = winRate * 40; // 40% weight
+    const roiScore = Math.min(Math.max(roi * 20 + 20, 0), 30); // 30% weight, capped
+    const volumeScore = Math.min(bets.length / 2, 20); // 20% weight, cap at 40 bets
+    const streakScore = Math.min(bestStreak * 2, 10); // 10% weight
+    const predictionScore = Math.round(accuracyScore + roiScore + volumeScore + streakScore);
+
+    res.json({
+      winRate: Math.round(winRate * 10000) / 100,
+      totalBets: bets.length,
+      resolvedBets: resolved.length,
+      avgBet,
+      biggestWin,
+      biggestLoss,
+      maxDrawdown,
+      profitFactor,
+      currentStreak,
+      bestStreak,
+      predictionScore: Math.min(predictionScore, 100),
+      roi: Math.round(roi * 10000) / 100,
+      totalInvested,
+      totalReturn,
+    });
+  } catch (e) {
+    console.error('Metrics error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================================================
+// NOTIFICATIONS
+// ==========================================================================
+app.get('/api/notifications/:address', (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM notifications WHERE address = ? ORDER BY created_at DESC LIMIT 50').all(req.params.address);
+    const unread = db.prepare('SELECT COUNT(*) as c FROM notifications WHERE address = ? AND read = 0').get(req.params.address);
+    res.json({ notifications: rows, unreadCount: unread.c });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/notifications/read', (req, res) => {
+  const { address, notificationId } = req.body;
+  if (!address) return res.status(400).json({ error: 'address required' });
+  if (notificationId) {
+    db.prepare('UPDATE notifications SET read = 1 WHERE id = ? AND address = ?').run(notificationId, address);
+  } else {
+    db.prepare('UPDATE notifications SET read = 1 WHERE address = ? AND read = 0').run(address);
+  }
+  res.json({ success: true });
 });
 
 // --- Bob AI (OPNet Intelligence) + Gemini Engine ---
