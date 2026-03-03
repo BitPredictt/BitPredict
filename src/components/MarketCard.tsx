@@ -67,7 +67,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
   return (
     <div
       onClick={() => !isResolved && onSelect(market)}
-      className={`glass-card rounded-2xl p-5 group animate-fade-in ${isResolved ? 'opacity-60' : 'cursor-pointer'}`}
+      className={`glass-card rounded-2xl p-5 group animate-fade-in ${isResolved ? 'opacity-60' : 'cursor-pointer'} ${isUrgent ? 'market-urgent' : ''}`}
       style={{ animationDelay: `${index * 60}ms` }}
     >
       {/* Category badge */}
@@ -115,7 +115,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
           </div>
           <div className="h-2 rounded-full bg-surface-3 overflow-hidden flex">
             <div
-              className="progress-yes rounded-l-full transition-all duration-500"
+              className="progress-yes rounded-l-full transition-all duration-500 progress-shimmer"
               style={{ width: `${yesWidth}%` }}
             />
             <div

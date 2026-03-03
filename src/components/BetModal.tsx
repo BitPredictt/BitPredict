@@ -22,6 +22,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0); // index into outcomes
   const [amount, setAmount] = useState('1000');
   const [placing, setPlacing] = useState(false);
+  const [txStep, setTxStep] = useState<'idle' | 'signing' | 'recording'>('idle');
   const [showDetails, setShowDetails] = useState(false);
   const [bobSignal, setBobSignal] = useState<string | null>(null);
   const [loadingSignal, setLoadingSignal] = useState(false);
@@ -89,10 +90,13 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
   const handlePlace = async () => {
     if (amountNum <= 0 || !wallet.connected || insufficientBalance) return;
     setPlacing(true);
+    setTxStep('signing');
     try {
+      setTxStep('recording');
       await onPlaceBet(activeMarketId, isMultiOutcome ? 'yes' : side, amountNum);
     } finally {
       setPlacing(false);
+      setTxStep('idle');
       onClose();
     }
   };
@@ -175,7 +179,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
             <div className="grid grid-cols-2 gap-3 mb-5">
               <button
                 onClick={() => setSide('yes')}
-                className={`p-4 rounded-xl border-2 transition-all text-center ${
+                className={`p-4 rounded-xl border-2 transition-all text-center hover:scale-[1.03] active:scale-95 ${
                   side === 'yes'
                     ? 'border-green-500 bg-green-500/10 shadow-lg shadow-green-500/10'
                     : 'border-white/5 bg-surface-2 hover:border-white/10'
@@ -186,7 +190,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
               </button>
               <button
                 onClick={() => setSide('no')}
-                className={`p-4 rounded-xl border-2 transition-all text-center ${
+                className={`p-4 rounded-xl border-2 transition-all text-center hover:scale-[1.03] active:scale-95 ${
                   side === 'no'
                     ? 'border-red-500 bg-red-500/10 shadow-lg shadow-red-500/10'
                     : 'border-white/5 bg-surface-2 hover:border-white/10'
@@ -326,7 +330,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           {placing ? (
             <>
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Broadcasting to Bitcoin...
+              {txStep === 'signing' ? 'Step 1: Sign TX in OP_WALLET...' : 'Step 2: Recording on Bitcoin...'}
             </>
           ) : (
             <>

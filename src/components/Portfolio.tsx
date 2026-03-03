@@ -275,22 +275,22 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center">
+        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
           <div className="text-lg font-black text-btc">{bets.length}</div>
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Total Bets</div>
         </div>
-        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center">
+        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
           <div className="text-lg font-black text-white">{formatSats(totalInvested)}</div>
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Invested</div>
         </div>
-        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center">
+        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
           <div className="flex items-center justify-center gap-1">
             <Target size={14} className="text-green-400" />
             <span className="text-lg font-black text-green-400">{winRate.toFixed(0)}%</span>
           </div>
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Win Rate</div>
         </div>
-        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center">
+        <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
           <div className="text-lg font-black text-white">{formatSats(avgBetSize)}</div>
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Avg Bet</div>
         </div>
@@ -359,7 +359,9 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
               return (
                 <div
                   key={bet.id}
-                  className="bg-surface-2/50 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-all"
+                  className={`bg-surface-2/50 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-all border-l-2 ${
+                    bet.status === 'won' || bet.status === 'claimable' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-500' : 'border-l-blue-500'
+                  } hover:translate-x-0.5`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">

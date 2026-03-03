@@ -147,13 +147,41 @@ export function VaultDashboard({
         <p className="text-xs text-gray-500 mb-6 text-center max-w-sm">
           Stake BPUSD and earn passive income from trading fees. Connect your wallet to get started.
         </p>
-        <button onClick={onConnect} className="btc-btn flex items-center gap-2">
+        <button onClick={onConnect} className="btc-btn cta-glow flex items-center gap-2">
           <Wallet size={16} />
           Connect Wallet
         </button>
       </div>
     );
   }
+
+  // Skeleton while vault data loads
+  if (!vaultInfo) {
+    return (
+      <div className="space-y-6 pb-20 animate-fade-in max-w-3xl mx-auto">
+        <div className="rounded-2xl p-6 vault-hero-gradient border border-purple-500/20">
+          <div className="h-5 w-48 bg-surface-3 rounded animate-pulse mb-2" />
+          <div className="h-3 w-72 bg-surface-3 rounded animate-pulse mb-5" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-black/30 rounded-xl p-3 border border-white/5">
+                <div className="h-2 w-10 bg-surface-3 rounded animate-pulse mb-2" />
+                <div className="h-6 w-16 bg-surface-3 rounded animate-pulse mb-1" />
+                <div className="h-2 w-12 bg-surface-3 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="vault-card rounded-2xl p-5">
+          <div className="h-4 w-32 bg-surface-3 rounded animate-pulse mb-4" />
+          <div className="h-10 bg-surface-3 rounded-xl animate-pulse mb-3" />
+          <div className="h-10 bg-surface-3 rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  const highApy = (vaultInfo?.apy || 0) > 100;
 
   return (
     <div className="space-y-6 pb-20 animate-fade-in max-w-3xl mx-auto">
@@ -170,22 +198,22 @@ export function VaultDashboard({
           <p className="text-xs text-gray-400 mb-5">Stake BPUSD, earn from every trade on the platform</p>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5">
+            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">TVL</div>
               <div className="text-lg font-black text-white">{formatNum(vaultInfo?.totalStaked || 0)}</div>
               <div className="text-[9px] text-gray-500">BPUSD</div>
             </div>
-            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5">
+            <div className={`bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover ${highApy ? 'vault-pulse' : ''}`}>
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">APY</div>
               <div className="text-lg font-black text-green-400">{vaultInfo?.apy || 0}%</div>
               <div className="text-[9px] text-gray-500">Estimated</div>
             </div>
-            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5">
+            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Your Rewards</div>
               <div className="text-lg font-black text-btc">{formatNum(userInfo?.pendingRewards || 0)}</div>
               <div className="text-[9px] text-gray-500">BPUSD pending</div>
             </div>
-            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5">
+            <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Stakers</div>
               <div className="text-lg font-black text-purple-400">{vaultInfo?.stakerCount || 0}</div>
               <div className="text-[9px] text-gray-500">Active</div>

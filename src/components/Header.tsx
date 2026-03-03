@@ -55,7 +55,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
                   activeTab === tab.id
                     ? 'bg-btc/20 text-btc shadow-sm'
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -71,6 +71,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
           <div className="flex items-center gap-2">
             {wallet.connected ? (
               <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500 status-breathing shrink-0" />
                 <div className="hidden sm:block text-right">
                   <div className="text-xs font-bold text-btc">{formatSats(wallet.balanceSats)}</div>
                   <div className="text-[10px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>

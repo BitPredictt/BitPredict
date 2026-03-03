@@ -4,6 +4,7 @@ import { fetchBlockHeight } from '../lib/opnet';
 
 interface NetworkStatsProps {
   walletProvider?: unknown;
+  marketCount?: number;
 }
 
 interface NetworkStat {
@@ -13,7 +14,7 @@ interface NetworkStat {
   change?: string;
 }
 
-export function NetworkStats({ walletProvider }: NetworkStatsProps) {
+export function NetworkStats({ walletProvider, marketCount }: NetworkStatsProps) {
   const [blockHeight, setBlockHeight] = useState<number | null>(null);
   const [live, setLive] = useState(false);
 
@@ -45,7 +46,7 @@ export function NetworkStats({ walletProvider }: NetworkStatsProps) {
     },
     {
       label: 'Markets',
-      value: '12 Active',
+      value: `${marketCount ?? 0} Active`,
       icon: <Zap size={12} className="text-purple-400" />,
     },
     {

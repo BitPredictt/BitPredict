@@ -207,3 +207,59 @@ body::before {
 .vault-pulse {
   animation: vaultPulse 3s ease-in-out infinite;
 }
+
+/* ===== UI Polish Animations ===== */
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.status-breathing {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(247, 147, 26, 0.2); }
+  50% { box-shadow: 0 0 20px rgba(247, 147, 26, 0.5), 0 0 40px rgba(247, 147, 26, 0.15); }
+}
+
+.cta-glow {
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+@keyframes urgentPulse {
+  0%, 100% { border-color: rgba(239, 68, 68, 0.3); box-shadow: 0 0 8px rgba(239, 68, 68, 0.1); }
+  50% { border-color: rgba(239, 68, 68, 0.7); box-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+}
+
+.market-urgent {
+  animation: urgentPulse 1s ease-in-out infinite;
+}
+
+.stat-card-hover {
+  transition: all 0.3s ease;
+}
+
+.stat-card-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(247, 147, 26, 0.3);
+}
+
+@keyframes progressShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.progress-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  animation: progressShimmer 2s ease-in-out infinite;
+}

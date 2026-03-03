@@ -1681,7 +1681,7 @@ Format your response as: "[DIRECTION] ([Confidence] confidence) — [reasoning]"
 Be specific and analytical. Reference actual data points.`;
 
         const geminiRes = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_API_KEY,
+          'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + GEMINI_API_KEY,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
