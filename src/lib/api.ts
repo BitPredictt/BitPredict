@@ -178,3 +178,78 @@ export async function getClaimedRewards(address: string) {
 export async function healthCheck() {
   return apiFetch<{ status: string; ts: number; markets: number }>('/api/health');
 }
+
+// --- Vault ---
+import type { VaultInfo, VaultUserInfo, VaultRewardEntry, VaultVesting, TopPredictor, PnlData } from '../types';
+
+export async function getVaultInfo() {
+  return apiFetch<VaultInfo>('/api/vault/info');
+}
+
+export async function getVaultUser(address: string) {
+  return apiFetch<VaultUserInfo>(`/api/vault/user/${address}`);
+}
+
+export async function stakeVault(address: string, amount: number, txHash: string) {
+  return apiFetch<{ success: boolean; newStaked: number; newBalance: number }>('/api/vault/stake', {
+    method: 'POST',
+    body: JSON.stringify({ address, amount, txHash }),
+  });
+}
+
+export async function unstakeVault(address: string, amount: number, txHash: string) {
+  return apiFetch<{ success: boolean; newStaked: number; newBalance: number }>('/api/vault/unstake', {
+    method: 'POST',
+    body: JSON.stringify({ address, amount, txHash }),
+  });
+}
+
+export async function claimVaultRewards(address: string, txHash: string) {
+  return apiFetch<{ success: boolean; claimed: number; newBalance: number }>('/api/vault/claim', {
+    method: 'POST',
+    body: JSON.stringify({ address, txHash }),
+  });
+}
+
+export async function setAutoCompound(address: string, enabled: boolean) {
+  return apiFetch<{ success: boolean }>('/api/vault/autocompound', {
+    method: 'POST',
+    body: JSON.stringify({ address, enabled }),
+  });
+}
+
+export async function getVaultHistory() {
+  return apiFetch<VaultRewardEntry[]>('/api/vault/history');
+}
+
+export async function getVaultVesting(address: string) {
+  return apiFetch<VaultVesting[]>(`/api/vault/vesting/${address}`);
+}
+
+// --- Social ---
+export async function followUser(follower: string, following: string) {
+  return apiFetch<{ success: boolean }>('/api/social/follow', {
+    method: 'POST',
+    body: JSON.stringify({ follower, following }),
+  });
+}
+
+export async function unfollowUser(follower: string, following: string) {
+  return apiFetch<{ success: boolean }>('/api/social/unfollow', {
+    method: 'POST',
+    body: JSON.stringify({ follower, following }),
+  });
+}
+
+export async function getFollowing(address: string) {
+  return apiFetch<string[]>(`/api/social/following/${address}`);
+}
+
+export async function getTopPredictors() {
+  return apiFetch<TopPredictor[]>('/api/social/top-predictors');
+}
+
+// --- Portfolio PnL ---
+export async function getPortfolioPnl(address: string) {
+  return apiFetch<PnlData>(`/api/portfolio/pnl/${address}`);
+}

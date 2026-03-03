@@ -19,6 +19,16 @@
             "outFile": "build/PredToken.wasm",
             "textFile": "build/PredToken.wat",
             "use": ["abort=src/pred-index/abort"]
+        },
+        "vault-debug": {
+            "outFile": "build/StakingVault.wasm",
+            "textFile": "build/StakingVault.wat",
+            "use": ["abort=src/vault-index/abort"]
+        },
+        "vault-release": {
+            "outFile": "build/StakingVault.wasm",
+            "textFile": "build/StakingVault.wat",
+            "use": ["abort=src/vault-index/abort"]
         }
     },
     "options": {

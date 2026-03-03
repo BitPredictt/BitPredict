@@ -17,6 +17,7 @@ import { Toast } from './components/Toast';
 import { Footer } from './components/Footer';
 import { HowItWorks } from './components/HowItWorks';
 import { Achievements } from './components/Achievements';
+import { VaultDashboard } from './components/VaultDashboard';
 
 function App() {
   const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj } = useWallet();
@@ -300,6 +301,20 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'vault' && (
+          <VaultDashboard
+            walletConnected={wallet.connected}
+            walletAddress={wallet.address}
+            walletBtcBalance={wallet.balanceSats}
+            predBalance={predBalance}
+            onConnect={connectOPWallet}
+            onBalanceUpdate={setPredBalance}
+            walletProvider={provider}
+            walletNetwork={walletNetwork}
+            walletAddressObj={addressObj}
+          />
+        )}
+
         {activeTab === 'portfolio' && (
           <Portfolio
             bets={bets}
@@ -348,8 +363,8 @@ function App() {
         <div className="flex">
           {([
             { id: 'markets' as Tab, icon: '📊', label: 'Markets' },
+            { id: 'vault' as Tab, icon: '🔒', label: 'Vault' },
             { id: 'portfolio' as Tab, icon: '💼', label: 'Portfolio' },
-            { id: 'achievements' as Tab, icon: '🏅', label: 'Quests' },
             { id: 'leaderboard' as Tab, icon: '🏆', label: 'Ranks' },
             { id: 'ai' as Tab, icon: '🤖', label: 'AI' },
           ]).map((tab) => (

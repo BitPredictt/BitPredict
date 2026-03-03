@@ -131,3 +131,79 @@ body::before {
 .progress-no {
   background: linear-gradient(90deg, #ef4444, #dc2626);
 }
+
+/* ===== Vault Styles ===== */
+
+.vault-hero-gradient {
+  background: linear-gradient(145deg, rgba(147, 51, 234, 0.15), rgba(247, 147, 26, 0.08), rgba(59, 130, 246, 0.06));
+}
+
+.vault-card {
+  background: linear-gradient(145deg, rgba(26, 26, 36, 0.9), rgba(10, 10, 15, 0.95));
+  border: 1px solid rgba(147, 51, 234, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transition: all 0.3s ease;
+}
+
+.vault-card:hover {
+  border-color: rgba(147, 51, 234, 0.3);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(147, 51, 234, 0.05);
+}
+
+.vault-glow {
+  box-shadow: 0 0 20px rgba(147, 51, 234, 0.15), 0 0 40px rgba(247, 147, 26, 0.08);
+}
+
+/* Auto-compound toggle */
+.toggle-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: #22222e;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.toggle-track.active {
+  background: linear-gradient(135deg, #9333ea, #f7931a);
+  border-color: rgba(147, 51, 234, 0.4);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.toggle-track.active .toggle-thumb {
+  transform: translateX(18px);
+}
+
+/* Chart tooltip override for dark theme */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+.recharts-default-tooltip {
+  background: #1a1a24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+}
+
+@keyframes vaultPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(147, 51, 234, 0.1); }
+  50% { box-shadow: 0 0 40px rgba(147, 51, 234, 0.25), 0 0 60px rgba(247, 147, 26, 0.1); }
+}
+
+.vault-pulse {
+  animation: vaultPulse 3s ease-in-out infinite;
+}

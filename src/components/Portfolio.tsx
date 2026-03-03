@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift } from 'lucide-react';
-import type { Bet, Market } from '../types';
+import { useState, useEffect } from 'react';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import type { Bet, Market, PnlData } from '../types';
 import { getExplorerTxUrl, mintTokensOnChain, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
@@ -23,6 +24,13 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
   const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
+  const [pnlData, setPnlData] = useState<PnlData | null>(null);
+
+  useEffect(() => {
+    if (walletAddress) {
+      api.getPortfolioPnl(walletAddress).then(setPnlData).catch(() => {});
+    }
+  }, [walletAddress, bets.length]);
 
   const handleMint = async () => {
     if (minting || !walletAddress) return;
@@ -214,6 +222,57 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
         </div>
       </div>
 
+      {/* P&L Chart + Streak + ROI */}
+      {pnlData && pnlData.pnlSeries.length > 1 && (
+        <div className="bg-surface-2/50 rounded-2xl p-4 border border-white/5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={14} className="text-btc" />
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cumulative P&L</h3>
+            </div>
+            <div className="flex items-center gap-3">
+              {pnlData.currentStreak > 0 && (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/20">
+                  <Flame size={10} /> {pnlData.currentStreak} streak
+                </span>
+              )}
+              <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                pnlData.roi >= 0 ? 'text-green-400 bg-green-500/10 border-green-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20'
+              }`}>
+                <Percent size={10} /> ROI: {pnlData.roi > 0 ? '+' : ''}{pnlData.roi}%
+              </span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={140}>
+            <AreaChart data={pnlData.pnlSeries.map((p, i) => ({ name: `#${i + 1}`, pnl: p.pnl }))}>
+              <defs>
+                <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={pnlData.cumulativePnl >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={pnlData.cumulativePnl >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="name" hide />
+              <YAxis hide />
+              <Tooltip
+                contentStyle={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '11px' }}
+                labelStyle={{ color: '#9ca3af' }}
+                formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${Number(v).toLocaleString()} BPUSD`, 'P&L']}
+              />
+              <Area
+                type="monotone"
+                dataKey="pnl"
+                stroke={pnlData.cumulativePnl >= 0 ? '#22c55e' : '#ef4444'}
+                fill="url(#pnlGrad)"
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+          {pnlData.bestStreak > 0 && (
+            <div className="text-[9px] text-gray-600 text-center mt-1">Best streak: {pnlData.bestStreak} wins</div>
+          )}
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center">
@@ -265,15 +324,19 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">By Category</h3>
           </div>
           <div className="space-y-2">
-            {Array.from(categoryMap.entries()).map(([cat, data]) => (
-              <div key={cat} className="flex items-center gap-3">
-                <span className="text-[10px] font-bold text-white w-16">{cat}</span>
-                <div className="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-r from-btc-dark to-btc" style={{ width: `${(data.count / bets.length) * 100}%` }} />
+            {Array.from(categoryMap.entries()).map(([cat, data], i) => {
+              const colors = ['from-btc to-orange-400', 'from-purple-500 to-purple-400', 'from-blue-500 to-blue-400', 'from-green-500 to-green-400', 'from-red-500 to-red-400', 'from-yellow-500 to-yellow-400'];
+              const color = colors[i % colors.length];
+              return (
+                <div key={cat} className="flex items-center gap-3">
+                  <span className="text-[10px] font-bold text-white w-16">{cat}</span>
+                  <div className="flex-1 h-2.5 rounded-full bg-surface-3 overflow-hidden">
+                    <div className={`h-full rounded-full bg-gradient-to-r ${color}`} style={{ width: `${Math.max(5, (data.count / bets.length) * 100)}%` }} />
+                  </div>
+                  <span className="text-[10px] text-gray-500 w-24 text-right">{data.count} bets · {formatSats(data.amount)}</span>
                 </div>
-                <span className="text-[10px] text-gray-500 w-20 text-right">{data.count} bets · {formatSats(data.amount)}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

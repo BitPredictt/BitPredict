@@ -353,6 +353,70 @@ db.exec(`
   );
 `);
 
+// --- Vault tables ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vault_stakes (
+    address TEXT PRIMARY KEY,
+    staked_amount INTEGER NOT NULL DEFAULT 0,
+    reward_debt INTEGER NOT NULL DEFAULT 0,
+    auto_compound INTEGER NOT NULL DEFAULT 0,
+    staked_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    last_claim INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE TABLE IF NOT EXISTS vault_rewards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_market_id TEXT,
+    fee_amount INTEGER NOT NULL,
+    distributed_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    total_staked_at_time INTEGER NOT NULL DEFAULT 0,
+    rewards_per_share_delta INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS vault_vesting (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT NOT NULL,
+    total_amount INTEGER NOT NULL,
+    claimed_amount INTEGER NOT NULL DEFAULT 0,
+    start_time INTEGER NOT NULL DEFAULT (unixepoch()),
+    end_time INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS follows (
+    follower TEXT NOT NULL,
+    following TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (follower, following)
+  );
+
+  CREATE TABLE IF NOT EXISTS pnl_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT NOT NULL,
+    bet_id TEXT,
+    realized_pnl INTEGER NOT NULL DEFAULT 0,
+    cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+    timestamp INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+`);
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_pnl_addr ON pnl_snapshots(address, timestamp)'); } catch(e) { /* ignore */ }
+
+// Vault global state (in-memory, synced to DB)
+let VAULT_TOTAL_STAKED = 0;
+let VAULT_REWARDS_PER_SHARE = 0; // scaled by 1e12
+let VAULT_TOTAL_DISTRIBUTED = 0;
+const VAULT_PRECISION = 1e12;
+
+// Load vault state from DB on startup
+try {
+  const stakes = db.prepare('SELECT SUM(staked_amount) as total FROM vault_stakes').get();
+  VAULT_TOTAL_STAKED = stakes?.total || 0;
+  const rewards = db.prepare('SELECT SUM(rewards_per_share_delta) as total FROM vault_rewards').get();
+  VAULT_REWARDS_PER_SHARE = rewards?.total || 0;
+  const dist = db.prepare('SELECT SUM(fee_amount) as total FROM vault_rewards').get();
+  VAULT_TOTAL_DISTRIBUTED = dist?.total || 0;
+  console.log(`Vault loaded: ${VAULT_TOTAL_STAKED} staked, ${VAULT_TOTAL_DISTRIBUTED} distributed`);
+} catch(e) { /* first run */ }
+
 // Migration: convert auto-credited 'won' bets (no claim_tx_hash) back to 'claimable'
 try {
   const autoCredited = db.prepare("SELECT * FROM bets WHERE status = 'won' AND (claim_tx_hash IS NULL OR claim_tx_hash = '')").all();
@@ -872,6 +936,43 @@ function recalcPrices(yesPool, noPool) {
   return { yes_price, no_price: Math.round((1 - yes_price) * 10000) / 10000 };
 }
 
+// --- Vault fee distribution helper ---
+function distributeToVault(fee, sourceMarketId) {
+  if (VAULT_TOTAL_STAKED <= 0 || fee <= 0) return;
+  // 50% of trading fee goes to vault stakers
+  const vaultShare = Math.floor(fee * 0.5);
+  if (vaultShare <= 0) return;
+
+  const delta = Math.floor((vaultShare * VAULT_PRECISION) / VAULT_TOTAL_STAKED);
+  VAULT_REWARDS_PER_SHARE += delta;
+  VAULT_TOTAL_DISTRIBUTED += vaultShare;
+
+  db.prepare('INSERT INTO vault_rewards (source_market_id, fee_amount, total_staked_at_time, rewards_per_share_delta) VALUES (?, ?, ?, ?)').run(
+    sourceMarketId || '', vaultShare, VAULT_TOTAL_STAKED, delta
+  );
+
+  // Auto-compound for eligible stakers
+  const autoStakers = db.prepare('SELECT address, staked_amount, reward_debt FROM vault_stakes WHERE auto_compound = 1 AND staked_amount > 0').all();
+  for (const s of autoStakers) {
+    const accumulated = Math.floor((s.staked_amount * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+    const pending = accumulated - s.reward_debt;
+    if (pending > 0) {
+      const newStaked = s.staked_amount + pending;
+      const newDebt = Math.floor((newStaked * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+      db.prepare('UPDATE vault_stakes SET staked_amount = ?, reward_debt = ?, last_claim = unixepoch() WHERE address = ?').run(newStaked, newDebt, s.address);
+      VAULT_TOTAL_STAKED += pending;
+    }
+  }
+}
+
+// Helper to get pending vault rewards for a user
+function getVaultPendingRewards(address) {
+  const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
+  if (!stake || stake.staked_amount <= 0) return 0;
+  const accumulated = Math.floor((stake.staked_amount * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+  return Math.max(0, accumulated - stake.reward_debt);
+}
+
 // --- API Routes ---
 
 // Get or create user, return balance
@@ -1076,6 +1177,8 @@ app.post('/api/bet', async (req, res) => {
 
   try {
     txn();
+    // Distribute fee to vault stakers
+    distributeToVault(fee, marketId);
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
 
@@ -1294,6 +1397,8 @@ app.post('/api/bet/onchain', (req, res) => {
       );
     });
     txn();
+    // Distribute fee to vault stakers
+    distributeToVault(fee, marketId);
 
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
@@ -1677,6 +1782,301 @@ setInterval(async () => {
 
 // Create 5-min markets every 60s
 setInterval(() => create5minMarkets(), 60000);
+
+// ===== VAULT ENDPOINTS =====
+
+// Vault info (public)
+app.get('/api/vault/info', (req, res) => {
+  const stakerCount = db.prepare('SELECT COUNT(*) as c FROM vault_stakes WHERE staked_amount > 0').get().c;
+  // APY estimate: annualized from last 24h rewards
+  const dayAgo = Math.floor(Date.now() / 1000) - 86400;
+  const recentRewards = db.prepare('SELECT SUM(fee_amount) as total FROM vault_rewards WHERE distributed_at > ?').get(dayAgo);
+  const dailyRewards = recentRewards?.total || 0;
+  const apy = VAULT_TOTAL_STAKED > 0 ? Math.round((dailyRewards * 365 / VAULT_TOTAL_STAKED) * 10000) / 100 : 0;
+
+  res.json({
+    totalStaked: VAULT_TOTAL_STAKED,
+    totalRewards: VAULT_TOTAL_DISTRIBUTED,
+    apy,
+    stakerCount,
+    rewardsPerShare: VAULT_REWARDS_PER_SHARE,
+  });
+});
+
+// Vault user info
+app.get('/api/vault/user/:addr', (req, res) => {
+  const addr = req.params.addr;
+  if (!addr || !addr.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
+
+  const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(addr);
+  if (!stake) {
+    return res.json({ staked: 0, pendingRewards: 0, autoCompound: false, stakedAt: 0, lastClaim: 0 });
+  }
+
+  const pending = getVaultPendingRewards(addr);
+  res.json({
+    staked: stake.staked_amount,
+    pendingRewards: pending,
+    autoCompound: !!stake.auto_compound,
+    stakedAt: stake.staked_at * 1000,
+    lastClaim: stake.last_claim * 1000,
+  });
+});
+
+// Stake BPUSD into vault
+app.post('/api/vault/stake', (req, res) => {
+  const { address, amount, txHash } = req.body;
+  if (!address || !amount || !txHash) return res.status(400).json({ error: 'address, amount, txHash required' });
+  if (!address.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
+  const amountInt = Math.floor(Number(amount));
+  if (amountInt < 100) return res.status(400).json({ error: 'minimum stake is 100 BPUSD' });
+
+  const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  if (user.balance < amountInt) return res.status(400).json({ error: 'insufficient balance' });
+
+  try {
+    const existing = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
+
+    // Harvest pending rewards first
+    if (existing && existing.staked_amount > 0) {
+      const pending = getVaultPendingRewards(address);
+      if (pending > 0 && existing.auto_compound) {
+        // Auto-compound
+        db.prepare('UPDATE vault_stakes SET staked_amount = staked_amount + ? WHERE address = ?').run(pending, address);
+        VAULT_TOTAL_STAKED += pending;
+      } else if (pending > 0) {
+        db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(pending, address);
+      }
+    }
+
+    db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amountInt, address);
+
+    if (existing) {
+      const newStaked = existing.staked_amount + amountInt;
+      const newDebt = Math.floor((newStaked * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+      db.prepare('UPDATE vault_stakes SET staked_amount = ?, reward_debt = ?, staked_at = unixepoch() WHERE address = ?').run(newStaked, newDebt, address);
+    } else {
+      const newDebt = Math.floor((amountInt * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+      db.prepare('INSERT INTO vault_stakes (address, staked_amount, reward_debt) VALUES (?, ?, ?)').run(address, amountInt, newDebt);
+    }
+
+    VAULT_TOTAL_STAKED += amountInt;
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    const stake = db.prepare('SELECT staked_amount FROM vault_stakes WHERE address = ?').get(address);
+
+    // Create vesting entry (linear vesting over 7 days)
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare('INSERT INTO vault_vesting (address, total_amount, start_time, end_time) VALUES (?, ?, ?, ?)').run(
+      address, amountInt, now, now + 7 * 86400
+    );
+
+    res.json({ success: true, newStaked: stake.staked_amount, newBalance });
+  } catch (e) {
+    console.error('Vault stake error:', e.message);
+    res.status(500).json({ error: 'Stake failed: ' + e.message });
+  }
+});
+
+// Unstake BPUSD from vault
+app.post('/api/vault/unstake', (req, res) => {
+  const { address, amount, txHash } = req.body;
+  if (!address || !amount || !txHash) return res.status(400).json({ error: 'address, amount, txHash required' });
+  if (!address.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
+  const amountInt = Math.floor(Number(amount));
+  if (amountInt <= 0) return res.status(400).json({ error: 'invalid amount' });
+
+  const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
+  if (!stake || stake.staked_amount < amountInt) return res.status(400).json({ error: 'insufficient staked amount' });
+
+  try {
+    // Harvest pending rewards first
+    const pending = getVaultPendingRewards(address);
+    if (pending > 0) {
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(pending, address);
+    }
+
+    const newStaked = stake.staked_amount - amountInt;
+    const newDebt = Math.floor((newStaked * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+    db.prepare('UPDATE vault_stakes SET staked_amount = ?, reward_debt = ? WHERE address = ?').run(newStaked, newDebt, address);
+    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amountInt, address);
+
+    VAULT_TOTAL_STAKED -= amountInt;
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+
+    res.json({ success: true, newStaked, newBalance });
+  } catch (e) {
+    console.error('Vault unstake error:', e.message);
+    res.status(500).json({ error: 'Unstake failed: ' + e.message });
+  }
+});
+
+// Claim vault rewards
+app.post('/api/vault/claim', (req, res) => {
+  const { address, txHash } = req.body;
+  if (!address || !txHash) return res.status(400).json({ error: 'address, txHash required' });
+
+  const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
+  if (!stake) return res.status(404).json({ error: 'no vault position' });
+
+  const pending = getVaultPendingRewards(address);
+  if (pending <= 0) return res.status(400).json({ error: 'no rewards to claim' });
+
+  try {
+    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(pending, address);
+    const newDebt = Math.floor((stake.staked_amount * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
+    db.prepare('UPDATE vault_stakes SET reward_debt = ?, last_claim = unixepoch() WHERE address = ?').run(newDebt, address);
+
+    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    res.json({ success: true, claimed: pending, newBalance });
+  } catch (e) {
+    console.error('Vault claim error:', e.message);
+    res.status(500).json({ error: 'Claim failed: ' + e.message });
+  }
+});
+
+// Toggle auto-compound
+app.post('/api/vault/autocompound', (req, res) => {
+  const { address, enabled } = req.body;
+  if (!address) return res.status(400).json({ error: 'address required' });
+
+  const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
+  if (!stake) return res.status(404).json({ error: 'no vault position' });
+
+  db.prepare('UPDATE vault_stakes SET auto_compound = ? WHERE address = ?').run(enabled ? 1 : 0, address);
+  res.json({ success: true });
+});
+
+// Vault reward history
+app.get('/api/vault/history', (req, res) => {
+  const history = db.prepare('SELECT * FROM vault_rewards ORDER BY distributed_at DESC LIMIT 50').all();
+  res.json(history.map(r => ({
+    id: r.id,
+    sourceMarketId: r.source_market_id,
+    feeAmount: r.fee_amount,
+    distributedAt: r.distributed_at * 1000,
+    totalStakedAtTime: r.total_staked_at_time,
+  })));
+});
+
+// Vault vesting for user
+app.get('/api/vault/vesting/:addr', (req, res) => {
+  const addr = req.params.addr;
+  if (!addr || !addr.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
+
+  const now = Math.floor(Date.now() / 1000);
+  const vestings = db.prepare('SELECT * FROM vault_vesting WHERE address = ? ORDER BY start_time DESC LIMIT 20').all(addr);
+  res.json(vestings.map(v => {
+    const elapsed = Math.max(0, now - v.start_time);
+    const duration = v.end_time - v.start_time;
+    const progress = Math.min(1, elapsed / duration);
+    return {
+      id: v.id,
+      totalAmount: v.total_amount,
+      claimedAmount: v.claimed_amount,
+      startTime: v.start_time * 1000,
+      endTime: v.end_time * 1000,
+      progress: Math.round(progress * 10000) / 100,
+    };
+  }));
+});
+
+// ===== SOCIAL ENDPOINTS =====
+
+app.post('/api/social/follow', (req, res) => {
+  const { follower, following } = req.body;
+  if (!follower || !following) return res.status(400).json({ error: 'follower, following required' });
+  if (follower === following) return res.status(400).json({ error: 'cannot follow yourself' });
+
+  try {
+    db.prepare('INSERT OR IGNORE INTO follows (follower, following) VALUES (?, ?)').run(follower, following);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/social/unfollow', (req, res) => {
+  const { follower, following } = req.body;
+  if (!follower || !following) return res.status(400).json({ error: 'follower, following required' });
+
+  db.prepare('DELETE FROM follows WHERE follower = ? AND following = ?').run(follower, following);
+  res.json({ success: true });
+});
+
+app.get('/api/social/following/:addr', (req, res) => {
+  const addr = req.params.addr;
+  const following = db.prepare('SELECT following FROM follows WHERE follower = ?').all(addr);
+  res.json(following.map(f => f.following));
+});
+
+app.get('/api/social/top-predictors', (req, res) => {
+  const leaders = db.prepare(`
+    SELECT u.address,
+      COUNT(b.id) as total_bets,
+      SUM(CASE WHEN b.status = 'won' THEN 1 ELSE 0 END) as wins,
+      SUM(CASE WHEN b.status IN ('won', 'lost') THEN 1 ELSE 0 END) as resolved,
+      SUM(CASE WHEN b.status = 'won' THEN b.payout - b.amount ELSE 0 END) -
+      SUM(CASE WHEN b.status = 'lost' THEN b.amount ELSE 0 END) as pnl
+    FROM users u JOIN bets b ON u.address = b.user_address
+    GROUP BY u.address
+    HAVING total_bets >= 1
+    ORDER BY pnl DESC
+    LIMIT 20
+  `).all();
+
+  res.json(leaders.map((l, i) => ({
+    rank: i + 1,
+    address: l.address,
+    pnl: l.pnl || 0,
+    winRate: l.resolved > 0 ? Math.round((l.wins / l.resolved) * 100) : 0,
+    totalBets: l.total_bets || 0,
+  })));
+});
+
+// ===== PORTFOLIO PNL ENDPOINT =====
+
+app.get('/api/portfolio/pnl/:addr', (req, res) => {
+  const addr = req.params.addr;
+  if (!addr || !addr.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
+
+  const bets = db.prepare(`
+    SELECT * FROM bets WHERE user_address = ? AND status IN ('won', 'lost')
+    ORDER BY created_at ASC LIMIT 100
+  `).all(addr);
+
+  let cumPnl = 0;
+  let currentStreak = 0;
+  let bestStreak = 0;
+  let wins = 0;
+  const pnlSeries = [];
+
+  for (const b of bets) {
+    if (b.status === 'won') {
+      cumPnl += (b.payout - b.amount);
+      currentStreak++;
+      if (currentStreak > bestStreak) bestStreak = currentStreak;
+      wins++;
+    } else {
+      cumPnl -= b.amount;
+      currentStreak = 0;
+    }
+    pnlSeries.push({ timestamp: b.created_at * 1000, pnl: cumPnl });
+  }
+
+  const totalInvested = bets.reduce((s, b) => s + b.amount, 0);
+  const roi = totalInvested > 0 ? Math.round((cumPnl / totalInvested) * 10000) / 100 : 0;
+  const winRate = bets.length > 0 ? Math.round((wins / bets.length) * 100) : 0;
+
+  res.json({
+    cumulativePnl: cumPnl,
+    winRate,
+    roi,
+    currentStreak,
+    bestStreak,
+    pnlSeries: pnlSeries.slice(-50),
+  });
+});
 
 // Resolve expired markets every 15s (fast for 5-min markets)
 setInterval(() => resolveExpiredMarkets(), 15000);

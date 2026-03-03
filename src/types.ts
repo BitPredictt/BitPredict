@@ -84,5 +84,59 @@ export interface LeaderboardEntry {
   isUser?: boolean;
 }
 
-export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'achievements';
+export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'achievements' | 'vault';
 export type CategoryFilter = 'All' | 'Fast Bets' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';
+
+// --- Vault types ---
+export interface VaultInfo {
+  totalStaked: number;
+  totalRewards: number;
+  apy: number;
+  stakerCount: number;
+  rewardsPerShare: number;
+}
+
+export interface VaultUserInfo {
+  staked: number;
+  pendingRewards: number;
+  autoCompound: boolean;
+  stakedAt?: number;
+  lastClaim?: number;
+}
+
+export interface VaultRewardEntry {
+  id: number;
+  sourceMarketId: string;
+  feeAmount: number;
+  distributedAt: number;
+  totalStakedAtTime: number;
+}
+
+export interface VaultVesting {
+  id: number;
+  totalAmount: number;
+  claimedAmount: number;
+  startTime: number;
+  endTime: number;
+  progress: number;
+}
+
+// --- Social types ---
+export interface TopPredictor {
+  rank: number;
+  address: string;
+  pnl: number;
+  winRate: number;
+  totalBets: number;
+  isFollowed?: boolean;
+}
+
+// --- PnL types ---
+export interface PnlData {
+  cumulativePnl: number;
+  winRate: number;
+  roi: number;
+  currentStreak: number;
+  bestStreak: number;
+  pnlSeries: { timestamp: number; pnl: number }[];
+}

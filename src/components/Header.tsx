@@ -24,6 +24,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: 'markets', label: 'Markets', icon: '📊' },
+    { id: 'vault', label: 'Vault', icon: '🔒' },
     { id: 'portfolio', label: 'Portfolio', icon: '💼' },
     { id: 'achievements', label: 'Quests', icon: '🏅' },
     { id: 'leaderboard', label: 'Ranks', icon: '🏆' },

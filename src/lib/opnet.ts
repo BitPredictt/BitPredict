@@ -595,3 +595,25 @@ export function getExplorerTxUrl(txHash: string): string {
 export function getExplorerAddressUrl(address: string): string {
   return `${OPNET_CONFIG.explorerUrl}/accounts/${address}?network=op_testnet`;
 }
+
+/**
+ * Sign a vault stake/unstake/claim proof TX.
+ * Same pattern as signBetProof but with a different memo context.
+ * @param amount - BPUSD amount (will be expanded to token decimals)
+ */
+export async function signVaultProof(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { BitcoinUtils } = await import('opnet');
+    const expandedAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
