@@ -1,0 +1,10 @@
+{
+  "network": "testnet",
+  "deployer": "opt1pjg7vu2qts5p7ls3hh9qpxmwnkmsy9yyqyxv66vxduu9kuq2l689s8vz2m2",
+  "contract": {
+    "name": "StakingVault",
+    "address": "opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt",
+    "pubkey": "0x1fe6041ec3b1dd64bd7c44155fe0eb1ddc5cd558b3565793b7b176a4dcb570ea"
+  },
+  "deployedAt": "2026-03-03T03:35:13.863Z"
+}

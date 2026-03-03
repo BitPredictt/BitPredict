@@ -21,6 +21,7 @@ export const OPNET_CONFIG = {
   faucetUrl: 'https://faucet.opnet.org',
   motoswapUrl: 'https://motoswap.org',
   contractAddress: 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj', // Deployed PredictionMarket
+  vaultAddress: 'opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt', // Deployed StakingVault
   tokenAddress: 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d', // BPUSD MintableToken (our own, publicMint enabled)
   tokenPubkey: '0x1fc02c213008668e4a8bde3a600b5dc9afd6b3ad0b5c558c2e6dc128f4d14195',
   tokenDecimals: 8,
