@@ -44,6 +44,9 @@ export interface ServerMarket {
   marketType: string;
   yesPool: number;
   noPool: number;
+  imageUrl?: string;
+  eventId?: string;
+  outcomes?: { marketId: string; label: string; price: number; volume: number }[];
 }
 
 export async function getMarkets() {

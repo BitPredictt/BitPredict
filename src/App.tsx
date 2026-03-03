@@ -129,7 +129,11 @@ function App() {
   }, [markets, category, search, sortBy]);
 
   const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number) => {
-    const market = markets.find((m) => m.id === marketId);
+    // Search parent markets first, then check multi-outcome sub-market IDs
+    let market = markets.find((m) => m.id === marketId);
+    if (!market) {
+      market = markets.find((m) => m.outcomes?.some((o) => o.marketId === marketId));
+    }
     if (!market || !wallet.connected) {
       setToast({ message: !wallet.connected ? 'Wallet disconnected' : 'Market not found', type: 'error' });
       throw new Error('Cannot place bet');

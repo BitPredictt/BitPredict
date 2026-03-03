@@ -55,13 +55,13 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
                   activeTab === tab.id
                     ? 'bg-btc/20 text-btc shadow-sm'
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <span className="mr-1">{tab.icon}</span>
+                {tab.icon}
                 {tab.label}
               </button>
             ))}
@@ -115,13 +115,13 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
                   onTabChange(tab.id);
                   setMobileMenu(false);
                 }}
-                className={`flex-1 px-2 py-2 rounded-lg text-xs font-semibold transition-all text-center ${
+                className={`flex-1 px-2 py-2 rounded-lg text-xs font-semibold transition-all flex flex-col items-center ${
                   activeTab === tab.id
                     ? 'bg-btc/20 text-btc'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                <div>{tab.icon}</div>
+                {tab.icon}
                 <div className="mt-0.5">{tab.label}</div>
               </button>
             ))}
