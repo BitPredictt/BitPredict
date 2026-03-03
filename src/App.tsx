@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Search, Filter, ExternalLink, Github } from 'lucide-react';
+import { Search, Filter, ExternalLink, Github, BarChart3, Lock, Briefcase, Trophy, Bot } from 'lucide-react';
 import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
@@ -366,20 +366,20 @@ function App() {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass border-t border-white/5">
         <div className="flex">
           {([
-            { id: 'markets' as Tab, icon: '📊', label: 'Markets' },
-            { id: 'vault' as Tab, icon: '🔒', label: 'Vault' },
-            { id: 'portfolio' as Tab, icon: '💼', label: 'Portfolio' },
-            { id: 'leaderboard' as Tab, icon: '🏆', label: 'Ranks' },
-            { id: 'ai' as Tab, icon: '🤖', label: 'AI' },
+            { id: 'markets' as Tab, icon: <BarChart3 size={18} />, label: 'Markets' },
+            { id: 'vault' as Tab, icon: <Lock size={18} />, label: 'Vault' },
+            { id: 'portfolio' as Tab, icon: <Briefcase size={18} />, label: 'Portfolio' },
+            { id: 'leaderboard' as Tab, icon: <Trophy size={18} />, label: 'Ranks' },
+            { id: 'ai' as Tab, icon: <Bot size={18} />, label: 'AI' },
           ]).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 text-center transition-all ${
+              className={`flex-1 py-3 flex flex-col items-center transition-all ${
                 activeTab === tab.id ? 'text-btc' : 'text-gray-600'
               }`}
             >
-              <div className="text-base">{tab.icon}</div>
+              {tab.icon}
               <div className="text-[9px] font-bold mt-0.5">{tab.label}</div>
             </button>
           ))}

@@ -29,7 +29,7 @@ export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
     {
       id: 'welcome',
       role: 'bob',
-      text: "Hey! I'm **Bob** — the OP_NET AI agent and lead analyst at BitPredict.\n\nMy knowledge base: OP_NET protocol, Bitcoin L1 smart contracts, AMM mechanics, on-chain analytics. Powered by **Gemini LLM** + deep OPNet expertise.\n\n🔍 Ask me about markets, strategies, OP_NET technology, or request a signal on any specific market!",
+      text: "Hey! I'm **Bob** — the OP_NET AI agent and lead analyst at BitPredict.\n\nMy knowledge base: OP_NET protocol, Bitcoin L1 smart contracts, AMM mechanics, on-chain analytics. Powered by **Gemini LLM** + deep OPNet expertise.\n\nAsk me about markets, strategies, OP_NET technology, or request a signal on any specific market!",
       ts: Date.now(),
       source: 'bob+gemini',
     },
@@ -64,7 +64,7 @@ export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'bob',
-        text: `⚠️ ${msg}\n\nПопробуй ещё раз через пару секунд.`,
+        text: `${msg}\n\nTry again in a few seconds.`,
         ts: Date.now(),
       }]);
     } finally {
@@ -76,7 +76,7 @@ export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
     setMessages([{
       id: 'cleared',
       role: 'bob',
-      text: "Чат очищен. Задавай вопросы — анализирую рынки, объясняю OP_NET, даю сигналы. 🤖",
+      text: "Chat cleared. Ask me anything — market analysis, OP_NET technology, trading signals.",
       ts: Date.now(),
       source: 'bob',
     }]);

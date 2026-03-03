@@ -1,5 +1,5 @@
-import { Bitcoin, Wallet, LogOut, Menu, X } from 'lucide-react';
-import { useState } from 'react';
+import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Trophy, HelpCircle } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
 
 interface HeaderProps {
@@ -22,13 +22,13 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
     return `${sats.toLocaleString()} sats`;
   };
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'markets', label: 'Markets', icon: '📊' },
-    { id: 'vault', label: 'Vault', icon: '🔒' },
-    { id: 'portfolio', label: 'Portfolio', icon: '💼' },
-    { id: 'achievements', label: 'Quests', icon: '🏅' },
-    { id: 'leaderboard', label: 'Ranks', icon: '🏆' },
-    { id: 'ai', label: 'Help', icon: '❓' },
+  const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
+    { id: 'markets', label: 'Markets', icon: <BarChart3 size={14} /> },
+    { id: 'vault', label: 'Vault', icon: <Lock size={14} /> },
+    { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={14} /> },
+    { id: 'achievements', label: 'Quests', icon: <Award size={14} /> },
+    { id: 'leaderboard', label: 'Ranks', icon: <Trophy size={14} /> },
+    { id: 'ai', label: 'Help', icon: <HelpCircle size={14} /> },
   ];
 
   return (

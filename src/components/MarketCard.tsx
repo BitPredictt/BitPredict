@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, TrendingUp, Droplets, ChevronRight } from 'lucide-react';
+import { Clock, TrendingUp, Droplets, ChevronRight, Zap } from 'lucide-react';
 import type { Market } from '../types';
 
 interface MarketCardProps {
@@ -73,7 +73,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
       {/* Category badge */}
       <div className="flex items-center justify-between mb-3">
         <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${market.marketType === 'price_5min' ? categoryColors['Fast Bets'] : (categoryColors[market.category] || 'bg-gray-500/15 text-gray-400 border-gray-500/20')}`}>
-          {market.marketType === 'price_5min' ? '⚡ FAST' : market.category}
+          {market.marketType === 'price_5min' ? <><Zap size={10} className="inline -mt-0.5" /> FAST</> : market.category}
         </span>
         <div className={`flex items-center gap-1 text-[10px] ${isResolved ? 'text-purple-400 font-bold' : isEnded ? 'text-red-400 font-bold' : isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
           <Clock size={10} />
