@@ -22,7 +22,6 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0); // index into outcomes
   const [amount, setAmount] = useState('1000');
   const [placing, setPlacing] = useState(false);
-  const [txStep, setTxStep] = useState<'idle' | 'signing' | 'recording'>('idle');
   const [showDetails, setShowDetails] = useState(false);
   const [bobSignal, setBobSignal] = useState<string | null>(null);
   const [loadingSignal, setLoadingSignal] = useState(false);
@@ -87,17 +86,18 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
 
   const insufficientBalance = amountNum > predBalance;
 
+  const canPlace = wallet.connected && amountNum >= 100 && !placing && !insufficientBalance;
+
   const handlePlace = async () => {
-    if (amountNum <= 0 || !wallet.connected || insufficientBalance) return;
+    if (!canPlace) return;
     setPlacing(true);
-    setTxStep('signing');
     try {
-      setTxStep('recording');
       await onPlaceBet(activeMarketId, isMultiOutcome ? 'yes' : side, amountNum);
+      onClose();
+    } catch {
+      // Error toast is shown by App.tsx — keep modal open so user can retry
     } finally {
       setPlacing(false);
-      setTxStep('idle');
-      onClose();
     }
   };
 
@@ -320,7 +320,7 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
         {/* Place button */}
         <button
           onClick={handlePlace}
-          disabled={!wallet.connected || amountNum <= 0 || placing || insufficientBalance}
+          disabled={!canPlace}
           className={`w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
             side === 'yes'
               ? 'bg-gradient-to-r from-green-600 to-green-500 text-white hover:from-green-500 hover:to-green-400'
@@ -330,8 +330,14 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
           {placing ? (
             <>
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              {txStep === 'signing' ? 'Step 1: Sign TX in OP_WALLET...' : 'Step 2: Recording on Bitcoin...'}
+              Signing in OP_WALLET...
             </>
+          ) : !wallet.connected ? (
+            'Connect Wallet First'
+          ) : amountNum < 100 ? (
+            'Minimum bet: 100 BPUSD'
+          ) : insufficientBalance ? (
+            `Insufficient balance (${predBalance.toLocaleString()} BPUSD)`
           ) : (
             <>
               <Zap size={16} />

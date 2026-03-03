@@ -130,7 +130,10 @@ function App() {
 
   const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number) => {
     const market = markets.find((m) => m.id === marketId);
-    if (!market || !wallet.connected) return;
+    if (!market || !wallet.connected) {
+      setToast({ message: !wallet.connected ? 'Wallet disconnected' : 'Market not found', type: 'error' });
+      throw new Error('Cannot place bet');
+    }
 
     const pendingId = `pending-${Date.now()}`;
     const pendingBet: Bet = {
@@ -139,7 +142,7 @@ function App() {
       timestamp: Date.now(), status: 'pending',
     };
     setBets((prev) => [pendingBet, ...prev]);
-    setToast({ message: 'Sign the transaction in OP_WALLET...', type: 'success' });
+    setToast({ message: 'Step 1/2: Sign the transaction in OP_WALLET...', type: 'success' });
 
     try {
       // Step 1: User signs on-chain TX (increaseAllowance as bet proof) — user pays gas
@@ -148,7 +151,7 @@ function App() {
         throw new Error(proof.error || 'TX signing failed');
       }
 
-      setToast({ message: 'TX signed! Recording bet...', type: 'success' });
+      setToast({ message: 'Step 2/2: TX signed! Recording bet on Bitcoin...', type: 'success' });
 
       // Step 2: Send txHash to server — server records bet + AMM calc
       const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, proof.txHash);
@@ -165,12 +168,13 @@ function App() {
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
       const txLink = `https://opscan.org/transactions/${proof.txHash}?network=op_testnet`;
-      setToast({ message: '✅ Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
+      setToast({ message: 'Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ message: `Bet failed: ${msg}`, type: 'error' });
+      throw err; // Re-throw so BetModal knows it failed and stays open
     }
   }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
 

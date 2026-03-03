@@ -295,7 +295,7 @@ try {
   }
 } catch(e) { console.error('Bets table migration error:', e.message); }
 // Index for O(1) txHash replay lookup
-try { db.exec('CREATE INDEX IF NOT EXISTS idx_bets_tx_hash ON bets(tx_hash) WHERE tx_hash != ""'); } catch(e) { /* ignore */ }
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_bets_tx_hash ON bets(tx_hash) WHERE length(tx_hash) > 0'); } catch(e) { /* ignore */ }
 
 // Migration: add image_url column if missing
 try { db.exec('ALTER TABLE markets ADD COLUMN image_url TEXT'); } catch(e) { /* already exists */ }
@@ -1349,7 +1349,7 @@ app.post('/api/bet/onchain', (req, res) => {
 
   try {
     // Replay attack prevention: reject reused txHashes
-    const existingTx = db.prepare('SELECT id FROM bets WHERE tx_hash = ? AND tx_hash != ""').get(txHash);
+    const existingTx = db.prepare('SELECT id FROM bets WHERE tx_hash = ? AND length(tx_hash) > 0').get(txHash);
     if (existingTx) return res.status(400).json({ error: 'txHash already used — replay detected' });
 
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
