@@ -5,7 +5,7 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://polyfantasy.xyz/bpapi';
 
-async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
     headers: { 'Content-Type': 'application/json', ...opts?.headers },
@@ -22,14 +22,14 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
 // --- Auth / Balance ---
 export async function authUser(address: string, referrer?: string) {
-  return apiFetch<{ address: string; balance: number; referrer: string | null }>('/api/auth', {
+  return apiFetch<{ address: string; balance: number; btcBalance: number; referrer: string | null }>('/api/auth', {
     method: 'POST',
     body: JSON.stringify({ address, referrer }),
   });
 }
 
 export async function getBalance(address: string) {
-  return apiFetch<{ balance: number }>(`/api/balance/${address}`);
+  return apiFetch<{ balance: number; btcBalance: number }>(`/api/balance/${address}`);
 }
 
 // --- Markets ---
@@ -52,6 +52,7 @@ export interface ServerMarket {
   imageUrl?: string;
   eventId?: string;
   outcomes?: { marketId: string; label: string; price: number; volume: number }[];
+  onchainId?: number | null;
 }
 
 export async function getMarkets() {
@@ -79,6 +80,7 @@ export interface ServerBet {
   currentNoPrice: number;
   marketResolved: boolean;
   marketOutcome: string | null;
+  currency?: 'btc' | 'bpusd';
 }
 
 export interface PlaceBetResult {
@@ -87,15 +89,16 @@ export interface PlaceBetResult {
   shares: number;
   fee: number;
   newBalance: number;
+  newBtcBalance: number;
   newYesPrice: number;
   newNoPrice: number;
   txHash?: string;
 }
 
-export async function placeBet(address: string, marketId: string, side: 'yes' | 'no', amount: number) {
+export async function placeBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd' = 'bpusd') {
   return apiFetch<PlaceBetResult>('/api/bet', {
     method: 'POST',
-    body: JSON.stringify({ address, marketId, side, amount }),
+    body: JSON.stringify({ address, marketId, side, amount, currency }),
   });
 }
 
@@ -138,7 +141,7 @@ export async function aiSignal(marketId: string) {
 
 // --- Claim payout (user-signed TX proof) ---
 export async function claimPayout(address: string, betId: string, txHash: string) {
-  return apiFetch<{ success: boolean; payout: number; newBalance: number; txHash: string }>('/api/claim', {
+  return apiFetch<{ success: boolean; payout: number; newBalance: number; newBtcBalance: number; txHash: string }>('/api/claim', {
     method: 'POST',
     body: JSON.stringify({ address, betId, txHash }),
   });
@@ -152,14 +155,15 @@ export interface OnChainBetResult {
   fee: number;
   txHash: string;
   newBalance: number;
+  newBtcBalance: number;
   newYesPrice: number;
   newNoPrice: number;
 }
 
-export async function placeOnChainBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string) {
+export async function placeOnChainBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string, currency: 'btc' | 'bpusd' = 'bpusd') {
   return apiFetch<OnChainBetResult>('/api/bet/onchain', {
     method: 'POST',
-    body: JSON.stringify({ address, marketId, side, amount, txHash }),
+    body: JSON.stringify({ address, marketId, side, amount, txHash, currency }),
   });
 }
 
@@ -295,6 +299,7 @@ export interface SellResult {
   sharesSold: number;
   remainingShares: number;
   newBalance: number;
+  newBtcBalance: number;
   newYesPrice: number;
   newNoPrice: number;
 }
@@ -303,6 +308,14 @@ export async function sellShares(address: string, betId: string, sharesToSell?: 
   return apiFetch<SellResult>('/api/bet/sell', {
     method: 'POST',
     body: JSON.stringify({ address, betId, sharesToSell }),
+  });
+}
+
+// --- BTC Faucet ---
+export async function claimBtcFaucet(address: string) {
+  return apiFetch<{ success: boolean; claimed: number; newBalance: number; newBtcBalance: number; message: string }>('/api/faucet/btc', {
+    method: 'POST',
+    body: JSON.stringify({ address }),
   });
 }
 

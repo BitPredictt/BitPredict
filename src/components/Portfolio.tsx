@@ -2,25 +2,27 @@ import { useState, useEffect } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, mintTokensOnChain, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
+import { getExplorerTxUrl, mintTokensOnChain, signClaimProof, claimPayoutOnChain2, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
   bets: Bet[];
   markets: Market[];
   predBalance: number;
+  btcBalance: number;
   walletConnected: boolean;
   walletAddress: string;
   walletBtcBalance: number;
   onConnect: () => void;
   onBalanceUpdate: (balance: number) => void;
+  onBtcBalanceUpdate: (balance: number) => void;
   onBetsUpdate: (bets: Bet[]) => void;
   walletProvider: unknown;
   walletNetwork: unknown;
-  walletAddressObj: unknown; // Address object from walletconnect
+  walletAddressObj: unknown;
 }
 
-export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceUpdate, onBetsUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, btcBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceUpdate, onBtcBalanceUpdate, onBetsUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
@@ -66,12 +68,24 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     setClaimingBetId(betId);
     setClaimMsg(null);
     try {
-      setClaimMsg({ text: `Sign claim TX for ${bet.payout.toLocaleString()} BPUSD in OP_WALLET...`, type: 'success' });
+      const claimCurrLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
+      setClaimMsg({ text: `Sign claim TX for ${bet.payout.toLocaleString()} ${claimCurrLabel} in OP_WALLET...`, type: 'success' });
       const proof = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.payout);
       if (!proof.success) throw new Error(proof.error || 'Claim TX failed');
       const result = await api.claimPayout(walletAddress, betId, proof.txHash);
       onBalanceUpdate(result.newBalance);
-      setClaimMsg({ text: `+${result.payout.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} claimed!`, type: 'success', txHash: proof.txHash });
+      onBtcBalanceUpdate(result.newBtcBalance || 0);
+      const betCurrency = bet.currency || 'bpusd';
+      const claimLabel = betCurrency === 'btc' ? 'sats' : OPNET_CONFIG.tokenSymbol;
+      setClaimMsg({ text: `+${result.payout.toLocaleString()} ${claimLabel} claimed!`, type: 'success', txHash: proof.txHash });
+
+      // Non-blocking: claim on PredictionMarket contract if market has onchainId
+      const market = markets.find(m => m.id === bet.marketId);
+      if (market?.onchainId) {
+        claimPayoutOnChain2(walletProvider, walletNetwork, walletAddressObj, walletAddress, market.onchainId)
+          .then(r => { if (r.success) console.log('claimPayoutOnChain2 TX:', r.txHash); })
+          .catch(() => {});
+      }
     } catch (err) {
       setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
     } finally {
@@ -86,12 +100,14 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     try {
       const result = await api.sellShares(walletAddress, betId);
       onBalanceUpdate(result.newBalance);
-      // Update local bet state to reflect the sell
+      onBtcBalanceUpdate(result.newBtcBalance || 0);
       onBetsUpdate(bets.map(b => b.id === betId
-        ? { ...b, status: result.remainingShares > 0 ? 'active' : 'cancelled' as const, shares: result.remainingShares }
+        ? { ...b, status: (result.remainingShares > 0 ? 'active' : 'lost') as Bet['status'], shares: result.remainingShares }
         : b
-      ).filter(b => b.status !== 'cancelled'));
-      setClaimMsg({ text: `Sold for ${result.payout.toLocaleString()} BPUSD (fee: ${result.fee})`, type: 'success' });
+      ).filter(b => !(b.id === betId && result.remainingShares <= 0)));
+      const bet = bets.find(b => b.id === betId);
+      const sellLabel = (bet?.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
+      setClaimMsg({ text: `Sold for ${result.payout.toLocaleString()} ${sellLabel} (fee: ${result.fee})`, type: 'success' });
     } catch (err) {
       setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
     } finally {
@@ -185,9 +201,16 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
         </div>
         <h2 className="text-2xl font-extrabold text-white">Portfolio</h2>
         <p className="text-xs text-gray-500 mt-1">Track your predictions on OP_NET Testnet</p>
-        <div className="flex items-center justify-center gap-2 mt-2">
-          <Coins size={16} className="text-btc" />
-          <span className="text-lg font-black text-btc">{predBalance.toLocaleString()} {OPNET_CONFIG.tokenSymbol}</span>
+        <div className="flex items-center justify-center gap-3 mt-2">
+          <div className="flex items-center gap-1">
+            <Coins size={14} className="text-btc" />
+            <span className="text-sm font-black text-btc">{predBalance.toLocaleString()} BPUSD</span>
+          </div>
+          <span className="text-gray-600">|</span>
+          <div className="flex items-center gap-1">
+            <Coins size={14} className="text-orange-400" />
+            <span className="text-sm font-black text-orange-400">{btcBalance.toLocaleString()} sats</span>
+          </div>
         </div>
         <button
           onClick={handleMint}
@@ -443,7 +466,10 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         }`}>
                           {bet.side}
                         </span>
-                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} BPUSD @ {Math.round(bet.price * 100)}¢</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${bet.currency === 'btc' ? 'bg-orange-500/10 text-orange-400' : 'bg-btc/10 text-btc'}`}>
+                          {bet.currency === 'btc' ? 'BTC' : 'BPUSD'}
+                        </span>
+                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} {bet.currency === 'btc' ? 'sats' : 'BPUSD'} @ {Math.round(bet.price * 100)}¢</span>
                         {bet.status === 'active' && (
                           <span className={`text-[10px] font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(1)}%
@@ -467,7 +493,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         </span>
                       </div>
                       {(bet.status === 'won' || bet.status === 'claimable') && (bet.payout ?? 0) > 0 && (
-                        <span className="text-[10px] font-bold text-green-400">+{(bet.payout ?? 0).toLocaleString()} BPUSD</span>
+                        <span className="text-[10px] font-bold text-green-400">+{(bet.payout ?? 0).toLocaleString()} {bet.currency === 'btc' ? 'sats' : 'BPUSD'}</span>
                       )}
                       {bet.status === 'claimable' && (bet.payout ?? 0) > 0 && (
                         <button

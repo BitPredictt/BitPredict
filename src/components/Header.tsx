@@ -2,6 +2,7 @@ import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Tr
 import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
 import { NotificationBell } from './NotificationBell';
+import * as api from '../lib/api';
 
 interface HeaderProps {
   wallet: WalletState;
@@ -10,17 +11,33 @@ interface HeaderProps {
   connecting: boolean;
   activeTab: Tab;
   onTabChange: (tab: Tab) => void;
+  predBalance: number;
+  btcBalance: number;
+  onBalanceUpdate: (balance: number, btcBalance: number) => void;
 }
 
-export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange }: HeaderProps) {
+export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, predBalance, btcBalance, onBalanceUpdate }: HeaderProps) {
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [claimingFaucet, setClaimingFaucet] = useState<'bpusd' | 'btc' | null>(null);
 
   const formatAddress = (addr: string) =>
     addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
 
-  const formatSats = (sats: number) => {
-    if (sats >= 100000000) return `${(sats / 100000000).toFixed(4)} BTC`;
-    return `${sats.toLocaleString()} sats`;
+  const handleFaucet = async (type: 'bpusd' | 'btc') => {
+    if (claimingFaucet || !wallet.address) return;
+    setClaimingFaucet(type);
+    try {
+      if (type === 'btc') {
+        const r = await api.claimBtcFaucet(wallet.address);
+        onBalanceUpdate(r.newBalance, r.newBtcBalance);
+      } else {
+        const r = await api.apiFetch<{ newBalance: number; newBtcBalance?: number }>('/api/faucet/claim', {
+          method: 'POST', body: JSON.stringify({ address: wallet.address }),
+        });
+        onBalanceUpdate(r.newBalance, r.newBtcBalance ?? btcBalance);
+      }
+    } catch { /* cooldown or error */ }
+    setClaimingFaucet(null);
   };
 
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
@@ -74,8 +91,30 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500 status-breathing shrink-0" />
                 <div className="hidden sm:block text-right">
-                  <div className="text-xs font-bold text-btc">{formatSats(wallet.balanceSats)}</div>
-                  <div className="text-[10px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <span className="text-[10px] font-bold text-btc">{predBalance.toLocaleString()} BPUSD</span>
+                    <span className="text-gray-600 text-[10px]">|</span>
+                    <span className="text-[10px] font-bold text-orange-400">{btcBalance.toLocaleString()} sats</span>
+                  </div>
+                  <div className="flex items-center gap-1 justify-end mt-0.5">
+                    <div className="text-[9px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>
+                    <button
+                      onClick={() => handleFaucet('bpusd')}
+                      disabled={!!claimingFaucet}
+                      className="text-[8px] px-1 py-0.5 rounded bg-btc/10 text-btc hover:bg-btc/20 transition-all disabled:opacity-50"
+                      title="Claim BPUSD faucet"
+                    >
+                      +BPUSD
+                    </button>
+                    <button
+                      onClick={() => handleFaucet('btc')}
+                      disabled={!!claimingFaucet}
+                      className="text-[8px] px-1 py-0.5 rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-all disabled:opacity-50"
+                      title="Claim BTC faucet"
+                    >
+                      +BTC
+                    </button>
+                  </div>
                 </div>
                 <NotificationBell walletAddress={wallet.address} />
                 <button

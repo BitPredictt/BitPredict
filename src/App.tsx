@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signBetProof, signRewardClaimProof } from './lib/opnet';
+import { signBetProof, signRewardClaimProof, buySharesOnChain } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -33,6 +33,7 @@ function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [predBalance, setPredBalance] = useState(0);
+  const [btcBalance, setBtcBalance] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
   const [showCreateMarket, setShowCreateMarket] = useState(false);
   const marketsLoaded = useRef(false);
@@ -57,7 +58,7 @@ function App() {
     achievements.syncClaimedRewards(wallet.address);
     const loadBets = () => {
       const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
-      api.authUser(wallet.address, ref).then((u) => setPredBalance(u.balance)).catch(() => {});
+      api.authUser(wallet.address, ref).then((u) => { setPredBalance(u.balance); setBtcBalance(u.btcBalance || 0); }).catch(() => {});
       api.getUserBets(wallet.address).then((serverBets) => {
         setBets(serverBets.map((b) => ({
           id: b.id,
@@ -69,6 +70,7 @@ function App() {
           status: b.status === 'cancelled' ? 'lost' as const : b.status as Bet['status'],
           payout: b.payout,
           shares: b.shares,
+          currency: b.currency || 'bpusd',
         })));
       }).catch(() => {});
     };
@@ -132,7 +134,7 @@ function App() {
     return list;
   }, [markets, category, search, sortBy]);
 
-  const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number) => {
+  const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd' = 'bpusd') => {
     // Search parent markets first, then check multi-outcome sub-market IDs
     let market = markets.find((m) => m.id === marketId);
     if (!market) {
@@ -148,6 +150,7 @@ function App() {
       id: pendingId, marketId, side, amount,
       price: side === 'yes' ? market.yesPrice : market.noPrice,
       timestamp: Date.now(), status: 'pending',
+      currency,
     };
     setBets((prev) => [pendingBet, ...prev]);
     setToast({ message: 'Step 1/2: Sign the transaction in OP_WALLET...', type: 'success' });
@@ -162,14 +165,16 @@ function App() {
       setToast({ message: 'Step 2/2: TX signed! Recording bet on Bitcoin...', type: 'success' });
 
       // Step 2: Send txHash to server — server records bet + AMM calc
-      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, proof.txHash);
+      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, proof.txHash, currency);
 
       setPredBalance(result.newBalance);
+      setBtcBalance(result.newBtcBalance || 0);
       const confirmedBet: Bet = {
         id: result.betId, marketId, side, amount,
         price: side === 'yes' ? market.yesPrice : market.noPrice,
         timestamp: Date.now(), status: 'active',
         shares: result.shares, txHash: proof.txHash,
+        currency,
       };
       setBets((prev) => prev.map((b) => b.id === pendingId ? confirmedBet : b));
       setMarkets((prev) => prev.map((m) =>
@@ -178,6 +183,13 @@ function App() {
       const txLink = `https://opscan.org/transactions/${proof.txHash}?network=op_testnet`;
       setToast({ message: 'Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
+
+      // Non-blocking: call buyShares on PredictionMarket contract if market has onchainId
+      if (market.onchainId) {
+        buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId, side === 'yes', amount)
+          .then(r => { if (r.success) console.log('buySharesOnChain TX:', r.txHash); })
+          .catch(() => {});
+      }
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
@@ -195,6 +207,9 @@ function App() {
         connecting={walletLoading}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        predBalance={predBalance}
+        btcBalance={btcBalance}
+        onBalanceUpdate={(b, btc) => { setPredBalance(b); setBtcBalance(btc); }}
       />
       <NetworkStats walletProvider={provider} marketCount={markets.filter(m => !m.resolved).length} />
 
@@ -342,11 +357,13 @@ function App() {
             bets={bets}
             markets={markets}
             predBalance={predBalance}
+            btcBalance={btcBalance}
             walletConnected={wallet.connected}
             walletAddress={wallet.address}
             walletBtcBalance={wallet.balanceSats}
             onConnect={connectOPWallet}
             onBalanceUpdate={setPredBalance}
+            onBtcBalanceUpdate={setBtcBalance}
             onBetsUpdate={setBets}
             walletProvider={provider}
             walletNetwork={walletNetwork}
@@ -411,6 +428,7 @@ function App() {
           market={selectedMarket}
           wallet={wallet}
           predBalance={predBalance}
+          btcBalance={btcBalance}
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
         />

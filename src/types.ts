@@ -25,6 +25,7 @@ export interface Market {
   noPool?: number;
   outcomes?: MarketOutcome[];
   oracleResolved?: boolean;
+  onchainId?: number | null;
 }
 
 export interface Bet {
@@ -39,6 +40,7 @@ export interface Bet {
   blockHeight?: number;
   payout?: number;
   shares?: number;
+  currency?: 'btc' | 'bpusd';
 }
 
 export interface Achievement {

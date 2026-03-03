@@ -18,13 +18,22 @@ let deployerWallet = null;
 let opnetProvider = null;
 let opnetFactory = null;
 let opnetNetwork = null;
+let opnetRpcProvider = null; // JSONRpcProvider for getContract() calls
 
 const PRED_TOKEN = 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d'; // BPUSD MintableToken
 const PRED_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 
+// PredictionMarket contract (deployed on OPNet testnet)
+const PREDICTION_MARKET_ADDRESS = 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj';
+// Selectors: SHA256 first 4 bytes of function signature (OPNet standard)
+const CREATE_MARKET_SELECTOR = 0x89eb2691;   // createMarket(uint256)
+const RESOLVE_MARKET_SELECTOR = 0xaa5b3340;  // resolveMarket(uint256,bool)
+
 // Contract pubkey hex (32 bytes) — resolved via getCode RPC on startup
 let PRED_CONTRACT_PUBKEY = '';
+let MARKET_CONTRACT_PUBKEY = '';
+let nextOnchainMarketId = 0;
 
 let txLock = false;
 
@@ -36,14 +45,16 @@ async function initDeployerWallet() {
   }
   try {
     const { Mnemonic, TransactionFactory, OPNetLimitedProvider } = await import('@btc-vision/transaction');
+    const { JSONRpcProvider } = await import('opnet');
     const { networks } = await import('@btc-vision/bitcoin');
 
-    opnetNetwork = { ...networks.testnet, bech32: networks.testnet.bech32Opnet };
+    opnetNetwork = networks.opnetTestnet;
     const m = new Mnemonic(seed, '', opnetNetwork);
     const wallet = m.deriveOPWallet(undefined, 0);
 
     deployerWallet = wallet;
     opnetProvider = new OPNetLimitedProvider('https://testnet.opnet.org');
+    opnetRpcProvider = new JSONRpcProvider({ url: 'https://testnet.opnet.org', network: opnetNetwork });
     opnetFactory = new TransactionFactory();
     console.log('Deployer wallet initialized:', wallet.p2tr);
 
@@ -71,8 +82,43 @@ async function initDeployerWallet() {
     } catch (e2) {
       console.log('PRED pubkey resolution failed:', e2.message);
     }
+
+    // Resolve PredictionMarket contract pubkey (for createMarket/resolveMarket on-chain calls)
+    try {
+      const mktRes = await fetch('https://testnet.opnet.org/api/v1/json-rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getCode', params: [PREDICTION_MARKET_ADDRESS, false], id: 2 }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const mktData = await mktRes.json();
+      if (mktData.result && mktData.result.contractPublicKey) {
+        MARKET_CONTRACT_PUBKEY = Buffer.from(mktData.result.contractPublicKey, 'base64').toString('hex');
+        console.log('PredictionMarket contract pubkey resolved:', MARKET_CONTRACT_PUBKEY);
+      } else {
+        console.log('Could not resolve PredictionMarket pubkey:', JSON.stringify(mktData.error || {}));
+      }
+    } catch (e3) {
+      console.log('PredictionMarket pubkey resolution failed:', e3.message);
+    }
   } catch (e) {
     console.error('Failed to init deployer wallet:', e.message);
+  }
+}
+
+// Get current block height from OPNet RPC (for createMarket endBlock)
+async function getBlockHeightFromRPC() {
+  try {
+    const res = await fetch('https://testnet.opnet.org/api/v1/json-rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_blockNumber', params: [], id: 1 }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await res.json();
+    return typeof data.result === 'string' ? parseInt(data.result, 16) : Number(data.result || 0);
+  } catch {
+    return 0;
   }
 }
 
@@ -170,6 +216,119 @@ async function createOnChainProof(amount, memo) {
     txLock = false;
   }
 }
+
+// PredictionMarket ABI for getContract() server-side calls
+const MARKET_ABI = [
+  { name: 'createMarket', inputs: [{ name: 'endBlock', type: 'UINT256' }], outputs: [{ name: 'marketId', type: 'UINT256' }], type: 'function' },
+  { name: 'resolveMarket', inputs: [{ name: 'marketId', type: 'UINT256' }, { name: 'outcome', type: 'BOOL' }], outputs: [], type: 'function' },
+];
+
+// Create a market on-chain via getContract() + simulate + sendTransaction (Bob pattern)
+// Returns { success, onchainId, txHash } or { success: false, error }
+async function createMarketOnChain(endTimeUnix) {
+  if (!deployerWallet || !opnetRpcProvider) {
+    return { success: false, error: 'On-chain not ready' };
+  }
+  if (txLock) return { success: false, error: 'TX lock busy' };
+  txLock = true;
+  try {
+    const { getContract } = await import('opnet');
+
+    // Estimate endBlock: current block + blocks left (min 2 to ensure future)
+    const currentBlock = await getBlockHeightFromRPC();
+    if (!currentBlock) throw new Error('Cannot fetch block height');
+    const secsLeft = Math.max(300, endTimeUnix - Math.floor(Date.now() / 1000));
+    const blocksLeft = Math.max(2, Math.ceil(secsLeft / 600));
+    const endBlock = currentBlock + blocksLeft;
+
+    const contract = getContract(PREDICTION_MARKET_ADDRESS, MARKET_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
+
+    // Simulate
+    const sim = await contract.createMarket(BigInt(endBlock));
+    if (sim.revert) throw new Error('createMarket revert: ' + sim.revert);
+
+    // Use local counter for marketId (simulation returns same ID for concurrent calls)
+    const onchainId = nextOnchainMarketId++;
+
+    // Send real TX (server-side: signer + mldsaSigner required)
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate: 2,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`On-chain market created: id=${onchainId}, endBlock=${endBlock}, tx=${txHash}`);
+    return { success: true, onchainId, txHash };
+  } catch (e) {
+    console.error('createMarketOnChain error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    txLock = false;
+  }
+}
+
+// Resolve a market on-chain via getContract() + simulate + sendTransaction
+async function resolveMarketOnChain(onchainId, outcomeIsYes) {
+  if (!deployerWallet || !opnetRpcProvider) {
+    return { success: false, error: 'On-chain not ready' };
+  }
+  if (txLock) return { success: false, error: 'TX lock busy' };
+  txLock = true;
+  try {
+    const { getContract } = await import('opnet');
+
+    const contract = getContract(PREDICTION_MARKET_ADDRESS, MARKET_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
+
+    const sim = await contract.resolveMarket(BigInt(onchainId), outcomeIsYes);
+    if (sim.revert) throw new Error('resolveMarket revert: ' + sim.revert);
+
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate: 2,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`On-chain market resolved: id=${onchainId}, outcome=${outcomeIsYes ? 'YES' : 'NO'}, tx=${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    const msg = e.message || '';
+    // "Market has not ended yet" → queue for deferred retry (endBlock not yet reached)
+    if (msg.includes('has not ended yet')) {
+      pendingOnchainResolves.push({ onchainId, outcomeIsYes, retries: 0 });
+      return { success: false, error: 'deferred: endBlock not reached yet' };
+    }
+    console.error('resolveMarketOnChain error:', msg);
+    return { success: false, error: msg };
+  } finally {
+    txLock = false;
+  }
+}
+
+// Deferred on-chain resolve queue (for markets whose endBlock hasn't been reached yet)
+const pendingOnchainResolves = [];
+async function processDeferredResolves() {
+  if (pendingOnchainResolves.length === 0 || txLock) return;
+  const batch = pendingOnchainResolves.splice(0, pendingOnchainResolves.length);
+  for (const item of batch) {
+    const res = await resolveMarketOnChain(item.onchainId, item.outcomeIsYes);
+    if (!res.success && res.error === 'deferred: endBlock not reached yet') {
+      item.retries++;
+      if (item.retries < 10) pendingOnchainResolves.push(item); // re-queue (max 10 retries)
+      else console.log(`On-chain resolve gave up after 10 retries: onchainId=${item.onchainId}`);
+    } else if (res.success) {
+      console.log(`Deferred on-chain resolve succeeded: onchainId=${item.onchainId}`);
+    }
+  }
+}
+setInterval(processDeferredResolves, 300_000); // retry every 5 minutes
 
 // Init deployer wallet on startup
 initDeployerWallet();
@@ -302,6 +461,13 @@ try { db.exec('ALTER TABLE markets ADD COLUMN image_url TEXT'); } catch(e) { /* 
 try { db.exec('ALTER TABLE markets ADD COLUMN event_id TEXT'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE markets ADD COLUMN event_title TEXT'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE markets ADD COLUMN outcome_label TEXT'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE markets ADD COLUMN onchain_id INTEGER DEFAULT NULL'); } catch(e) { /* already exists */ }
+
+// Sync nextOnchainMarketId from DB (max existing onchain_id + 1)
+try {
+  const maxId = db.prepare('SELECT MAX(onchain_id) as m FROM markets WHERE onchain_id IS NOT NULL').get();
+  if (maxId && maxId.m != null) nextOnchainMarketId = maxId.m + 1;
+} catch(e) { /* ignore */ }
 
 // Wipe polymarket markets for category re-sync on deploy (preserve those with active bets)
 try {
@@ -435,6 +601,9 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_mph_market ON market_price_history
 try { db.exec('ALTER TABLE users ADD COLUMN referrer TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
 // Add creator_address column to markets if not exists
 try { db.exec('ALTER TABLE markets ADD COLUMN creator_address TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
+// Dual currency migration: btc_balance for users, currency for bets
+try { db.exec('ALTER TABLE users ADD COLUMN btc_balance INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE bets ADD COLUMN currency TEXT NOT NULL DEFAULT \'bpusd\''); } catch(e) { /* already exists */ }
 
 // Vault global state (in-memory, synced to DB)
 let VAULT_TOTAL_STAKED = 0;
@@ -673,6 +842,7 @@ function create5minMarkets() {
     { sym: 'sol', name: 'Solana', price: PRICE_CACHE.sol?.price || 0 },
   ];
 
+  const onchainPending = [];
   for (const a of assets) {
     if (a.price <= 0) continue;
     const mId = `${a.sym}-5min-${slotId}`;
@@ -690,6 +860,22 @@ function create5minMarkets() {
       JSON.stringify({ asset: a.sym, threshold, snapshot_price: a.price })
     );
     console.log(`Created 5min market: ${mId} (${a.name} > $${threshold})`);
+    onchainPending.push({ mId, slotEnd });
+  }
+
+  // Fire-and-forget: create markets on-chain SEQUENTIALLY (txLock allows only 1 at a time)
+  if (onchainPending.length > 0) {
+    (async () => {
+      for (const p of onchainPending) {
+        const res = await createMarketOnChain(p.slotEnd);
+        if (res.success) {
+          db.prepare('UPDATE markets SET onchain_id = ? WHERE id = ?').run(res.onchainId, p.mId);
+          console.log(`On-chain market created: ${p.mId} → onchainId=${res.onchainId}, tx=${res.txHash}`);
+        } else {
+          console.log(`On-chain create skipped for ${p.mId}: ${res.error}`);
+        }
+      }
+    })().catch(e => console.error('On-chain batch create failed:', e.message));
   }
 }
 
@@ -712,8 +898,10 @@ function settleBets(marketId, outcome) {
 function refundBets(marketId) {
   const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
   for (const b of bets) {
+    const betCurrency = b.currency || 'bpusd';
+    const balCol = betCurrency === 'btc' ? 'btc_balance' : 'balance';
     db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('cancelled', b.id);
-    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(b.amount, b.user_address);
+    db.prepare(`UPDATE users SET ${balCol} = ${balCol} + ? WHERE address = ?`).run(b.amount, b.user_address);
   }
   return bets.length;
 }
@@ -722,6 +910,7 @@ function refundBets(marketId) {
 async function resolveExpiredMarkets() {
   const now = Math.floor(Date.now() / 1000);
   const expired = db.prepare('SELECT * FROM markets WHERE resolved = 0 AND end_time <= ?').all(now);
+  const onchainResolves = []; // Queue on-chain resolves for sequential execution
 
   for (const m of expired) {
     // 1. Price-based 5-min markets
@@ -735,6 +924,9 @@ async function resolveExpiredMarkets() {
         db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
         settleBets(m.id, outcome);
         console.log(`Resolved ${m.id}: ${outcome} (price: $${currentPrice}, threshold: $${src.threshold})`);
+        if (m.onchain_id != null) {
+          onchainResolves.push({ id: m.id, onchainId: m.onchain_id, isYes: outcome === 'yes' });
+        }
       } catch (e) {
         console.error(`Failed to resolve ${m.id}:`, e.message);
       }
@@ -764,6 +956,9 @@ async function resolveExpiredMarkets() {
           db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
           settleBets(m.id, outcome);
           console.log(`Resolved polymarket ${m.id}: ${outcome}`);
+          if (m.onchain_id != null) {
+            onchainResolves.push({ id: m.id, onchainId: m.onchain_id, isYes: outcome === 'yes' });
+          }
         }
       } catch (e) { /* API error, try next time */ }
       continue;
@@ -781,6 +976,17 @@ async function resolveExpiredMarkets() {
         db.prepare('UPDATE markets SET resolved = 1 WHERE id = ?').run(m.id);
       }
     }
+  }
+
+  // Fire-and-forget: resolve on-chain SEQUENTIALLY (txLock allows only 1 at a time)
+  if (onchainResolves.length > 0) {
+    (async () => {
+      for (const r of onchainResolves) {
+        const res = await resolveMarketOnChain(r.onchainId, r.isYes);
+        if (res.success) console.log(`On-chain resolved ${r.id}: onchainId=${r.onchainId}, tx=${res.txHash}`);
+        else console.log(`On-chain resolve skipped for ${r.id}: ${res.error}`);
+      }
+    })().catch(e => console.error('On-chain batch resolve failed:', e.message));
   }
 }
 
@@ -972,12 +1178,25 @@ function recalcPrices(yesPool, noPool) {
   return { yes_price, no_price: Math.round((1 - yes_price) * 10000) / 10000 };
 }
 
+// --- Dual-currency fee config ---
+const FEE_CONFIG = {
+  btc:   { totalPct: 0.05, vaultPct: 0.60, protocolPct: 0.40 }, // 5% total: 3% vault, 2% protocol
+  bpusd: { totalPct: 0.02, vaultPct: 0.50, protocolPct: 0.50 }, // 2% total: 1% vault, 1% protocol
+};
+
+function calculateFeeOnTop(amount, currency) {
+  const cfg = FEE_CONFIG[currency] || FEE_CONFIG.bpusd;
+  const fee = Math.ceil(amount * cfg.totalPct);
+  const totalCharge = amount + fee;
+  const vaultShare = Math.floor(fee * cfg.vaultPct);
+  const protocolShare = fee - vaultShare;
+  return { fee, totalCharge, vaultShare, protocolShare, netAmount: amount };
+}
+
 // --- Vault fee distribution helper ---
-function distributeToVault(fee, sourceMarketId) {
-  if (VAULT_TOTAL_STAKED <= 0 || fee <= 0) return;
-  // 50% of trading fee goes to vault stakers
-  const vaultShare = Math.floor(fee * 0.5);
-  if (vaultShare <= 0) return;
+// vaultShare = pre-calculated amount to distribute (from calculateFeeOnTop)
+function distributeToVault(vaultShare, sourceMarketId) {
+  if (VAULT_TOTAL_STAKED <= 0 || vaultShare <= 0) return;
 
   const delta = Math.floor((vaultShare * VAULT_PRECISION) / VAULT_TOTAL_STAKED);
   VAULT_REWARDS_PER_SHARE += delta;
@@ -1022,7 +1241,7 @@ app.post('/api/auth', (req, res) => {
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
     const ref = (referrer && referrer !== address && db.prepare('SELECT address FROM users WHERE address = ?').get(referrer)) ? referrer : null;
-    db.prepare('INSERT INTO users (address, balance, referrer) VALUES (?, 1000, ?)').run(address, ref);
+    db.prepare('INSERT INTO users (address, balance, btc_balance, referrer) VALUES (?, 1000, 5000, ?)').run(address, ref);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (ref) {
       db.prepare('INSERT INTO notifications (address, type, title, body) VALUES (?, ?, ?, ?)').run(
@@ -1030,14 +1249,14 @@ app.post('/api/auth', (req, res) => {
       );
     }
   }
-  res.json({ address: user.address, balance: user.balance, referrer: user.referrer || null });
+  res.json({ address: user.address, balance: user.balance, btcBalance: user.btc_balance || 0, referrer: user.referrer || null });
 });
 
-// Get user balance
+// Get user balance (both currencies)
 app.get('/api/balance/:address', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE address = ?').get(req.params.address);
-  if (!user) return res.json({ balance: 0 });
-  res.json({ balance: user.balance });
+  if (!user) return res.json({ balance: 0, btcBalance: 0 });
+  res.json({ balance: user.balance, btcBalance: user.btc_balance || 0 });
 });
 
 // List all markets (filter out old resolved markets)
@@ -1086,6 +1305,7 @@ app.get('/api/markets', (req, res) => {
       noPool: m.no_pool,
       imageUrl: m.image_url || null,
       oracleResolved: !!m.resolved && (m.market_type === 'price_5min' || m.market_type === 'polymarket'),
+      onchainId: m.onchain_id || null,
     };
 
     // Multi-outcome: group sibling markets into outcomes array
@@ -1149,7 +1369,8 @@ app.get('/api/markets/:id', (req, res) => {
 
 // Place a bet (with on-chain BPUSD transfer as proof)
 app.post('/api/bet', async (req, res) => {
-  const { address, marketId, side, amount } = req.body;
+  const { address, marketId, side, amount, currency: rawCurrency } = req.body;
+  const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
 
   if (!address || !marketId || !side || !amount) {
     return res.status(400).json({ error: 'address, marketId, side, amount required' });
@@ -1162,13 +1383,18 @@ app.post('/api/bet', async (req, res) => {
   }
   const amountInt = Math.floor(Number(amount));
   if (!Number.isFinite(amountInt) || amountInt < 100) {
-    return res.status(400).json({ error: 'minimum bet is 100 BPUSD' });
+    return res.status(400).json({ error: 'minimum bet is 100' });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  if (user.balance < amountInt) {
-    return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD (need ${amountInt})` });
+
+  // Fee on top: user pays amount + fee
+  const feeInfo = calculateFeeOnTop(amountInt, currency);
+  const balCol = currency === 'btc' ? 'btc_balance' : 'balance';
+  const userBal = currency === 'btc' ? (user.btc_balance || 0) : user.balance;
+  if (userBal < feeInfo.totalCharge) {
+    return res.status(400).json({ error: `Insufficient ${currency.toUpperCase()} balance: ${userBal} (need ${feeInfo.totalCharge})` });
   }
 
   const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
@@ -1178,9 +1404,7 @@ app.post('/api/bet', async (req, res) => {
   const now = Math.floor(Date.now() / 1000);
   if (market.end_time <= now) return res.status(400).json({ error: 'market has ended' });
 
-  // AMM: constant product
-  const fee = Math.ceil(amountInt * 0.02); // 2% fee
-  const netAmount = amountInt - fee;
+  // AMM: constant product — full bet amount goes to pool (fee is ON TOP)
   const yesPool = market.yes_pool;
   const noPool = market.no_pool;
   if (yesPool <= 0 || noPool <= 0) return res.status(400).json({ error: 'market pool empty' });
@@ -1188,36 +1412,30 @@ app.post('/api/bet', async (req, res) => {
 
   let shares, newYesPool, newNoPool;
   if (side === 'yes') {
-    newNoPool = noPool + netAmount;
+    newNoPool = noPool + amountInt;
     newYesPool = Math.floor(k / newNoPool);
     shares = yesPool - newYesPool;
   } else {
-    newYesPool = yesPool + netAmount;
+    newYesPool = yesPool + amountInt;
     newNoPool = Math.floor(k / newYesPool);
     shares = noPool - newNoPool;
   }
 
   if (shares <= 0) return res.status(400).json({ error: 'trade too small' });
 
-  // Use execution price (cost per share), not stale market price
   const price = shares > 0 ? Math.round((amountInt / shares) * 10000) / 10000 : (side === 'yes' ? market.yes_price : market.no_price);
   const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-  // On-chain proof is now signed by user on frontend
-  // Server just records the bet — no server-side signing needed
   const txHash = '';
 
-  // Execute in DB transaction
   const txn = db.transaction(() => {
-    db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amountInt, address);
-    db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      betId, address, marketId, side, amountInt, price, shares, txHash
+    db.prepare(`UPDATE users SET ${balCol} = ${balCol} - ? WHERE address = ?`).run(feeInfo.totalCharge, address);
+    db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      betId, address, marketId, side, amountInt, price, shares, txHash, currency
     );
     const prices = recalcPrices(newYesPool, newNoPool);
     db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
       newYesPool, newNoPool, prices.yes_price, prices.no_price, amountInt, newYesPool + newNoPool, marketId
     );
-    // Record price history for per-market charts
     db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
       marketId, prices.yes_price, prices.no_price, amountInt
     );
@@ -1225,17 +1443,17 @@ app.post('/api/bet', async (req, res) => {
 
   try {
     txn();
-    // Distribute fee to vault stakers
-    distributeToVault(fee, marketId);
-    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    distributeToVault(feeInfo.vaultShare, marketId);
+    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
 
     res.json({
       success: true,
       betId,
       shares,
-      fee,
-      newBalance,
+      fee: feeInfo.fee,
+      newBalance: updatedUser.balance,
+      newBtcBalance: updatedUser.btc_balance || 0,
       txHash,
       onChain: !!txHash,
       newYesPrice: updatedMarket.yes_price,
@@ -1278,6 +1496,7 @@ app.get('/api/bets/:address', (req, res) => {
     currentNoPrice: b.current_no_price,
     marketResolved: !!b.market_resolved,
     marketOutcome: b.market_outcome,
+    currency: b.currency || 'bpusd',
   })));
 });
 
@@ -1291,14 +1510,17 @@ app.post('/api/claim', (req, res) => {
   if (bet.status !== 'claimable') return res.status(400).json({ error: 'bet not claimable (status: ' + bet.status + ')' });
   if (bet.payout <= 0) return res.status(400).json({ error: 'no payout to claim' });
 
+  const betCurrency = bet.currency || 'bpusd';
+  const balCol = betCurrency === 'btc' ? 'btc_balance' : 'balance';
+
   try {
     const txn = db.transaction(() => {
       db.prepare('UPDATE bets SET status = ?, claim_tx_hash = ? WHERE id = ?').run('won', txHash, bet.id);
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(bet.payout, address);
+      db.prepare(`UPDATE users SET ${balCol} = ${balCol} + ? WHERE address = ?`).run(bet.payout, address);
     });
     txn();
-    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
-    res.json({ success: true, payout: bet.payout, newBalance, txHash });
+    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
+    res.json({ success: true, payout: bet.payout, newBalance: updatedUser.balance, newBtcBalance: updatedUser.btc_balance || 0, txHash });
   } catch (e) {
     console.error('Claim error:', e.message);
     res.status(500).json({ error: 'Claim failed: ' + e.message });
@@ -1432,7 +1654,9 @@ app.get('/api/health', (req, res) => {
 // On-chain bet: frontend sends txHash FIRST, then server records the bet
 // Bet is NOT valid without a txHash from the on-chain transaction
 app.post('/api/bet/onchain', (req, res) => {
-  const { address, marketId, side, amount, txHash } = req.body;
+  const { address, marketId, side, amount, txHash, currency: rawCurrency } = req.body;
+  const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
+
   if (!address || !marketId || !side || !amount || !txHash) {
     return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
   }
@@ -1441,16 +1665,19 @@ app.post('/api/bet/onchain', (req, res) => {
   }
   if (side !== 'yes' && side !== 'no') return res.status(400).json({ error: 'side must be yes or no' });
   const onchainAmt = Math.floor(Number(amount));
-  if (!Number.isFinite(onchainAmt) || onchainAmt < 100) return res.status(400).json({ error: 'minimum bet is 100 BPUSD' });
+  if (!Number.isFinite(onchainAmt) || onchainAmt < 100) return res.status(400).json({ error: 'minimum bet is 100' });
 
   try {
-    // Replay attack prevention: reject reused txHashes
     const existingTx = db.prepare('SELECT id FROM bets WHERE tx_hash = ? AND length(tx_hash) > 0').get(txHash);
     if (existingTx) return res.status(400).json({ error: 'txHash already used — replay detected' });
 
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (!user) return res.status(404).json({ error: 'user not found' });
-    if (user.balance < onchainAmt) return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD` });
+
+    const feeInfo = calculateFeeOnTop(onchainAmt, currency);
+    const balCol = currency === 'btc' ? 'btc_balance' : 'balance';
+    const userBal = currency === 'btc' ? (user.btc_balance || 0) : user.balance;
+    if (userBal < feeInfo.totalCharge) return res.status(400).json({ error: `Insufficient ${currency.toUpperCase()} balance: ${userBal} (need ${feeInfo.totalCharge})` });
 
     const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
     if (!market) return res.status(404).json({ error: 'market not found' });
@@ -1459,9 +1686,7 @@ app.post('/api/bet/onchain', (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     if (market.end_time <= now) return res.status(400).json({ error: 'market has ended' });
 
-    // AMM: constant product
-    const fee = Math.ceil(onchainAmt * 0.02);
-    const netAmount = onchainAmt - fee;
+    // AMM: constant product — full amount goes to pool (fee is ON TOP)
     const yesPool = market.yes_pool;
     const noPool = market.no_pool;
     if (yesPool <= 0 || noPool <= 0) return res.status(400).json({ error: 'market pool empty' });
@@ -1469,11 +1694,11 @@ app.post('/api/bet/onchain', (req, res) => {
 
     let shares, newYesPool, newNoPool;
     if (side === 'yes') {
-      newNoPool = noPool + netAmount;
+      newNoPool = noPool + onchainAmt;
       newYesPool = Math.floor(k / newNoPool);
       shares = yesPool - newYesPool;
     } else {
-      newYesPool = yesPool + netAmount;
+      newYesPool = yesPool + onchainAmt;
       newNoPool = Math.floor(k / newYesPool);
       shares = noPool - newNoPool;
     }
@@ -1483,31 +1708,29 @@ app.post('/api/bet/onchain', (req, res) => {
     const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const txn = db.transaction(() => {
-      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(onchainAmt, address);
-      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-        betId, address, marketId, side, onchainAmt, price, shares, txHash
+      db.prepare(`UPDATE users SET ${balCol} = ${balCol} - ? WHERE address = ?`).run(feeInfo.totalCharge, address);
+      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        betId, address, marketId, side, onchainAmt, price, shares, txHash, currency
       );
       const prices = recalcPrices(newYesPool, newNoPool);
       db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
         newYesPool, newNoPool, prices.yes_price, prices.no_price, onchainAmt, newYesPool + newNoPool, marketId
       );
-      // Record price history for per-market charts
       db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
         marketId, prices.yes_price, prices.no_price, onchainAmt
       );
       // Notification for user
       db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
-        address, 'bet', 'Bet Placed', `${side.toUpperCase()} ${onchainAmt} BPUSD — ${shares} shares`, marketId
+        address, 'bet', 'Bet Placed', `${side.toUpperCase()} ${onchainAmt} ${currency === 'btc' ? 'sats' : 'BPUSD'} — ${shares} shares`, marketId
       );
     });
     txn();
-    // Distribute fee to vault stakers
-    distributeToVault(fee, marketId);
-    // Referral bonus: 1% of fee to referrer
+    distributeToVault(feeInfo.vaultShare, marketId);
+    // Referral bonus: 50% of vault share to referrer (in BPUSD always)
     try {
       const u = db.prepare('SELECT referrer FROM users WHERE address = ?').get(address);
       if (u?.referrer) {
-        const refBonus = Math.max(1, Math.floor(fee * 0.5));
+        const refBonus = Math.max(1, Math.floor(feeInfo.fee * 0.5));
         db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refBonus, u.referrer);
         db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
           u.referrer, 'referral_bonus', 'Referral Bonus', `+${refBonus} BPUSD from ${address.slice(0, 12)}... bet`, marketId
@@ -1515,16 +1738,17 @@ app.post('/api/bet/onchain', (req, res) => {
       }
     } catch(e) { /* non-critical */ }
 
-    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
 
     res.json({
       success: true,
       betId,
       shares,
-      fee,
+      fee: feeInfo.fee,
       txHash,
-      newBalance,
+      newBalance: updatedUser.balance,
+      newBtcBalance: updatedUser.btc_balance || 0,
       newYesPrice: updatedMarket.yes_price,
       newNoPrice: updatedMarket.no_price,
     });
@@ -1577,15 +1801,17 @@ app.post('/api/bet/sell', (req, res) => {
 
     if (payout <= 0) return res.status(400).json({ error: 'trade too small — no payout' });
 
-    // 2% fee on sell proceeds
-    const fee = Math.ceil(payout * 0.02);
+    // Fee on top of sell proceeds (same currency as original bet)
+    const betCurrency = bet.currency || 'bpusd';
+    const sellFeeInfo = calculateFeeOnTop(payout, betCurrency);
+    // For sell: fee is deducted from proceeds, not added on top
+    const fee = sellFeeInfo.fee;
     const netPayout = payout - fee;
+    const balCol = betCurrency === 'btc' ? 'btc_balance' : 'balance';
 
     const txn = db.transaction(() => {
-      // Credit user
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(netPayout, address);
+      db.prepare(`UPDATE users SET ${balCol} = ${balCol} + ? WHERE address = ?`).run(netPayout, address);
 
-      // Update or close bet
       const remainingShares = bet.shares - sellShares;
       if (remainingShares <= 0) {
         db.prepare("UPDATE bets SET status = 'cancelled', shares = 0, payout = ? WHERE id = ?").run(netPayout, betId);
@@ -1593,28 +1819,26 @@ app.post('/api/bet/sell', (req, res) => {
         db.prepare('UPDATE bets SET shares = ? WHERE id = ?').run(remainingShares, betId);
       }
 
-      // Update market pools
       const prices = recalcPrices(newYesPool, newNoPool);
       db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
         newYesPool, newNoPool, prices.yes_price, prices.no_price, netPayout, newYesPool + newNoPool, bet.market_id
       );
 
-      // Record price history
       db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
         bet.market_id, prices.yes_price, prices.no_price, netPayout
       );
 
-      // Notification
+      const currLabel = betCurrency === 'btc' ? 'sats' : 'BPUSD';
       db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
         address, 'sell', 'Position Sold',
-        `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} BPUSD`, bet.market_id
+        `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} ${currLabel}`, bet.market_id
       );
     });
     txn();
 
-    distributeToVault(fee, bet.market_id);
+    distributeToVault(sellFeeInfo.vaultShare, bet.market_id);
 
-    const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
 
     res.json({
@@ -1623,7 +1847,8 @@ app.post('/api/bet/sell', (req, res) => {
       fee,
       sharesSold: sellShares,
       remainingShares: bet.shares - sellShares,
-      newBalance,
+      newBalance: updatedUser.balance,
+      newBtcBalance: updatedUser.btc_balance || 0,
       newYesPrice: updatedMarket.yes_price,
       newNoPrice: updatedMarket.no_price,
     });
@@ -1675,6 +1900,14 @@ app.post('/api/markets/create', (req, res) => {
       );
     });
     txn();
+
+    // Fire-and-forget: create market on-chain (non-blocking)
+    createMarketOnChain(endTs).then(ocRes => {
+      if (ocRes.success) {
+        db.prepare('UPDATE markets SET onchain_id = ? WHERE id = ?').run(ocRes.onchainId, marketId);
+        console.log(`On-chain user market created: ${marketId} → onchainId=${ocRes.onchainId}`);
+      }
+    }).catch(() => {});
 
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
     res.json({ success: true, marketId, newBalance });
@@ -2206,7 +2439,7 @@ app.post('/api/faucet/claim', async (req, res) => {
   // Credit in DB first
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
-    db.prepare('INSERT INTO users (address, balance) VALUES (?, ?)').run(address, 0);
+    db.prepare('INSERT INTO users (address, balance, btc_balance) VALUES (?, 0, 5000)').run(address);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   }
 
@@ -2226,15 +2459,49 @@ app.post('/api/faucet/claim', async (req, res) => {
     }
   }
 
+  const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
   res.json({
     success: true,
     claimed: FAUCET_AMOUNT,
-    newBalance,
+    newBalance: updatedUser.balance,
+    newBtcBalance: updatedUser.btc_balance || 0,
     txHash,
     onChain: onChainSuccess,
     message: onChainSuccess
       ? '+' + FAUCET_AMOUNT + ' BPUSD sent on-chain! TX: ' + txHash.slice(0, 16) + '...'
       : '+' + FAUCET_AMOUNT + ' BPUSD credited (server-side)',
+  });
+});
+
+// --- Faucet: claim testnet BTC (sats) ---
+const BTC_FAUCET_AMOUNT = 2000; // 2000 sats per claim
+app.post('/api/faucet/btc', (req, res) => {
+  const { address } = req.body;
+  if (!address || typeof address !== 'string' || address.length > 120) {
+    return res.status(400).json({ error: 'valid address required' });
+  }
+  if (!address.startsWith('opt1')) {
+    return res.status(400).json({ error: 'Invalid address: must be an OPNet testnet address (opt1...)' });
+  }
+  if (rateLimit('faucet_btc:' + address, 1, 5 * 60 * 1000)) {
+    return res.status(429).json({ error: 'BTC faucet cooldown: try again in 5 minutes' });
+  }
+
+  let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  if (!user) {
+    db.prepare('INSERT INTO users (address, balance, btc_balance) VALUES (?, 1000, 5000)').run(address);
+    user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  }
+
+  const newBtcBalance = (user.btc_balance || 0) + BTC_FAUCET_AMOUNT;
+  db.prepare('UPDATE users SET btc_balance = ? WHERE address = ?').run(newBtcBalance, address);
+
+  res.json({
+    success: true,
+    claimed: BTC_FAUCET_AMOUNT,
+    newBalance: user.balance,
+    newBtcBalance,
+    message: `+${BTC_FAUCET_AMOUNT} sats credited`,
   });
 })
 
