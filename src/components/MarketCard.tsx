@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, TrendingUp, Droplets, ChevronRight, Zap, Shield } from 'lucide-react';
+import { Clock, TrendingUp, Droplets, ChevronRight, Zap, Shield, Link } from 'lucide-react';
 import type { Market } from '../types';
 import { PriceSparkline } from './PriceSparkline';
 
@@ -77,6 +77,11 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
           {market.marketType === 'price_5min' ? <><Zap size={10} className="inline -mt-0.5" /> FAST</> : market.category}
         </span>
         <div className="flex items-center gap-1.5">
+          {market.onchainId && (
+            <span className="flex items-center gap-0.5 text-[9px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded-full border border-sky-500/20">
+              <Link size={8} /> On-Chain #{market.onchainId}
+            </span>
+          )}
           {market.oracleResolved && (
             <span className="flex items-center gap-0.5 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full border border-emerald-500/20">
               <Shield size={8} /> Oracle

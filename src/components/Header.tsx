@@ -23,20 +23,34 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
   const formatAddress = (addr: string) =>
     addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
 
-  const handleFaucet = async (type: 'bpusd' | 'btc') => {
+  const handleBtcFaucet = async () => {
     if (claimingFaucet || !wallet.address) return;
-    setClaimingFaucet(type);
+    setClaimingFaucet('btc');
     try {
-      if (type === 'btc') {
-        const r = await api.claimBtcFaucet(wallet.address);
-        onBalanceUpdate(r.newBalance, r.newBtcBalance);
-      } else {
-        const r = await api.apiFetch<{ newBalance: number; newBtcBalance?: number }>('/api/faucet/claim', {
-          method: 'POST', body: JSON.stringify({ address: wallet.address }),
-        });
-        onBalanceUpdate(r.newBalance, r.newBtcBalance ?? btcBalance);
-      }
-    } catch { /* cooldown or error */ }
+      const r = await api.claimBtcFaucet(wallet.address);
+      onBalanceUpdate(r.newBalance, r.newBtcBalance);
+    } catch { /* cooldown */ }
+    setClaimingFaucet(null);
+  };
+
+  const handleBuyBpusd = async () => {
+    if (claimingFaucet || !wallet.address) return;
+    const input = window.prompt('Buy BPUSD with BTC\n1,000 sats = 1 BPUSD\n\nHow much BPUSD?', '100');
+    if (!input) return;
+    const amount = Math.floor(Number(input));
+    if (!amount || amount < 1) return;
+    const satsCost = amount * 1000;
+    if (satsCost > btcBalance) {
+      alert(`Not enough BTC. Need ${satsCost.toLocaleString()} sats, have ${btcBalance.toLocaleString()} sats`);
+      return;
+    }
+    setClaimingFaucet('bpusd');
+    try {
+      const r = await api.buyBpusd(wallet.address, amount);
+      onBalanceUpdate(r.newBalance, r.newBtcBalance);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Exchange failed');
+    }
     setClaimingFaucet(null);
   };
 
@@ -99,18 +113,18 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
                   <div className="flex items-center gap-1 justify-end mt-0.5">
                     <div className="text-[9px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>
                     <button
-                      onClick={() => handleFaucet('bpusd')}
+                      onClick={handleBuyBpusd}
                       disabled={!!claimingFaucet}
                       className="text-[8px] px-1 py-0.5 rounded bg-btc/10 text-btc hover:bg-btc/20 transition-all disabled:opacity-50"
-                      title="Claim BPUSD faucet"
+                      title="Buy BPUSD with BTC (1000 sats = 1 BPUSD)"
                     >
-                      +BPUSD
+                      Buy BPUSD
                     </button>
                     <button
-                      onClick={() => handleFaucet('btc')}
+                      onClick={handleBtcFaucet}
                       disabled={!!claimingFaucet}
                       className="text-[8px] px-1 py-0.5 rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-all disabled:opacity-50"
-                      title="Claim BTC faucet"
+                      title="Claim BTC faucet (2000 sats)"
                     >
                       +BTC
                     </button>

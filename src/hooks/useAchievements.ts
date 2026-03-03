@@ -368,7 +368,7 @@ export function useAchievements() {
     allCategories.add(marketCategory);
     // Set progress to number of unique categories (not increment)
     setAchievements(prev => prev.map(a =>
-      a.id === 'diversified' ? { ...a, progress: Math.max(a.progress, allCategories.size) } : a
+      a.id === 'diversified' ? { ...a, progress: Math.max(a.progress ?? 0, allCategories.size) } : a
     ));
     if (allCategories.size >= 3) {
       unlockAchievement('diversified');

@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signBetProof, signRewardClaimProof, buySharesOnChain } from './lib/opnet';
+import { signBetAmountProof, signRewardClaimProof, buySharesOnChain } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -157,7 +157,7 @@ function App() {
 
     try {
       // Step 1: User signs on-chain TX (increaseAllowance as bet proof) — user pays gas
-      const proof = await signBetProof(provider, walletNetwork, addressObj, wallet.address, BigInt(amount));
+      const proof = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
       if (!proof.success) {
         throw new Error(proof.error || 'TX signing failed');
       }

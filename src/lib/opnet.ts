@@ -30,17 +30,6 @@ export const OPNET_CONFIG = {
   maxMintPerTx: 10_000_000, // 10M BPUSD per tx
 };
 
-// Contract method selectors (SHA256 first 4 bytes — OPNet uses SHA256, NOT keccak256)
-export const CONTRACT_METHODS = {
-  createMarket: 'createMarket',
-  buyShares: 'buyShares',
-  resolveMarket: 'resolveMarket',
-  claimPayout: 'claimPayout',
-  getMarketInfo: 'getMarketInfo',
-  getUserShares: 'getUserShares',
-  getPrice: 'getPrice',
-} as const;
-
 /**
  * Format satoshis to BTC string
  */
@@ -144,92 +133,6 @@ export function isOPWalletAvailable(): boolean {
 }
 
 /**
- * Connect to OP_WALLET browser extension
- * API: requestAccounts(), getPublicKey(), getNetwork(), signPsbt(), etc.
- * Install: https://opnet.org (Chrome Extension)
- */
-export async function connectOPWallet(): Promise<{ address: string; publicKey: string } | null> {
-  try {
-    const opwallet = (window as unknown as { opnet?: { requestAccounts: () => Promise<string[]>; getPublicKey?: () => Promise<string> } }).opnet;
-    if (!opwallet) return null;
-
-    const accounts = await opwallet.requestAccounts();
-    if (!accounts || accounts.length === 0) return null;
-
-    const publicKey = await opwallet.getPublicKey?.() || '';
-    return { address: accounts[0], publicKey };
-  } catch (err) {
-    console.error('OP_WALLET connection failed:', err);
-    return null;
-  }
-}
-
-/**
- * Build a contract interaction calldata buffer
- */
-export function encodeCalldata(method: string, ...args: bigint[]): Uint8Array {
-  // Simple encoding: method selector (4 bytes) + u256 args (32 bytes each)
-  const methodBytes = new TextEncoder().encode(method);
-  const selectorBytes = new Uint8Array(4);
-  // Simple hash for selector
-  for (let i = 0; i < methodBytes.length; i++) {
-    selectorBytes[i % 4] ^= methodBytes[i];
-  }
-
-  const totalSize = 4 + args.length * 32;
-  const buffer = new Uint8Array(totalSize);
-  buffer.set(selectorBytes, 0);
-
-  args.forEach((arg, index) => {
-    const offset = 4 + index * 32;
-    const hex = arg.toString(16).padStart(64, '0');
-    for (let i = 0; i < 32; i++) {
-      buffer[offset + i] = parseInt(hex.substr(i * 2, 2), 16);
-    }
-  });
-
-  return buffer;
-}
-
-/**
- * Market state interface matching on-chain storage
- */
-export interface OnChainMarketState {
-  yesReserve: bigint;
-  noReserve: bigint;
-  totalPool: bigint;
-  endBlock: bigint;
-  resolved: boolean;
-  outcome: boolean; // true = YES, false = NO
-  yesPrice: number;
-  noPrice: number;
-}
-
-/**
- * Decode getMarketInfo response (6 x u256)
- */
-export function decodeMarketInfo(data: Uint8Array): OnChainMarketState {
-  const readU256 = (offset: number): bigint => {
-    let hex = '0x';
-    for (let i = 0; i < 32; i++) {
-      hex += data[offset + i].toString(16).padStart(2, '0');
-    }
-    return BigInt(hex);
-  };
-
-  const yesReserve = readU256(0);
-  const noReserve = readU256(32);
-  const totalPool = readU256(64);
-  const endBlock = readU256(96);
-  const resolved = readU256(128) !== 0n;
-  const outcome = readU256(160) !== 0n;
-
-  const { yes: yesPrice, no: noPrice } = calculatePrice(yesReserve, noReserve);
-
-  return { yesReserve, noReserve, totalPool, endBlock, resolved, outcome, yesPrice, noPrice };
-}
-
-/**
  * Validate an OP_NET testnet address
  * OPNet testnet uses opt1 prefix (Signet fork)
  */
@@ -251,35 +154,6 @@ export async function fetchBlockHeight(walletProvider?: unknown): Promise<number
   } catch {
     return null;
   }
-}
-
-/**
- * Fetch real BTC balance via wallet's provider (NOT testnet.opnet.org).
- */
-export async function fetchBalance(_address: string, _walletProvider?: unknown): Promise<number | null> {
-  // Balance is managed by walletconnect SDK (walletBalance field)
-  return null;
-}
-
-/**
- * Fetch UTXOs — use wallet provider, not direct RPC
- */
-export async function fetchUTXOs(_address: string, _walletProvider?: unknown): Promise<unknown[] | null> {
-  return null;
-}
-
-interface OPWalletAPI {
-  requestAccounts: () => Promise<string[]>;
-  getPublicKey?: () => Promise<string>;
-  getNetwork?: () => Promise<string>;
-  signPsbt?: (psbtHex: string, options?: Record<string, unknown>) => Promise<string>;
-  pushPsbt?: (psbtHex: string) => Promise<string>;
-  sendBitcoin?: (to: string, amount: number, options?: Record<string, unknown>) => Promise<string>;
-}
-
-function getOPWallet(): OPWalletAPI | null {
-  const w = window as unknown as { opnet?: OPWalletAPI };
-  return w.opnet || null;
 }
 
 // ─── On-chain helpers ───
@@ -360,6 +234,8 @@ export async function signBetProof(
     const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
 
     const receipt = await sim.sendTransaction({
+      signer: null,           // ALWAYS null on frontend — OP_WALLET handles signing
+      mldsaSigner: null,      // ALWAYS null on frontend — OP_WALLET handles signing
       refundTo: walletAddress,
       maximumAllowedSatToSpend: 250_000n,
       network,
@@ -371,6 +247,27 @@ export async function signBetProof(
     let msg = err instanceof Error ? err.message : String(err);
     if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
     return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Sign a bet proof TX with human-readable BPUSD amount (auto-expanded to token decimals).
+ * Wraps signBetProof with expandToDecimals so callers pass e.g. 1000 not 100000000000.
+ */
+export async function signBetAmountProof(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { BitcoinUtils } = await import('opnet');
+    const expandedAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -468,6 +365,8 @@ export async function mintTokensOnChain(
     const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
 
     const receipt = await sim.sendTransaction({
+      signer: null,           // ALWAYS null on frontend — OP_WALLET handles signing
+      mldsaSigner: null,      // ALWAYS null on frontend — OP_WALLET handles signing
       refundTo: walletAddress,
       maximumAllowedSatToSpend: 250_000n,
       network,
@@ -481,105 +380,6 @@ export async function mintTokensOnChain(
     let msg = err instanceof Error ? err.message : String(err);
     if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
     return { txHash: '', success: false, error: msg };
-  }
-}
-
-/**
- * Submit a prediction bet on-chain: approve PRED → buyShares on PredictionMarket.
- * Uses wallet's OWN provider from useWalletConnect().
- * Both TXs trigger OP_WALLET signing popups.
- */
-export async function submitBetTransaction(
-  marketId: string,
-  side: 'yes' | 'no',
-  amountSats: number,
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown, // Address object from walletconnect
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
-  try {
-    const { getContract } = await import('opnet');
-
-    // Step 1: Approve BPUSD spending (user signs via OP_WALLET)
-    const approveResult = await signBetProof(provider, network, senderAddr, '', BigInt(amountSats));
-    if (!approveResult.success) {
-      return { txHash: '', success: false, error: approveResult.error || 'Approve failed' };
-    }
-
-    // Step 2: buyShares on PredictionMarket
-    const { ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
-    const MARKET_ABI = [
-      { name: 'buyShares', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'shares', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-    ] as any;
-    const contract = getContract(
-      OPNET_CONFIG.contractAddress,
-      MARKET_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never, // Address object
-    );
-
-    const marketIdBytes = new TextEncoder().encode(marketId);
-    const marketIdHex = Array.from(marketIdBytes)
-      .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0').slice(0, 64);
-    const marketIdBig = BigInt('0x' + marketIdHex);
-
-    const simulation = await (contract as any).buyShares(marketIdBig, side === 'yes', BigInt(amountSats));
-    if (simulation?.revert) {
-      return { txHash: '', success: false, error: `buyShares revert: ${simulation.revert}` };
-    }
-
-    const receipt = await simulation.sendTransaction({
-      refundTo: senderAddr,
-      maximumAllowedSatToSpend: BigInt(amountSats) + MAX_SATS,
-      network,
-    });
-
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
- * Claim on-chain payout for a resolved market.
- */
-export async function claimPayoutOnChain(
-  marketId: string,
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown, // Address object
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet provider not available' };
-  try {
-    const { getContract, ABIDataTypes, BitcoinAbiTypes } = await import('opnet');
-    const MARKET_ABI = [
-      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-    ] as any;
-    const contract = getContract(
-      OPNET_CONFIG.contractAddress,
-      MARKET_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never, // Address object
-    );
-
-    const marketIdBytes = new TextEncoder().encode(marketId);
-    const marketIdHex = Array.from(marketIdBytes)
-      .map(b => b.toString(16).padStart(2, '0')).join('').padEnd(64, '0').slice(0, 64);
-
-    const sim = await (contract as any).claimPayout(BigInt('0x' + marketIdHex));
-    if (sim?.revert) return { txHash: '', success: false, error: `Revert: ${sim.revert}` };
-
-    const receipt = await sim.sendTransaction({
-      refundTo: senderAddr,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-    });
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -616,5 +416,113 @@ export async function signVaultProof(
     return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Buy shares on-chain via PredictionMarket.buyShares(marketId, isYes, amount).
+ * Non-blocking — called after server records the bet.
+ * Uses PredictionMarketAbi from contracts/abis.
+ */
+export async function buySharesOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  onchainMarketId: number,
+  isYes: boolean,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, BitcoinUtils } = await import('opnet');
+    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      PredictionMarketAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const sim = await withRetry(() =>
+      (contract as any).buyShares(BigInt(onchainMarketId), isYes, rawAmount),
+    ) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `buyShares revert: ${sim.revert}` };
+
+    const gas = await (provider as any).gasParameters();
+    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
+    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
+    const priorityFeeSats = gas.baseGas / gasPerSat;
+    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+
+    const receipt = await sim.sendTransaction({
+      signer: null,
+      mldsaSigner: null,
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: 250_000n,
+      network,
+      feeRate,
+      priorityFee,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('buySharesOnChain failed (non-blocking):', msg);
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Claim payout on-chain via PredictionMarket.claimPayout(marketId).
+ * Non-blocking — called after server records the claim.
+ */
+export async function claimPayoutOnChain2(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  onchainMarketId: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract } = await import('opnet');
+    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      PredictionMarketAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const sim = await withRetry(() =>
+      (contract as any).claimPayout(BigInt(onchainMarketId)),
+    ) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `claimPayout revert: ${sim.revert}` };
+
+    const gas = await (provider as any).gasParameters();
+    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
+    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
+    const priorityFeeSats = gas.baseGas / gasPerSat;
+    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+
+    const receipt = await sim.sendTransaction({
+      signer: null,
+      mldsaSigner: null,
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: 250_000n,
+      network,
+      feeRate,
+      priorityFee,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('claimPayoutOnChain2 failed (non-blocking):', msg);
+    return { txHash: '', success: false, error: msg };
   }
 }

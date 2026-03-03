@@ -23,7 +23,7 @@ export function CreateMarketModal({ walletAddress, balance, onClose, onCreated }
   const [question, setQuestion] = useState('');
   const [category, setCategory] = useState('Community');
   const [duration, setDuration] = useState(86400);
-  const [liquidity, setLiquidity] = useState('1000');
+  const [liquidity, setLiquidity] = useState('500');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 

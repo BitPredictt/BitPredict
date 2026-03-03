@@ -2416,61 +2416,52 @@ Be specific and analytical. Reference actual data points.`;
   }
 });
 
-// --- Faucet: claim BPUSD tokens ---
-// TEMPORARY: no restrictions for testing. Production: once per 24h, only if balance=0
-const FAUCET_AMOUNT = 500; // 500 BPUSD per claim (small amount)
+// --- Exchange: buy BPUSD with BTC ---
+// Rate: 1000 sats = 1 BPUSD (0.001 BTC = 100 BPUSD)
+const EXCHANGE_RATE = 1000; // sats per 1 BPUSD
 
-app.post('/api/faucet/claim', async (req, res) => {
-  const { address } = req.body;
+app.post('/api/exchange/buy-bpusd', (req, res) => {
+  const { address, bpusdAmount } = req.body;
   if (!address || typeof address !== 'string' || address.length > 120) {
     return res.status(400).json({ error: 'valid address required' });
   }
-
-  // Rate limit: 1 claim per 5 minutes per address
-  if (rateLimit('faucet:' + address, 1, 5 * 60 * 1000)) {
-    return res.status(429).json({ error: 'Faucet cooldown: try again in 5 minutes' });
-  }
-
-  // Validate address prefix (OPNet testnet addresses start with opt1)
   if (!address.startsWith('opt1')) {
     return res.status(400).json({ error: 'Invalid address: must be an OPNet testnet address (opt1...)' });
   }
 
-  // Credit in DB first
-  let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
-  if (!user) {
-    db.prepare('INSERT INTO users (address, balance, btc_balance) VALUES (?, 0, 5000)').run(address);
-    user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  const amount = Math.floor(Number(bpusdAmount) || 0);
+  if (amount < 1) return res.status(400).json({ error: 'minimum 1 BPUSD' });
+  if (amount > 100000) return res.status(400).json({ error: 'maximum 100,000 BPUSD per transaction' });
+
+  const satsCost = amount * EXCHANGE_RATE;
+
+  const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+
+  const userBtc = user.btc_balance || 0;
+  if (userBtc < satsCost) {
+    return res.status(400).json({ error: `Insufficient BTC: ${userBtc} sats (need ${satsCost} sats for ${amount} BPUSD)` });
   }
 
-  const newBalance = user.balance + FAUCET_AMOUNT;
-  db.prepare('UPDATE users SET balance = ? WHERE address = ?').run(newBalance, address);
+  try {
+    const txn = db.transaction(() => {
+      db.prepare('UPDATE users SET btc_balance = btc_balance - ?, balance = balance + ? WHERE address = ?').run(satsCost, amount, address);
+    });
+    txn();
 
-  // On-chain: create real verifiable TX as proof of faucet claim
-  let txHash = '';
-  let onChainSuccess = false;
-  if (deployerWallet) {
-    const result = await createOnChainProof(FAUCET_AMOUNT, `faucet:${address.slice(0,12)}`);
-    if (result.success) {
-      txHash = result.txHash;
-      onChainSuccess = true;
-    } else {
-      console.log('On-chain faucet TX failed (DB credit still applied):', result.error);
-    }
+    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
+    res.json({
+      success: true,
+      bought: amount,
+      satsCost,
+      newBalance: updatedUser.balance,
+      newBtcBalance: updatedUser.btc_balance || 0,
+      message: `Bought ${amount} BPUSD for ${satsCost.toLocaleString()} sats`,
+    });
+  } catch (e) {
+    console.error('Exchange error:', e.message);
+    res.status(500).json({ error: 'Exchange failed: ' + e.message });
   }
-
-  const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
-  res.json({
-    success: true,
-    claimed: FAUCET_AMOUNT,
-    newBalance: updatedUser.balance,
-    newBtcBalance: updatedUser.btc_balance || 0,
-    txHash,
-    onChain: onChainSuccess,
-    message: onChainSuccess
-      ? '+' + FAUCET_AMOUNT + ' BPUSD sent on-chain! TX: ' + txHash.slice(0, 16) + '...'
-      : '+' + FAUCET_AMOUNT + ' BPUSD credited (server-side)',
-  });
 });
 
 // --- Faucet: claim testnet BTC (sats) ---

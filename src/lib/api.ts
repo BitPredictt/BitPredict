@@ -319,6 +319,14 @@ export async function claimBtcFaucet(address: string) {
   });
 }
 
+// --- Exchange: Buy BPUSD with BTC ---
+export async function buyBpusd(address: string, bpusdAmount: number) {
+  return apiFetch<{ success: boolean; bought: number; satsCost: number; newBalance: number; newBtcBalance: number; message: string }>('/api/exchange/buy-bpusd', {
+    method: 'POST',
+    body: JSON.stringify({ address, bpusdAmount }),
+  });
+}
+
 // --- User Market Creation ---
 export async function createMarket(address: string, question: string, endTime: number, category?: string, initialLiquidity?: number, tags?: string[]) {
   return apiFetch<{ success: boolean; marketId: string; newBalance: number }>('/api/markets/create', {
