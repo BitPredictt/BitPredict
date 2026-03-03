@@ -111,7 +111,7 @@ export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
           <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Block Explorer</div>
           <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
         </a>
-        <a href="https://github.com/opbitpredict/BitPredict" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
+        <a href="https://github.com/BitPredictt/BitPredict" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
           <Code2 size={18} className="text-blue-400 mx-auto mb-1" />
           <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Source Code</div>
           <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />

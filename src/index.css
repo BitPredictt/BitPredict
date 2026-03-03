@@ -263,3 +263,29 @@ body::before {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
   animation: progressShimmer 2s ease-in-out infinite;
 }
+
+/* Accessibility: respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .status-breathing,
+  .cta-glow,
+  .market-urgent,
+  .vault-pulse,
+  .progress-shimmer::after,
+  .animate-shimmer {
+    animation: none !important;
+  }
+  .glass-card:hover,
+  .stat-card-hover:hover {
+    transform: none !important;
+  }
+}
+
+/* Smooth scrollbar for category/nav overflow */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
