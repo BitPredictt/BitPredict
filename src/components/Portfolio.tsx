@@ -394,7 +394,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                       <div className="flex items-center gap-1.5">
                         {statusIcon(bet.status)}
                         <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusColor(bet.status)}`}>
-                          {bet.status === 'claimable' ? 'won' : bet.status}
+                          {bet.status === 'claimable' ? 'Claim!' : bet.status}
                         </span>
                       </div>
                       {(bet.status === 'won' || bet.status === 'claimable') && (bet.payout ?? 0) > 0 && (

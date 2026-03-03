@@ -220,8 +220,8 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
                 onClick={() => setAmount(String(p))}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   amount === String(p)
-                    ? 'bg-btc/20 text-btc border border-btc/30'
-                    : 'bg-surface-2 text-gray-500 border border-white/5 hover:text-white'
+                    ? 'bg-btc/20 text-btc border border-btc/30 scale-105'
+                    : 'bg-surface-2 text-gray-500 border border-white/5 hover:text-white hover:scale-105 hover:border-white/10 active:scale-95'
                 }`}
               >
                 {p >= 1000 ? `${p / 1000}K` : p}

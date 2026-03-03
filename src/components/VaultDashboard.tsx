@@ -177,6 +177,16 @@ export function VaultDashboard({
           <div className="h-10 bg-surface-3 rounded-xl animate-pulse mb-3" />
           <div className="h-10 bg-surface-3 rounded-xl animate-pulse" />
         </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="vault-card rounded-2xl p-5">
+            <div className="h-4 w-24 bg-surface-3 rounded animate-pulse mb-3" />
+            <div className="h-32 bg-surface-3 rounded-xl animate-pulse" />
+          </div>
+          <div className="vault-card rounded-2xl p-5">
+            <div className="h-4 w-28 bg-surface-3 rounded animate-pulse mb-3" />
+            <div className="h-32 bg-surface-3 rounded-xl animate-pulse" />
+          </div>
+        </div>
       </div>
     );
   }

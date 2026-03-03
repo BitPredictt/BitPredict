@@ -193,7 +193,7 @@ function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
-      <NetworkStats walletProvider={provider} marketCount={markets.length} />
+      <NetworkStats walletProvider={provider} marketCount={markets.filter(m => !m.resolved).length} />
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === 'markets' && (
