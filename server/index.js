@@ -1043,6 +1043,7 @@ app.get('/api/markets', (req, res) => {
       yesPool: m.yes_pool,
       noPool: m.no_pool,
       imageUrl: m.image_url || null,
+      oracleResolved: !!m.resolved && (m.market_type === 'price_5min' || m.market_type === 'polymarket'),
     };
 
     // Multi-outcome: group sibling markets into outcomes array
@@ -1300,6 +1301,53 @@ app.get('/api/prices', async (req, res) => {
   const eth = await fetchPrice('eth');
   const sol = await fetchPrice('sol');
   res.json({ btc, eth, sol, ts: Date.now() });
+});
+
+// Price history for sparkline charts (last N minutes of a given asset)
+app.get('/api/prices/history', (req, res) => {
+  const asset = (req.query.asset || 'btc').toLowerCase();
+  const minutes = Math.min(parseInt(req.query.minutes) || 30, 1440); // max 24h
+  const since = Math.floor(Date.now() / 1000) - minutes * 60;
+  const rows = db.prepare(
+    'SELECT price, timestamp FROM price_snapshots WHERE asset = ? AND timestamp >= ? ORDER BY timestamp ASC'
+  ).all(asset, since);
+  res.json(rows);
+});
+
+// Protocol stats (TVL, 24h volume, unique users, total bets)
+app.get('/api/stats', (req, res) => {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const day = now - 86400;
+
+    const totalMarkets = db.prepare('SELECT COUNT(*) as c FROM markets WHERE resolved = 0').get().c;
+    const resolvedMarkets = db.prepare('SELECT COUNT(*) as c FROM markets WHERE resolved = 1').get().c;
+    const totalBets = db.prepare('SELECT COUNT(*) as c FROM bets').get().c;
+    const bets24h = db.prepare('SELECT COUNT(*) as c FROM bets WHERE created_at > ?').get(day).c;
+    const volume24h = db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets WHERE created_at > ?').get(day).v;
+    const volumeTotal = db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets').get().v;
+    const uniqueUsers = db.prepare('SELECT COUNT(DISTINCT user_address) as c FROM bets').get().c;
+    const users24h = db.prepare('SELECT COUNT(DISTINCT user_address) as c FROM bets WHERE created_at > ?').get(day).c;
+
+    // TVL = vault staked + active bet amounts
+    const vaultTvl = db.prepare('SELECT COALESCE(SUM(staked_amount),0) as v FROM vault_stakes WHERE staked_amount > 0').get().v;
+    const activeBetsTvl = db.prepare("SELECT COALESCE(SUM(amount),0) as v FROM bets WHERE status = 'active'").get().v;
+    const tvl = vaultTvl + activeBetsTvl;
+
+    // Auto-resolved markets count
+    const autoResolved = db.prepare("SELECT COUNT(*) as c FROM markets WHERE resolved = 1 AND (market_type = 'price_5min' OR market_type = 'polymarket')").get().c;
+
+    res.json({
+      totalMarkets, resolvedMarkets, autoResolved,
+      totalBets, bets24h,
+      volume24h, volumeTotal,
+      uniqueUsers, users24h,
+      tvl, vaultTvl, activeBetsTvl,
+    });
+  } catch (e) {
+    console.error('Stats error:', e.message);
+    res.status(500).json({ error: 'Stats unavailable' });
+  }
 });
 
 // Leaderboard

@@ -22,6 +22,7 @@ export interface Market {
   marketType?: string;
   eventId?: string;
   outcomes?: MarketOutcome[];
+  oracleResolved?: boolean;
 }
 
 export interface Bet {

@@ -177,6 +177,31 @@ export async function getClaimedRewards(address: string) {
   return apiFetch<RewardClaim[]>(`/api/reward/claimed/${address}`);
 }
 
+// --- Price history (for sparkline charts) ---
+export async function getPriceHistory(asset: string = 'btc', minutes: number = 30) {
+  return apiFetch<{ price: number; timestamp: number }[]>(`/api/prices/history?asset=${asset}&minutes=${minutes}`);
+}
+
+// --- Protocol stats ---
+export interface ProtocolStats {
+  totalMarkets: number;
+  resolvedMarkets: number;
+  autoResolved: number;
+  totalBets: number;
+  bets24h: number;
+  volume24h: number;
+  volumeTotal: number;
+  uniqueUsers: number;
+  users24h: number;
+  tvl: number;
+  vaultTvl: number;
+  activeBetsTvl: number;
+}
+
+export async function getProtocolStats() {
+  return apiFetch<ProtocolStats>('/api/stats');
+}
+
 // --- Health ---
 export async function healthCheck() {
   return apiFetch<{ status: string; ts: number; markets: number }>('/api/health');

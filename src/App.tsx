@@ -18,6 +18,7 @@ import { Footer } from './components/Footer';
 import { HowItWorks } from './components/HowItWorks';
 import { Achievements } from './components/Achievements';
 import { VaultDashboard } from './components/VaultDashboard';
+import { ProtocolStats } from './components/ProtocolStats';
 
 function App() {
   const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj } = useWallet();
@@ -228,6 +229,7 @@ function App() {
               </div>
             </div>
 
+            <ProtocolStats />
             <HowItWorks />
 
             {/* Search & filters */}

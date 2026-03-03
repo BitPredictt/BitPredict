@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Clock, TrendingUp, Droplets, ChevronRight, Zap } from 'lucide-react';
+import { Clock, TrendingUp, Droplets, ChevronRight, Zap, Shield } from 'lucide-react';
 import type { Market } from '../types';
+import { PriceSparkline } from './PriceSparkline';
 
 interface MarketCardProps {
   market: Market;
@@ -75,9 +76,16 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
         <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${market.marketType === 'price_5min' ? categoryColors['Fast Bets'] : (categoryColors[market.category] || 'bg-gray-500/15 text-gray-400 border-gray-500/20')}`}>
           {market.marketType === 'price_5min' ? <><Zap size={10} className="inline -mt-0.5" /> FAST</> : market.category}
         </span>
-        <div className={`flex items-center gap-1 text-[10px] ${isResolved ? 'text-purple-400 font-bold' : isEnded ? 'text-red-400 font-bold' : isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
-          <Clock size={10} />
-          <span>{isResolved ? `Resolved: ${(market.outcome || '').toUpperCase()}` : formatTimeLeft()}</span>
+        <div className="flex items-center gap-1.5">
+          {market.oracleResolved && (
+            <span className="flex items-center gap-0.5 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full border border-emerald-500/20">
+              <Shield size={8} /> Oracle
+            </span>
+          )}
+          <div className={`flex items-center gap-1 text-[10px] ${isResolved ? 'text-purple-400 font-bold' : isEnded ? 'text-red-400 font-bold' : isEndingSoon ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
+            <Clock size={10} />
+            <span>{isResolved ? `Resolved: ${(market.outcome || '').toUpperCase()}` : formatTimeLeft()}</span>
+          </div>
         </div>
       </div>
 
@@ -124,6 +132,14 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
             />
           </div>
         </div>
+      )}
+
+      {/* Live price sparkline for fast bets */}
+      {market.marketType === 'price_5min' && !isResolved && (
+        <PriceSparkline
+          asset={market.id.startsWith('eth') ? 'eth' : market.id.startsWith('sol') ? 'sol' : 'btc'}
+          threshold={(() => { try { const src = market.tags?.find(t => t.includes('price')); return undefined; } catch { return undefined; } })()}
+        />
       )}
 
       {/* Stats */}
