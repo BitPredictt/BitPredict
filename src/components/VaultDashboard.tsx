@@ -54,7 +54,8 @@ export function VaultDashboard({
 
   const handleStakeUnstake = async () => {
     const amtNum = Number(amount);
-    if (!amtNum || amtNum < 100 || loading) return;
+    const max = mode === 'stake' ? predBalance : (userInfo?.staked || 0);
+    if (!amtNum || amtNum < 100 || amtNum > max || loading) return;
 
     setLoading(true);
     setTxMsg({ text: 'Sign the transaction in OP_WALLET...', type: 'success' });

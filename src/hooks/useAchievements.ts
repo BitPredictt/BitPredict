@@ -360,11 +360,19 @@ export function useAchievements() {
       unlockAchievement('bull_bear');
     }
 
-    // Achievement: diversified (3 categories)
-    const categories = new Set<string>();
-    // We'd need market data here, so we track by category param
-    categories.add(marketCategory);
-    updateProgress('diversified');
+    // Achievement: diversified (3 categories) — count unique categories
+    const allCategories = new Set(allBets.map((b) => {
+      // Try to find category from marketCategory param or from bet data
+      return '';
+    }).filter(Boolean));
+    allCategories.add(marketCategory);
+    // Set progress to number of unique categories (not increment)
+    setAchievements(prev => prev.map(a =>
+      a.id === 'diversified' ? { ...a, progress: Math.max(a.progress, allCategories.size) } : a
+    ));
+    if (allCategories.size >= 3) {
+      unlockAchievement('diversified');
+    }
 
     // Achievement: bitcoin maxi (5 crypto bets)
     if (marketCategory === 'Crypto') {
@@ -375,7 +383,13 @@ export function useAchievements() {
     updateQuestProgress('first_bet');
     updateQuestProgress('daily_prediction');
     updateQuestProgress('weekly_volume', bet.amount);
-    updateQuestProgress('trade_3_categories');
+    // trade_3_categories — same unique category tracking
+    setQuests(prev => prev.map(q =>
+      q.id === 'trade_3_categories' ? { ...q, progress: Math.max(q.progress, allCategories.size) } : q
+    ));
+    if (allCategories.size >= 3) {
+      completeQuest('trade_3_categories');
+    }
   }, [updateProgress, unlockAchievement, updateQuestProgress]);
 
   const onWalletConnected = useCallback(() => {

@@ -14,12 +14,13 @@ interface PortfolioProps {
   walletBtcBalance: number;
   onConnect: () => void;
   onBalanceUpdate: (balance: number) => void;
+  onBetsUpdate: (bets: Bet[]) => void;
   walletProvider: unknown;
   walletNetwork: unknown;
   walletAddressObj: unknown; // Address object from walletconnect
 }
 
-export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, predBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceUpdate, onBetsUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
@@ -85,6 +86,11 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
     try {
       const result = await api.sellShares(walletAddress, betId);
       onBalanceUpdate(result.newBalance);
+      // Update local bet state to reflect the sell
+      onBetsUpdate(bets.map(b => b.id === betId
+        ? { ...b, status: result.remainingShares > 0 ? 'active' : 'cancelled' as const, shares: result.remainingShares }
+        : b
+      ).filter(b => b.status !== 'cancelled'));
       setClaimMsg({ text: `Sold for ${result.payout.toLocaleString()} BPUSD (fee: ${result.fee})`, type: 'success' });
     } catch (err) {
       setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
@@ -117,14 +123,15 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
   const totalInvested = bets.reduce((sum, b) => sum + b.amount, 0);
   const activeBets = bets.filter((b) => b.status === 'active');
   const pendingBets = bets.filter((b) => b.status === 'pending');
-  const wonBets = bets.filter((b) => b.status === 'won');
+  const wonBets = bets.filter((b) => b.status === 'won' || b.status === 'claimable');
   const lostBets = bets.filter((b) => b.status === 'lost');
   const resolvedBets = [...wonBets, ...lostBets];
 
-  // PnL calculation
-  const wonAmount = wonBets.reduce((sum, b) => sum + Math.round(b.amount / b.price), 0);
+  // PnL calculation — use server payout instead of amount/price
+  const wonAmount = wonBets.reduce((sum, b) => sum + (b.payout ?? 0), 0);
   const lostAmount = lostBets.reduce((sum, b) => sum + b.amount, 0);
-  const realizedPnl = wonAmount - lostAmount - wonBets.reduce((s, b) => s + b.amount, 0);
+  const wonInvested = wonBets.reduce((s, b) => s + b.amount, 0);
+  const realizedPnl = wonAmount - wonInvested - lostAmount;
   const unrealizedPnl = activeBets.reduce((sum, b) => {
     const market = getMarket(b.marketId);
     if (!market) return sum;
@@ -444,7 +451,7 @@ export function Portfolio({ bets, markets, predBalance, walletConnected, walletA
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[9px] text-gray-600">{new Date(bet.timestamp).toLocaleDateString()}</span>
+                        <span className="text-[9px] text-gray-600">{new Date(bet.timestamp < 1e12 ? bet.timestamp * 1000 : bet.timestamp).toLocaleDateString()}</span>
                         {bet.txHash && (
                           <a href={getExplorerTxUrl(bet.txHash)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-0.5 text-[9px] text-btc hover:underline">
                             TX <ExternalLink size={7} />

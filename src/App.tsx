@@ -347,6 +347,7 @@ function App() {
             walletBtcBalance={wallet.balanceSats}
             onConnect={connectOPWallet}
             onBalanceUpdate={setPredBalance}
+            onBetsUpdate={setBets}
             walletProvider={provider}
             walletNetwork={walletNetwork}
             walletAddressObj={addressObj}

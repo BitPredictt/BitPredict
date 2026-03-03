@@ -10,8 +10,13 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     ...opts,
     headers: { 'Content-Type': 'application/json', ...opts?.headers },
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `API error ${res.status}`);
+  let data: Record<string, unknown>;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`API error ${res.status}: server returned non-JSON response`);
+  }
+  if (!res.ok) throw new Error((data.error as string) || `API error ${res.status}`);
   return data as T;
 }
 

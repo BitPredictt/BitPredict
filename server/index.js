@@ -303,12 +303,12 @@ try { db.exec('ALTER TABLE markets ADD COLUMN event_id TEXT'); } catch(e) { /* a
 try { db.exec('ALTER TABLE markets ADD COLUMN event_title TEXT'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE markets ADD COLUMN outcome_label TEXT'); } catch(e) { /* already exists */ }
 
-// Wipe polymarket markets for category re-sync on deploy
+// Wipe polymarket markets for category re-sync on deploy (preserve those with active bets)
 try {
-  const polyCount = db.prepare("SELECT COUNT(*) as c FROM markets WHERE market_type = 'polymarket'").get().c;
+  const polyCount = db.prepare("SELECT COUNT(*) as c FROM markets WHERE market_type = 'polymarket' AND id NOT IN (SELECT DISTINCT market_id FROM bets WHERE status = 'active')").get().c;
   if (polyCount > 0) {
-    db.prepare("DELETE FROM markets WHERE market_type = 'polymarket'").run();
-    console.log(`Wiped ${polyCount} polymarket markets for category re-sync`);
+    db.prepare("DELETE FROM markets WHERE market_type = 'polymarket' AND id NOT IN (SELECT DISTINCT market_id FROM bets WHERE status = 'active')").run();
+    console.log(`Wiped ${polyCount} polymarket markets for category re-sync (preserved markets with active bets)`);
   }
 } catch(e) { /* ignore */ }
 
@@ -698,8 +698,8 @@ function settleBets(marketId, outcome) {
   const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
   for (const b of bets) {
     if (b.side === outcome) {
-      const rawPayout = b.price > 0 ? Math.round(b.amount / b.price) : b.amount;
-      const payout = Math.min(rawPayout, b.amount * 100); // cap at 100x to prevent overflow
+      // Payout = shares (1 share = 1 BPUSD on win), capped at 100x investment
+      const payout = Math.min(b.shares, b.amount * 100);
       // Set to 'claimable' — user must explicitly claim via /api/claim
       db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
     } else {
@@ -1199,7 +1199,8 @@ app.post('/api/bet', async (req, res) => {
 
   if (shares <= 0) return res.status(400).json({ error: 'trade too small' });
 
-  const price = side === 'yes' ? market.yes_price : market.no_price;
+  // Use execution price (cost per share), not stale market price
+  const price = shares > 0 ? Math.round((amountInt / shares) * 10000) / 10000 : (side === 'yes' ? market.yes_price : market.no_price);
   const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // On-chain proof is now signed by user on frontend
@@ -1215,6 +1216,10 @@ app.post('/api/bet', async (req, res) => {
     const prices = recalcPrices(newYesPool, newNoPool);
     db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
       newYesPool, newNoPool, prices.yes_price, prices.no_price, amountInt, newYesPool + newNoPool, marketId
+    );
+    // Record price history for per-market charts
+    db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
+      marketId, prices.yes_price, prices.no_price, amountInt
     );
   });
 
@@ -1402,6 +1407,7 @@ app.get('/api/leaderboard', (req, res) => {
       SUM(CASE WHEN b.status = 'won' THEN b.payout - b.amount ELSE 0 END) -
       SUM(CASE WHEN b.status = 'lost' THEN b.amount ELSE 0 END) as pnl
     FROM users u LEFT JOIN bets b ON u.address = b.user_address
+    WHERE u.address LIKE 'opt1%'
     GROUP BY u.address
     ORDER BY u.balance DESC
     LIMIT 50
@@ -1594,9 +1600,8 @@ app.post('/api/bet/sell', (req, res) => {
       );
 
       // Record price history
-      const prices2 = recalcPrices(newYesPool, newNoPool);
       db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
-        bet.market_id, prices2.yes_price, prices2.no_price, netPayout
+        bet.market_id, prices.yes_price, prices.no_price, netPayout
       );
 
       // Notification
@@ -1763,8 +1768,10 @@ app.get('/api/referral/stats/:address', (req, res) => {
     const refereeAddresses = db.prepare('SELECT address FROM users WHERE referrer = ?').all(req.params.address);
     let totalEarned = 0;
     for (const r of refereeAddresses) {
-      const won = db.prepare("SELECT COALESCE(SUM(payout),0) as total FROM bets WHERE user_address = ? AND status IN ('won','claimable')").get(r.address);
-      totalEarned += Math.floor((won.total || 0) * 0.01); // 1% of winnings
+      // Referral bonus = 50% of 2% fee on each bet = ~1% of bet volume
+      const volume = db.prepare("SELECT COALESCE(SUM(amount),0) as total FROM bets WHERE user_address = ?").get(r.address);
+      const totalFees = Math.ceil((volume.total || 0) * 0.02);
+      totalEarned += Math.floor(totalFees * 0.5);
     }
     res.json({ referralCount: referrals.count, totalEarned });
   } catch (e) {
@@ -2123,7 +2130,7 @@ app.get('/api/ai/signal/:marketId', async (req, res) => {
     if (GEMINI_API_KEY) {
       try {
         const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0, sol: PRICE_CACHE.sol?.price || 0 };
-        const endDate = m.end_date ? new Date(m.end_date * 1000).toLocaleDateString() : 'TBD';
+        const endDate = m.end_time ? new Date(m.end_time * 1000).toLocaleDateString() : 'TBD';
         const prompt = `You are Bob, an expert AI analyst for BitPredict — a Bitcoin-native prediction market on OP_NET.
 
 Market: "${m.question}"
@@ -2478,6 +2485,7 @@ app.get('/api/social/top-predictors', (req, res) => {
       SUM(CASE WHEN b.status = 'won' THEN b.payout - b.amount ELSE 0 END) -
       SUM(CASE WHEN b.status = 'lost' THEN b.amount ELSE 0 END) as pnl
     FROM users u JOIN bets b ON u.address = b.user_address
+    WHERE u.address LIKE 'opt1%'
     GROUP BY u.address
     HAVING total_bets >= 1
     ORDER BY pnl DESC
@@ -2500,7 +2508,7 @@ app.get('/api/portfolio/pnl/:addr', (req, res) => {
   if (!addr || !addr.startsWith('opt1')) return res.status(400).json({ error: 'invalid address' });
 
   const bets = db.prepare(`
-    SELECT * FROM bets WHERE user_address = ? AND status IN ('won', 'lost')
+    SELECT * FROM bets WHERE user_address = ? AND status IN ('won', 'lost', 'claimable')
     ORDER BY created_at ASC LIMIT 100
   `).all(addr);
 
@@ -2511,7 +2519,7 @@ app.get('/api/portfolio/pnl/:addr', (req, res) => {
   const pnlSeries = [];
 
   for (const b of bets) {
-    if (b.status === 'won') {
+    if (b.status === 'won' || b.status === 'claimable') {
       cumPnl += (b.payout - b.amount);
       currentStreak++;
       if (currentStreak > bestStreak) bestStreak = currentStreak;

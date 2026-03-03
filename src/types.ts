@@ -21,6 +21,8 @@ export interface Market {
   tags: string[];
   marketType?: string;
   eventId?: string;
+  yesPool?: number;
+  noPool?: number;
   outcomes?: MarketOutcome[];
   oracleResolved?: boolean;
 }

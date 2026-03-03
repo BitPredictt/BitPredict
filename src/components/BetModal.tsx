@@ -88,15 +88,13 @@ export function BetModal({ market, wallet, predBalance, onClose, onPlaceBet }: B
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
 
-  // Real AMM calculation using constant-product formula
+  // Real AMM calculation using constant-product formula with actual pool data
   const ammResult = useMemo(() => {
     if (amountNum <= 0) return null;
-    const totalReserve = 1_000_000n;
-    const priceForCalc = isMultiOutcome ? activePrice : market.yesPrice;
-    const yesReserve = BigInt(Math.round(Number(totalReserve) * (1 - priceForCalc)));
-    const noReserve = totalReserve - yesReserve;
+    const yesReserve = BigInt(market.yesPool || Math.round(1_000_000 * (1 - market.yesPrice)));
+    const noReserve = BigInt(market.noPool || Math.round(1_000_000 * market.yesPrice));
     return calculateShares(BigInt(amountNum), isMultiOutcome ? true : side === 'yes', yesReserve, noReserve);
-  }, [amountNum, side, market.yesPrice, activePrice, isMultiOutcome, selectedOutcome]);
+  }, [amountNum, side, market.yesPrice, market.yesPool, market.noPool, isMultiOutcome, selectedOutcome]);
 
   const price = activePrice;
   const potentialPayout = amountNum > 0 && price > 0 ? Math.round(amountNum / price) : 0;
