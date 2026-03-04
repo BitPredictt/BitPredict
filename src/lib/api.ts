@@ -3,7 +3,7 @@
  * All balances, bets, and market data stored on the server.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://polyfantasy.xyz/bpapi';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://bitpredict.club';
 
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
