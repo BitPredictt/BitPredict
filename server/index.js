@@ -1263,11 +1263,13 @@ app.get('/api/balance/:address', (req, res) => {
 app.get('/api/markets', (req, res) => {
   const cutoff5min = Math.floor(Date.now() / 1000) - 3600; // 1h for 5min markets
   const cutoff7d = Math.floor(Date.now() / 1000) - 7 * 86400; // 7d for others
-  const markets = db.prepare(`SELECT * FROM markets 
+  const markets = db.prepare(`SELECT * FROM markets
     WHERE NOT (market_type = 'price_5min' AND resolved = 1 AND end_time < ?)
     AND NOT (market_type != 'price_5min' AND resolved = 1 AND end_time < ?)
-    ORDER BY resolved ASC, volume DESC, end_time ASC
-    LIMIT 300`).all(cutoff5min, cutoff7d);
+    ORDER BY resolved ASC,
+      CASE WHEN market_type = 'price_5min' AND resolved = 0 THEN 0 ELSE 1 END,
+      volume DESC, end_time ASC
+    LIMIT 1500`).all(cutoff5min, cutoff7d);
   // Build event groups for multi-outcome Polymarket markets
   const eventGroups = new Map();
   for (const m of markets) {
