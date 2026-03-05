@@ -613,8 +613,14 @@ try { db.exec('ALTER TABLE markets ADD COLUMN event_title TEXT'); } catch(e) { /
 try { db.exec('ALTER TABLE markets ADD COLUMN outcome_label TEXT'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE markets ADD COLUMN onchain_id INTEGER DEFAULT NULL'); } catch(e) { /* already exists */ }
 
-// One-time: clear stale polymarket outcome labels so sync regenerates them with improved extraction
-try { db.exec("UPDATE markets SET outcome_label = NULL WHERE market_type = 'polymarket' AND event_id IS NOT NULL"); } catch(e) {}
+// Clear stale polymarket outcome labels (placeholder names + force re-sync with groupItemTitle)
+try {
+  db.exec("UPDATE markets SET outcome_label = NULL WHERE market_type = 'polymarket' AND event_id IS NOT NULL");
+  // Delete placeholder markets entirely (Person X, Individual Y, etc.)
+  db.exec("DELETE FROM markets WHERE market_type = 'polymarket' AND outcome_label LIKE 'Person %' AND LENGTH(outcome_label) < 15");
+  db.exec("DELETE FROM markets WHERE market_type = 'polymarket' AND outcome_label LIKE 'Individual %' AND LENGTH(outcome_label) < 15");
+  db.exec("DELETE FROM markets WHERE market_type = 'polymarket' AND outcome_label LIKE 'Candidate %' AND LENGTH(outcome_label) < 15");
+} catch(e) {}
 
 // Sync nextOnchainMarketId from DB (max existing onchain_id + 1)
 try {
@@ -1158,56 +1164,59 @@ async function syncPolymarketEvents() {
         const polyId = `poly-${(m.conditionId || m.id || '').slice(0, 16)}`;
         if (!polyId || polyId === 'poly-') continue;
 
-        // Extract outcome label from question for multi-outcome events
+        // Extract outcome label — prefer groupItemTitle from Polymarket API
         let outcomeLabel;
-        if (isMultiOutcome && eventTitle) {
+        const groupTitle = (m.groupItemTitle || '').trim();
+
+        // Skip placeholder/anonymized markets (Person P, Club A, Leader 2, etc.)
+        const placeholderRe = /^(Person|Individual|Candidate|Player|Team|Entity|Subject|Club|Leader|Option|Choice|Entry|Contestant)\s+[A-Z0-9]{1,3}$/i;
+        if (placeholderRe.test(groupTitle)) continue;
+
+        if (groupTitle && groupTitle.length >= 2) {
+          // Best source: Polymarket's own groupItemTitle (always correct)
+          outcomeLabel = groupTitle.length > 50 ? groupTitle.slice(0, 50) + '…' : groupTitle;
+        } else if (isMultiOutcome && eventTitle) {
+          // Fallback: extract from question text
           let q = (m.question || '').replace(/\?$/g, '').trim();
-          // Strip question prefix
           q = q.replace(/^(Will |Does |Is |Are |Has |Can |Should |Do )/i, '').trim();
           let label = '';
           const titleLower = eventTitle.toLowerCase().replace(/[^a-z0-9 ]/g, '');
           const titleWords = new Set(titleLower.split(/\s+/).filter(w => w.length > 2));
 
-          // Helper: check if text overlaps heavily with event title
           const overlapsPct = (text) => {
             const words = text.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 2);
             if (words.length === 0) return 0;
             return words.filter(w => titleWords.has(w)).length / words.length;
           };
 
-          // Pattern 1: "{X} {verb} {Y}" — take X unless it overlaps with title, then take Y
           const verbs = 'win|be named|be the next|be the|be|become|earn|claim|get|receive|secure|have|take|reach|finish|make|qualify|hit|dip';
           const pat1 = q.match(new RegExp(`^(.+?)\\s+(${verbs})\\b\\s*(.*)`, 'i'));
           if (pat1 && pat1[1].length >= 2) {
             const before = pat1[1].trim();
             const after = (pat1[3] || '').trim();
             if (before.toLowerCase() === 'there') {
-              // "there be X at/in..." → take X (strip trailing preposition phrases)
               label = after.replace(/\s+(?:at|in|on|to|by|during|for|the|before|after)\s+.*/i, '').trim();
             } else if (overlapsPct(before) > 0.5 && after.length >= 2) {
-              // Before is the event description → take after part (e.g. "Viktor Orbán")
               label = after.replace(/\s+(?:at|in|on|to|by|during|for)\s+.*/i, '').trim();
             } else if (before.toLowerCase() !== 'the') {
               label = before;
             }
           }
 
-          // Pattern 2: "{actor} nominate/select/appoint {Name} as/for/to..." → extract Name
           if (!label) {
             const pat2 = q.match(/(?:nominate|select|appoint|pick|choose|name|draft)\s+(.+?)\s+(?:as|for|to|the|in)\b/i);
             if (pat2 && pat2[1].length >= 2) label = pat2[1];
           }
 
-          // Fallback: strip event title words, take what remains
           if (!label || label.length < 2) {
             label = q.split(/\s+/).filter(w => !titleWords.has(w.toLowerCase().replace(/[^a-z0-9]/g, ''))).join(' ').trim();
-            // Also strip common filler
             label = label.replace(/\b(the|will|be|win|a|an|in|of|to|by|at|on|or|is|as|for|its|his|her|their|next|new)\b/gi, '').replace(/\s{2,}/g, ' ').trim();
             if (!label) label = q;
           }
 
-          // Clean up
           label = label.replace(/^(the|a|an)\s+/i, '').replace(/\s+(the|a|an)$/i, '').trim();
+          // Skip if extraction still yields a placeholder
+          if (placeholderRe.test(label)) continue;
           outcomeLabel = label.length > 50 ? label.slice(0, 50) + '…' : label;
           if (outcomeLabel.length < 2) outcomeLabel = q.slice(0, 50);
         } else {
@@ -2395,7 +2404,7 @@ OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a roll
 - Network: ${OPNET_NETWORK_NAME}
 - RPC: ${process.env.OPNET_RPC_BASE || 'https://testnet.opnet.org'}
 - Explorer: https://opscan.org
-${OPNET_NET === 'testnet' ? '- Faucet: https://faucet.opnet.org for testnet BTC' : ''}
+${OPNET_NETWORK_NAME === 'testnet' ? '- Faucet: https://faucet.opnet.org for testnet BTC' : ''}
 
 ## BitPredict Architecture
 - BPUSD token: OP-20 MintableToken at ${PRED_TOKEN} (publicMint enabled)
@@ -2511,7 +2520,7 @@ ${marketContext}${userContext}
 - Be opinionated on markets — give clear YES/NO recommendations with reasoning
 - Always calculate expected value: EV = (probability × payout) - cost
 - Warn about risks but don't be overly cautious — traders want actionable signals
-- If someone asks how to use the platform, walk them through: connect OP_WALLET → ${OPNET_NET === 'testnet' ? 'get testnet BTC from faucet.opnet.org → ' : ''}mint BPUSD tokens → pick a market → place a bet
+- If someone asks how to use the platform, walk them through: connect OP_WALLET → ${OPNET_NETWORK_NAME === 'testnet' ? 'get testnet BTC from faucet.opnet.org → ' : ''}mint BPUSD tokens → pick a market → place a bet
 - The entire BitPredict platform is English-only. Never respond in any other language.
 - ALWAYS respond in English regardless of the user's language
 - Keep answers focused: 3-6 sentences for simple questions, longer for deep analysis
