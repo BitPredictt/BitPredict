@@ -52,6 +52,10 @@ deploy/*.json
 !deploy/package.json
 deploy/.env
 
+# Dev/test scripts at root (may reference seed files)
+/*.mjs
+scripts/fund-wallets.mjs
+
 # Build artifacts
 dist.tar.gz
 *.tar.gz
