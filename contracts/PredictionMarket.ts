@@ -516,7 +516,8 @@ export class PredictionMarket extends ReentrancyGuard {
     if (isYes) {
       // Selling YES shares: add shares back to yesReserve, noReserve decreases
       const newYesReserve: u256 = SafeMath.add(yesReserve, shares);
-      const newNoReserve: u256  = SafeMath.div(k, newYesReserve);
+      // Ceiling division to preserve k-invariant: newNo = ceil(k / newYes)
+      const newNoReserve: u256  = SafeMath.div(SafeMath.add(k, SafeMath.sub(newYesReserve, u256.One)), newYesReserve);
       grossPayout = SafeMath.sub(noReserve, newNoReserve);
       this.yesReserves.set(marketKey, newYesReserve);
       this.noReserves.set(marketKey, newNoReserve);
@@ -526,7 +527,8 @@ export class PredictionMarket extends ReentrancyGuard {
     } else {
       // Selling NO shares: add shares back to noReserve, yesReserve decreases
       const newNoReserve: u256  = SafeMath.add(noReserve, shares);
-      const newYesReserve: u256 = SafeMath.div(k, newNoReserve);
+      // Ceiling division to preserve k-invariant: newYes = ceil(k / newNo)
+      const newYesReserve: u256 = SafeMath.div(SafeMath.add(k, SafeMath.sub(newNoReserve, u256.One)), newNoReserve);
       grossPayout = SafeMath.sub(yesReserve, newYesReserve);
       this.yesReserves.set(marketKey, newYesReserve);
       this.noReserves.set(marketKey, newNoReserve);

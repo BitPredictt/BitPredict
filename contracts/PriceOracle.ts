@@ -136,14 +136,24 @@ export class PriceOracle extends ReentrancyGuard {
   public addOracle(calldata: Calldata): BytesWriter {
     this.requireAdmin();
     const oracle: Address = calldata.readAddress();
-    const count: u256 = this.oracleCount.value;
-
-    if (u256.ge(count, u256.fromU64(<u64>MAX_ORACLES))) {
-      throw new Revert('Max oracles reached');
-    }
 
     if (u256.eq(this.authorizedOracles.get(oracle), u256.One)) {
       throw new Revert('Oracle already authorized');
+    }
+
+    // Check if oracle already has a slot (was previously removed) — recycle it
+    const existingSlot: u256 = this.oracleIndex.get(oracle);
+    if (!u256.eq(existingSlot, u256.Zero)) {
+      // Re-authorize with existing slot (slot recycling)
+      this.authorizedOracles.set(oracle, u256.One);
+      this.emitEvent(new OracleAddedEvent(oracle));
+      return new BytesWriter(0);
+    }
+
+    // New oracle — assign next slot
+    const count: u256 = this.oracleCount.value;
+    if (u256.ge(count, u256.fromU64(<u64>MAX_ORACLES))) {
+      throw new Revert('Max oracles reached');
     }
 
     this.authorizedOracles.set(oracle, u256.One);
@@ -318,8 +328,8 @@ export class PriceOracle extends ReentrancyGuard {
       prices[j + 1] = key;
     }
 
-    // Median: middle element (for odd count) or lower-middle (for even count)
-    const medianIdx: i32 = prices.length / 2;
+    // Median: middle element (lower-middle for even count, exact middle for odd)
+    const medianIdx: i32 = (prices.length - 1) / 2;
     const medianPrice: u256 = prices[medianIdx];
 
     // Update aggregated price

@@ -5435,7 +5435,7 @@
   if
    i32.const 10464
    i32.const 10528
-   i32.const 731
+   i32.const 733
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8020,7 +8020,7 @@
      if
       i32.const 12304
       i32.const 10528
-      i32.const 757
+      i32.const 759
       i32.const 9
       call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
       unreachable
@@ -8163,7 +8163,7 @@
   if
    i32.const 12432
    i32.const 10528
-   i32.const 738
+   i32.const 740
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8464,7 +8464,7 @@
    if
     i32.const 13008
     i32.const 10528
-    i32.const 775
+    i32.const 777
     i32.const 9
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
@@ -9212,6 +9212,14 @@
      local.get $5
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
      local.tee $1
+     i64.const 1
+     i64.const 0
+     i64.const 0
+     i64.const 0
+     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
+     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
+     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
+     local.get $1
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
      local.tee $4
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
@@ -9256,6 +9264,14 @@
      local.get $5
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
      local.tee $1
+     i64.const 1
+     i64.const 0
+     i64.const 0
+     i64.const 0
+     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
+     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
+     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
+     local.get $1
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
      local.tee $4
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
@@ -9406,7 +9422,7 @@
     if
      i32.const 13248
      i32.const 10528
-     i32.const 550
+     i32.const 552
      i32.const 7
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
@@ -9717,7 +9733,7 @@
       if
        i32.const 13328
        i32.const 10528
-       i32.const 592
+       i32.const 594
        i32.const 7
        call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
        unreachable
@@ -9779,7 +9795,7 @@
       if
        i32.const 13408
        i32.const 10528
-       i32.const 608
+       i32.const 610
        i32.const 7
        call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
        unreachable
