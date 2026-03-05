@@ -1168,9 +1168,13 @@ async function syncPolymarketEvents() {
         let outcomeLabel;
         const groupTitle = (m.groupItemTitle || '').trim();
 
-        // Skip placeholder/anonymized markets (Person P, Club A, Leader 2, etc.)
-        const placeholderRe = /^(Person|Individual|Candidate|Player|Team|Entity|Subject|Club|Leader|Option|Choice|Entry|Contestant)\s+[A-Z0-9]{1,3}$/i;
+        // Skip placeholder/anonymized markets (Person P, Club A, Leader 2, Movie D, etc.)
+        const placeholderRe = /^(Person|Individual|Candidate|Player|Team|Entity|Subject|Club|Leader|Option|Choice|Entry|Contestant|Movie|Nominee|Artist|Song|Film|Act)\s+[A-Z0-9]{1,3}$/i;
         if (placeholderRe.test(groupTitle)) continue;
+        // Skip "Other" catch-all markets (no real price data from Polymarket)
+        if (groupTitle === 'Other') continue;
+        // Skip very short codes (aa, ac, ae — anonymized placeholders)
+        if (/^[a-z]{1,2}$/i.test(groupTitle)) continue;
 
         if (groupTitle && groupTitle.length >= 2) {
           // Best source: Polymarket's own groupItemTitle (always correct)
