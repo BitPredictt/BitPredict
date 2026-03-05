@@ -15,16 +15,27 @@
 
 // OP_NET configuration (env-driven for mainnet/testnet switch)
 const OPNET_NETWORK = (import.meta.env.VITE_OPNET_NETWORK || 'testnet') as 'testnet' | 'mainnet';
+
+// Safety: on mainnet, require all addresses from env vars
+if (OPNET_NETWORK === 'mainnet') {
+  const required = ['VITE_CONTRACT_ADDRESS', 'VITE_VAULT_ADDRESS', 'VITE_TOKEN_ADDRESS', 'VITE_TOKEN_PUBKEY'] as const;
+  for (const key of required) {
+    if (!import.meta.env[key]) {
+      throw new Error(`FATAL: ${key} is required for mainnet deployment`);
+    }
+  }
+}
+
 export const OPNET_CONFIG = {
   network: OPNET_NETWORK,
   rpcUrl: import.meta.env.VITE_OPNET_RPC_URL || (OPNET_NETWORK === 'mainnet' ? 'https://api.opnet.org' : 'https://testnet.opnet.org'),
   explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://opscan.org',
   faucetUrl: 'https://faucet.opnet.org', // testnet only
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj',
-  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt',
-  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d',
-  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0x1fc02c213008668e4a8bde3a600b5dc9afd6b3ad0b5c558c2e6dc128f4d14195',
+  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqpq3k00rv9lcatn9wevxgsh520fpzqtxuvhyu459',
+  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqz5flnyg50kklf59lm0hudwdm6jzk02zq5fyutgm',
+  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqrsees4wp6dtkcj4a5nafx5hjffh56vu6c2zttrm',
+  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0x9f7e9a0f1305f6b14b2f3fb1b68c403d82916809e9439f728dc9c5c141596794',
   tokenDecimals: 8,
   tokenSymbol: 'BPUSD',
   mintAmount: 1000,
@@ -172,7 +183,7 @@ export const BTC_BET_FEE_PCT = 0.05; // 5%
 export const BPUSD_BET_FEE_PCT = 0.02; // 2%
 
 // Treasury address for BTC payments (deployer / contract owner)
-export const TREASURY_ADDRESS = 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj'; // PredictionMarket contract
+export const TREASURY_ADDRESS = import.meta.env.VITE_TREASURY_ADDRESS || OPNET_CONFIG.contractAddress;
 
 /**
  * Get gas parameters from provider (reusable helper)
@@ -288,7 +299,7 @@ export async function mintBpusdWithBtc(
     return { txHash, success: true };
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
+    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC for fees.';
     return { txHash: '', success: false, error: msg };
   }
 }
@@ -334,7 +345,7 @@ export async function signBetProof(
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
+    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC for fees.';
     return { txHash: '', success: false, error: msg };
   }
 }
@@ -461,7 +472,7 @@ export async function mintTokensOnChain(
     return { txHash, success: true };
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
+    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC for fees.';
     return { txHash: '', success: false, error: msg };
   }
 }

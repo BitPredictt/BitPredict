@@ -40,8 +40,8 @@ const MIN_STAKE: u256 = u256.fromU64(100); // 100 BPUSD minimum
 const MIN_LOCK_BLOCKS: u64 = 144; // ~1 day at 10min blocks (CSV timelock)
 
 // Cross-contract call selectors (OP-20 standard)
-const TRANSFER_FROM_SELECTOR: u32 = 0x23b872dd; // transferFrom(address,address,uint256)
-const TRANSFER_SELECTOR: u32 = 0xa9059cbb;      // transfer(address,uint256)
+const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7; // transferFrom — OPNet SHA-256 selector
+const TRANSFER_SELECTOR: u32 = 0x3b88ef57;      // transfer — OPNet SHA-256 selector
 
 // ============================================================
 // Events
@@ -187,9 +187,9 @@ export class StakingVault extends ReentrancyGuard {
       PRECISION
     ));
 
-    // Record stake block for CSV timelock — only if first-time staker
+    // Update stake block for CSV timelock on EVERY stake (S-1 fix)
+    this.userStakeBlock.set(user, u256.fromU64(Blockchain.block.number));
     if (u256.eq(currentStake, u256.Zero)) {
-      this.userStakeBlock.set(user, u256.fromU64(Blockchain.block.number));
       this.stakerCount.value = SafeMath.add(this.stakerCount.value, u256.One);
     }
 
@@ -372,6 +372,16 @@ export class StakingVault extends ReentrancyGuard {
 
     this.emitEvent(new RevenueDistributedEvent(amount, this.rewardsPerShare.value, total));
 
+    return new BytesWriter(0);
+  }
+
+  /**
+   * setAdmin(newAdmin: Address) — Transfer admin role.
+   */
+  @method({ name: 'newAdmin', type: ABIDataTypes.ADDRESS })
+  public setAdmin(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+    this.adminAddress.value = calldata.readAddress();
     return new BytesWriter(0);
   }
 

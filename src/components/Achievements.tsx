@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Trophy, Star, Zap, Target, CheckCircle2, Lock, ExternalLink, ChevronRight, Gift, Loader2, Coins } from 'lucide-react';
 import type { Achievement, Quest } from '../types';
+import { OPNET_CONFIG } from '../lib/opnet';
 
 interface AchievementsProps {
   achievements: Achievement[];
@@ -220,7 +221,7 @@ export function Achievements({
 
   const handleQuestAction = (quest: Quest) => {
     if (quest.id === 'visit_faucet') {
-      window.open('https://faucet.opnet.org', '_blank');
+      window.open(OPNET_CONFIG.faucetUrl, '_blank');
       onFaucetVisited();
     }
   };

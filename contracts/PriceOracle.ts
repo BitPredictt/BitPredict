@@ -218,6 +218,16 @@ export class PriceOracle extends ReentrancyGuard {
     return new BytesWriter(0);
   }
 
+  /**
+   * setAdmin(newAdmin: Address) — Transfer admin role.
+   */
+  @method({ name: 'newAdmin', type: ABIDataTypes.ADDRESS })
+  public setAdmin(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+    this.adminAddress.value = calldata.readAddress();
+    return new BytesWriter(0);
+  }
+
   @method()
   public pause(_calldata: Calldata): BytesWriter {
     this.requireAdmin();

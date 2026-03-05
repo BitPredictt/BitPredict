@@ -22,7 +22,7 @@ export function useWallet() {
     connected: !!walletAddress,
     address: walletAddress ?? '',
     balanceSats: walletBalance ? Number(walletBalance.confirmed) : 0,
-    network: 'testnet',
+    network: (import.meta.env.VITE_OPNET_NETWORK || 'testnet') as string,
   }), [walletAddress, walletBalance]);
 
   useEffect(() => {

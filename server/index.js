@@ -22,12 +22,12 @@ let opnetFactory = null;
 let opnetNetwork = null;
 let opnetRpcProvider = null; // JSONRpcProvider for getContract() calls
 
-const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d';
+const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqrsees4wp6dtkcj4a5nafx5hjffh56vu6c2zttrm';
 const PRED_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 
 // PredictionMarket contract address (env var for mainnet/testnet switch)
-const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj';
+const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqpq3k00rv9lcatn9wevxgsh520fpzqtxuvhyu459';
 // Selectors: SHA256 first 4 bytes of function signature (OPNet standard)
 const CREATE_MARKET_SELECTOR = 0x89eb2691;   // createMarket(uint256)
 const RESOLVE_MARKET_SELECTOR = 0xaa5b3340;  // resolveMarket(uint256,bool)
@@ -851,73 +851,73 @@ function seedMarkets() {
     // Long-term markets
     {
       id: 'btc-150k-2026', question: 'Will Bitcoin reach $150,000 by end of 2026?',
-      category: 'Crypto', yes_price: 0.72, no_price: 0.28, volume: 245000, liquidity: 89000,
+      category: 'Crypto', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-12-31').getTime() / 1000),
       tags: '["bitcoin","price","bullish"]', market_type: 'manual',
     },
     {
       id: 'eth-etf-50b', question: 'Will Ethereum spot ETF surpass $50B AUM in 2026?',
-      category: 'Crypto', yes_price: 0.45, no_price: 0.55, volume: 178000, liquidity: 62000,
+      category: 'Crypto', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-12-31').getTime() / 1000),
       tags: '["ethereum","etf","institutional"]', market_type: 'manual',
     },
     {
       id: 'us-midterms-2026', question: 'Will Republicans win the 2026 US midterm elections?',
-      category: 'Politics', yes_price: 0.58, no_price: 0.42, volume: 520000, liquidity: 145000,
+      category: 'Politics', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-11-03').getTime() / 1000),
       tags: '["election","usa","midterms"]', market_type: 'manual',
     },
     {
       id: 'opnet-1m-tx', question: 'Will OP_NET process 1M+ transactions by Q4 2026?',
-      category: 'Crypto', yes_price: 0.65, no_price: 0.35, volume: 92000, liquidity: 34000,
+      category: 'Crypto', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-12-31').getTime() / 1000),
       tags: '["opnet","bitcoin","adoption"]', market_type: 'manual',
     },
     {
       id: 'ai-agi-2028', question: 'Will AGI be achieved before 2028?',
-      category: 'Tech', yes_price: 0.18, no_price: 0.82, volume: 890000, liquidity: 210000,
+      category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2027-12-31').getTime() / 1000),
       tags: '["ai","agi","technology"]', market_type: 'manual',
     },
     {
       id: 'btc-dominance-65', question: 'Will BTC dominance exceed 65% in 2026?',
-      category: 'Crypto', yes_price: 0.54, no_price: 0.46, volume: 156000, liquidity: 48000,
+      category: 'Crypto', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-12-31').getTime() / 1000),
       tags: '["bitcoin","dominance","market"]', market_type: 'manual',
     },
     {
       id: 'spacex-mars-2027', question: 'Will SpaceX launch Starship to Mars orbit by 2027?',
-      category: 'Tech', yes_price: 0.25, no_price: 0.75, volume: 430000, liquidity: 120000,
+      category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2027-12-31').getTime() / 1000),
       tags: '["spacex","mars","space"]', market_type: 'manual',
     },
     {
       id: 'fed-rate-below-3', question: 'Will the Fed cut rates below 3% by end of 2026?',
-      category: 'Politics', yes_price: 0.41, no_price: 0.59, volume: 710000, liquidity: 195000,
+      category: 'Politics', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-12-31').getTime() / 1000),
       tags: '["fed","rates","macro"]', market_type: 'manual',
     },
     {
       id: 'sol-flip-eth-tx', question: 'Will Solana flip Ethereum in daily transactions by 2027?',
-      category: 'Crypto', yes_price: 0.38, no_price: 0.62, volume: 198000, liquidity: 56000,
+      category: 'Crypto', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2027-06-30').getTime() / 1000),
       tags: '["solana","ethereum","competition"]', market_type: 'manual',
     },
     {
       id: 'world-cup-brazil', question: 'Will Brazil win the 2026 FIFA World Cup?',
-      category: 'Sports', yes_price: 0.22, no_price: 0.78, volume: 1200000, liquidity: 320000,
+      category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-07-19').getTime() / 1000),
       tags: '["football","world-cup","brazil"]', market_type: 'manual',
     },
     {
       id: 'real-madrid-ucl', question: 'Will Real Madrid win Champions League 2026?',
-      category: 'Sports', yes_price: 0.32, no_price: 0.68, volume: 340000, liquidity: 95000,
+      category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-06-01').getTime() / 1000),
       tags: '["football","ucl","real-madrid"]', market_type: 'manual',
     },
     {
       id: 'nft-100b', question: 'Will NFT market cap exceed $100B in 2026?',
-      category: 'Culture', yes_price: 0.15, no_price: 0.85, volume: 67000, liquidity: 22000,
+      category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0,
       end_time: Math.floor(new Date('2026-12-31').getTime() / 1000),
       tags: '["nft","market","digital-art"]', market_type: 'manual',
     },
@@ -936,38 +936,38 @@ seedMarkets();
 // --- Ensure minimum category coverage (add extra markets if needed) ---
 function ensureCategoryMarkets() {
   const extraMarkets = [
-    // Sports (10+)
-    { id: 'nba-celtics-2026', question: 'Will the Boston Celtics win the 2026 NBA Championship?', category: 'Sports', yes_price: 0.28, no_price: 0.72, volume: 450000, liquidity: 125000, end_time: Math.floor(new Date('2026-06-20').getTime() / 1000), tags: '["nba","celtics","basketball"]', market_type: 'manual' },
-    { id: 'nfl-chiefs-sb-2027', question: 'Will the Kansas City Chiefs win Super Bowl LXI?', category: 'Sports', yes_price: 0.15, no_price: 0.85, volume: 890000, liquidity: 280000, end_time: Math.floor(new Date('2027-02-14').getTime() / 1000), tags: '["nfl","chiefs","super-bowl"]', market_type: 'manual' },
-    { id: 'f1-verstappen-2026', question: 'Will Max Verstappen win the 2026 F1 World Championship?', category: 'Sports', yes_price: 0.42, no_price: 0.58, volume: 380000, liquidity: 110000, end_time: Math.floor(new Date('2026-12-10').getTime() / 1000), tags: '["f1","verstappen","racing"]', market_type: 'manual' },
-    { id: 'wimbledon-djokovic-2026', question: 'Will Novak Djokovic win Wimbledon 2026?', category: 'Sports', yes_price: 0.18, no_price: 0.82, volume: 210000, liquidity: 65000, end_time: Math.floor(new Date('2026-07-12').getTime() / 1000), tags: '["tennis","wimbledon","djokovic"]', market_type: 'manual' },
-    { id: 'ufc-jones-retire-2026', question: 'Will Jon Jones retire undefeated in 2026?', category: 'Sports', yes_price: 0.55, no_price: 0.45, volume: 175000, liquidity: 52000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["ufc","mma","jones"]', market_type: 'manual' },
-    { id: 'psg-ucl-2026', question: 'Will PSG win the Champions League 2025-26?', category: 'Sports', yes_price: 0.12, no_price: 0.88, volume: 290000, liquidity: 88000, end_time: Math.floor(new Date('2026-06-01').getTime() / 1000), tags: '["football","ucl","psg"]', market_type: 'manual' },
-    { id: 'arsenal-epl-2026', question: 'Will Arsenal win the 2025-26 Premier League?', category: 'Sports', yes_price: 0.35, no_price: 0.65, volume: 520000, liquidity: 145000, end_time: Math.floor(new Date('2026-05-25').getTime() / 1000), tags: '["football","epl","arsenal"]', market_type: 'manual' },
-    { id: 'nba-lakers-playoff-2026', question: 'Will the Lakers make the 2026 NBA Playoffs?', category: 'Sports', yes_price: 0.62, no_price: 0.38, volume: 310000, liquidity: 95000, end_time: Math.floor(new Date('2026-04-15').getTime() / 1000), tags: '["nba","lakers","basketball"]', market_type: 'manual' },
-    { id: 'olympics-usa-gold-2028', question: 'Will the USA lead the 2028 Olympics gold medal count?', category: 'Sports', yes_price: 0.68, no_price: 0.32, volume: 780000, liquidity: 210000, end_time: Math.floor(new Date('2028-08-11').getTime() / 1000), tags: '["olympics","usa","2028"]', market_type: 'manual' },
-    { id: 'messi-retire-2026', question: 'Will Lionel Messi retire from professional football in 2026?', category: 'Sports', yes_price: 0.45, no_price: 0.55, volume: 650000, liquidity: 180000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["football","messi","retirement"]', market_type: 'manual' },
-    // Tech (10+)
-    { id: 'openai-gpt5-2026', question: 'Will OpenAI release GPT-5 before end of 2026?', category: 'Tech', yes_price: 0.78, no_price: 0.22, volume: 1200000, liquidity: 340000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["ai","openai","gpt5"]', market_type: 'manual' },
-    { id: 'apple-ar-glasses-2026', question: 'Will Apple release AR glasses in 2026?', category: 'Tech', yes_price: 0.35, no_price: 0.65, volume: 420000, liquidity: 120000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["apple","ar","hardware"]', market_type: 'manual' },
-    { id: 'tesla-fsd-level5-2027', question: 'Will Tesla achieve Level 5 full self-driving by 2027?', category: 'Tech', yes_price: 0.12, no_price: 0.88, volume: 560000, liquidity: 160000, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["tesla","self-driving","autonomous"]', market_type: 'manual' },
-    { id: 'nvidia-10t-2027', question: 'Will NVIDIA reach $10T market cap by 2027?', category: 'Tech', yes_price: 0.22, no_price: 0.78, volume: 480000, liquidity: 135000, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["nvidia","stocks","ai"]', market_type: 'manual' },
-    { id: 'quantum-1000-qubit-2027', question: 'Will a 1000+ logical qubit quantum computer exist by 2027?', category: 'Tech', yes_price: 0.15, no_price: 0.85, volume: 320000, liquidity: 95000, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["quantum","computing","science"]', market_type: 'manual' },
-    { id: 'starlink-direct-cell-2026', question: 'Will Starlink offer direct-to-cell service globally in 2026?', category: 'Tech', yes_price: 0.42, no_price: 0.58, volume: 290000, liquidity: 82000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["starlink","spacex","telecom"]', market_type: 'manual' },
-    { id: 'neuralink-human-trial-2026', question: 'Will Neuralink complete 10+ human implants by end of 2026?', category: 'Tech', yes_price: 0.58, no_price: 0.42, volume: 380000, liquidity: 105000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["neuralink","brain","biotech"]', market_type: 'manual' },
-    { id: 'google-gemini-beats-gpt-2026', question: 'Will Google Gemini surpass ChatGPT in market share by 2026?', category: 'Tech', yes_price: 0.2, no_price: 0.8, volume: 510000, liquidity: 145000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["google","ai","competition"]', market_type: 'manual' },
-    { id: 'humanoid-robot-commercial-2027', question: 'Will humanoid robots be commercially available by 2027?', category: 'Tech', yes_price: 0.3, no_price: 0.7, volume: 410000, liquidity: 118000, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["robotics","ai","commercial"]', market_type: 'manual' },
-    // Culture (10+)
-    { id: 'taylor-swift-retirement-2027', question: 'Will Taylor Swift announce retirement before 2028?', category: 'Culture', yes_price: 0.08, no_price: 0.92, volume: 680000, liquidity: 195000, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["music","taylor-swift","celebrity"]', market_type: 'manual' },
-    { id: 'oscar-best-picture-ai-2027', question: 'Will an AI-generated film win Best Picture Oscar by 2027?', category: 'Culture', yes_price: 0.05, no_price: 0.95, volume: 340000, liquidity: 98000, end_time: Math.floor(new Date('2027-03-30').getTime() / 1000), tags: '["oscars","ai","film"]', market_type: 'manual' },
-    { id: 'spotify-1b-users-2026', question: 'Will Spotify reach 1 billion users in 2026?', category: 'Culture', yes_price: 0.45, no_price: 0.55, volume: 230000, liquidity: 68000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["spotify","music","streaming"]', market_type: 'manual' },
-    { id: 'tiktok-banned-us-2026', question: 'Will TikTok be fully banned in the US by end of 2026?', category: 'Culture', yes_price: 0.25, no_price: 0.75, volume: 920000, liquidity: 260000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["tiktok","social-media","ban"]', market_type: 'manual' },
-    { id: 'mrbeast-100m-subs-2026', question: 'Will MrBeast reach 400M YouTube subscribers in 2026?', category: 'Culture', yes_price: 0.55, no_price: 0.45, volume: 185000, liquidity: 55000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["youtube","mrbeast","creator"]', market_type: 'manual' },
-    { id: 'netflix-gaming-10m-2026', question: 'Will Netflix Gaming reach 10M+ daily players by 2026?', category: 'Culture', yes_price: 0.15, no_price: 0.85, volume: 145000, liquidity: 42000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["netflix","gaming","streaming"]', market_type: 'manual' },
-    { id: 'gta6-release-2026', question: 'Will GTA VI be released before the end of 2026?', category: 'Culture', yes_price: 0.72, no_price: 0.28, volume: 1100000, liquidity: 310000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["gaming","gta","rockstar"]', market_type: 'manual' },
-    { id: 'disney-plus-profit-2026', question: 'Will Disney+ become profitable in 2026?', category: 'Culture', yes_price: 0.62, no_price: 0.38, volume: 280000, liquidity: 82000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["disney","streaming","entertainment"]', market_type: 'manual' },
-    { id: 'viral-ai-song-billboard-2026', question: 'Will an AI-generated song reach Billboard Hot 100 Top 10 in 2026?', category: 'Culture', yes_price: 0.35, no_price: 0.65, volume: 260000, liquidity: 75000, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["music","ai","billboard"]', market_type: 'manual' },
-    { id: 'metaverse-100m-users-2027', question: 'Will any metaverse platform reach 100M monthly users by 2027?', category: 'Culture', yes_price: 0.18, no_price: 0.82, volume: 350000, liquidity: 100000, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["metaverse","vr","meta"]', market_type: 'manual' },
+    // Sports
+    { id: 'nba-celtics-2026', question: 'Will the Boston Celtics win the 2026 NBA Championship?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-06-20').getTime() / 1000), tags: '["nba","celtics","basketball"]', market_type: 'manual' },
+    { id: 'nfl-chiefs-sb-2027', question: 'Will the Kansas City Chiefs win Super Bowl LXI?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-02-14').getTime() / 1000), tags: '["nfl","chiefs","super-bowl"]', market_type: 'manual' },
+    { id: 'f1-verstappen-2026', question: 'Will Max Verstappen win the 2026 F1 World Championship?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-10').getTime() / 1000), tags: '["f1","verstappen","racing"]', market_type: 'manual' },
+    { id: 'wimbledon-djokovic-2026', question: 'Will Novak Djokovic win Wimbledon 2026?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-07-12').getTime() / 1000), tags: '["tennis","wimbledon","djokovic"]', market_type: 'manual' },
+    { id: 'ufc-jones-retire-2026', question: 'Will Jon Jones retire undefeated in 2026?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["ufc","mma","jones"]', market_type: 'manual' },
+    { id: 'psg-ucl-2026', question: 'Will PSG win the Champions League 2025-26?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-06-01').getTime() / 1000), tags: '["football","ucl","psg"]', market_type: 'manual' },
+    { id: 'arsenal-epl-2026', question: 'Will Arsenal win the 2025-26 Premier League?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-05-25').getTime() / 1000), tags: '["football","epl","arsenal"]', market_type: 'manual' },
+    { id: 'nba-lakers-playoff-2026', question: 'Will the Lakers make the 2026 NBA Playoffs?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-04-15').getTime() / 1000), tags: '["nba","lakers","basketball"]', market_type: 'manual' },
+    { id: 'olympics-usa-gold-2028', question: 'Will the USA lead the 2028 Olympics gold medal count?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2028-08-11').getTime() / 1000), tags: '["olympics","usa","2028"]', market_type: 'manual' },
+    { id: 'messi-retire-2026', question: 'Will Lionel Messi retire from professional football in 2026?', category: 'Sports', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["football","messi","retirement"]', market_type: 'manual' },
+    // Tech
+    { id: 'openai-gpt5-2026', question: 'Will OpenAI release GPT-5 before end of 2026?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["ai","openai","gpt5"]', market_type: 'manual' },
+    { id: 'apple-ar-glasses-2026', question: 'Will Apple release AR glasses in 2026?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["apple","ar","hardware"]', market_type: 'manual' },
+    { id: 'tesla-fsd-level5-2027', question: 'Will Tesla achieve Level 5 full self-driving by 2027?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["tesla","self-driving","autonomous"]', market_type: 'manual' },
+    { id: 'nvidia-10t-2027', question: 'Will NVIDIA reach $10T market cap by 2027?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["nvidia","stocks","ai"]', market_type: 'manual' },
+    { id: 'quantum-1000-qubit-2027', question: 'Will a 1000+ logical qubit quantum computer exist by 2027?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["quantum","computing","science"]', market_type: 'manual' },
+    { id: 'starlink-direct-cell-2026', question: 'Will Starlink offer direct-to-cell service globally in 2026?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["starlink","spacex","telecom"]', market_type: 'manual' },
+    { id: 'neuralink-human-trial-2026', question: 'Will Neuralink complete 10+ human implants by end of 2026?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["neuralink","brain","biotech"]', market_type: 'manual' },
+    { id: 'google-gemini-beats-gpt-2026', question: 'Will Google Gemini surpass ChatGPT in market share by 2026?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["google","ai","competition"]', market_type: 'manual' },
+    { id: 'humanoid-robot-commercial-2027', question: 'Will humanoid robots be commercially available by 2027?', category: 'Tech', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["robotics","ai","commercial"]', market_type: 'manual' },
+    // Culture
+    { id: 'taylor-swift-retirement-2027', question: 'Will Taylor Swift announce retirement before 2028?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["music","taylor-swift","celebrity"]', market_type: 'manual' },
+    { id: 'oscar-best-picture-ai-2027', question: 'Will an AI-generated film win Best Picture Oscar by 2027?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-03-30').getTime() / 1000), tags: '["oscars","ai","film"]', market_type: 'manual' },
+    { id: 'spotify-1b-users-2026', question: 'Will Spotify reach 1 billion users in 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["spotify","music","streaming"]', market_type: 'manual' },
+    { id: 'tiktok-banned-us-2026', question: 'Will TikTok be fully banned in the US by end of 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["tiktok","social-media","ban"]', market_type: 'manual' },
+    { id: 'mrbeast-100m-subs-2026', question: 'Will MrBeast reach 400M YouTube subscribers in 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["youtube","mrbeast","creator"]', market_type: 'manual' },
+    { id: 'netflix-gaming-10m-2026', question: 'Will Netflix Gaming reach 10M+ daily players by 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["netflix","gaming","streaming"]', market_type: 'manual' },
+    { id: 'gta6-release-2026', question: 'Will GTA VI be released before the end of 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["gaming","gta","rockstar"]', market_type: 'manual' },
+    { id: 'disney-plus-profit-2026', question: 'Will Disney+ become profitable in 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["disney","streaming","entertainment"]', market_type: 'manual' },
+    { id: 'viral-ai-song-billboard-2026', question: 'Will an AI-generated song reach Billboard Hot 100 Top 10 in 2026?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2026-12-31').getTime() / 1000), tags: '["music","ai","billboard"]', market_type: 'manual' },
+    { id: 'metaverse-100m-users-2027', question: 'Will any metaverse platform reach 100M monthly users by 2027?', category: 'Culture', yes_price: 0.50, no_price: 0.50, volume: 0, liquidity: 0, end_time: Math.floor(new Date('2027-12-31').getTime() / 1000), tags: '["metaverse","vr","meta"]', market_type: 'manual' },
   ];
 
   const ins = db.prepare(`INSERT OR IGNORE INTO markets (id, question, category, yes_price, no_price,
@@ -1019,27 +1019,7 @@ async function resolveExpiredMarkets() {
   const onchainResolves = []; // Queue on-chain resolves for sequential execution
 
   for (const m of expired) {
-    // 1. Price-based 5-min markets
-    if (m.market_type === 'price_5min' && m.resolution_source) {
-      try {
-        const src = JSON.parse(m.resolution_source);
-        const currentPrice = await fetchPrice(src.asset);
-        if (currentPrice <= 0) continue;
-
-        const outcome = currentPrice > src.threshold ? 'yes' : 'no';
-        db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
-        settleBets(m.id, outcome);
-        console.log(`Resolved ${m.id}: ${outcome} (price: $${currentPrice}, threshold: $${src.threshold})`);
-        if (m.onchain_id != null) {
-          onchainResolves.push({ id: m.id, onchainId: m.onchain_id, isYes: outcome === 'yes' });
-        }
-      } catch (e) {
-        console.error(`Failed to resolve ${m.id}:`, e.message);
-      }
-      continue;
-    }
-
-    // 2. Polymarket markets: try to fetch resolution from Gamma API
+    // 1. Polymarket markets: try to fetch resolution from Gamma API
     if (m.market_type === 'polymarket') {
       try {
         // Extract conditionId from market id (poly-0x{conditionId})
@@ -1379,6 +1359,13 @@ app.post('/api/auth/challenge', (req, res) => {
   if (!address) return res.status(400).json({ error: 'address required' });
   if (typeof address !== 'string' || !address.startsWith(OPNET_ADDRESS_PREFIX) || address.length > 120) {
     return res.status(400).json({ error: 'Invalid address format' });
+  }
+  // Rate limit: 5 challenge requests per minute per address, 20 per IP
+  if (rateLimit('challenge:' + address, 5, 60000)) {
+    return res.status(429).json({ error: 'Too many challenge requests. Wait a moment.' });
+  }
+  if (rateLimit('challenge-ip:' + req.ip, 20, 60000)) {
+    return res.status(429).json({ error: 'Too many requests from this IP.' });
   }
   const challenge = generateChallenge(address);
   res.json({ challenge, message: `Sign this challenge to authenticate with BitPredict: ${challenge}` });
@@ -1882,11 +1869,11 @@ app.get('/api/leaderboard', (req, res) => {
       SUM(CASE WHEN b.status = 'won' THEN b.payout - b.amount ELSE 0 END) -
       SUM(CASE WHEN b.status = 'lost' THEN b.amount ELSE 0 END) as pnl
     FROM users u LEFT JOIN bets b ON u.address = b.user_address
-    WHERE u.address LIKE '${OPNET_ADDRESS_PREFIX}%'
+    WHERE u.address LIKE ? || '%'
     GROUP BY u.address
     ORDER BY u.balance DESC
     LIMIT 50
-  `).all();
+  `).all(OPNET_ADDRESS_PREFIX);
 
   res.json(leaders.map((l, i) => ({
     rank: i + 1,
@@ -2394,7 +2381,7 @@ app.post('/api/notifications/read', requireAuth, (req, res) => {
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Bob's OPNet knowledge base — injected into every query
+// Bob's OPNet knowledge base — injected into every query (uses OPNET_NETWORK_NAME from above)
 const BOB_OPNET_KNOWLEDGE = `
 ## OP_NET Platform Knowledge (Bob's Core)
 OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a rollup — runs directly on Bitcoin.
@@ -2405,20 +2392,21 @@ OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a roll
 - Runtime: btc-runtime provides Solidity-like patterns — u256 math, storage, events, modifiers
 - NO floating-point arithmetic in contracts (u256 only)
 - Wallet: OP_WALLET browser extension (UniSat fork with OP_NET support)
-- Testnet: Signet fork, addresses start with "opt1"
-- RPC: https://testnet.opnet.org for testnet queries
+- Network: ${OPNET_NETWORK_NAME}
+- RPC: ${process.env.OPNET_RPC_BASE || 'https://testnet.opnet.org'}
 - Explorer: https://opscan.org
-- Faucet: https://faucet.opnet.org for testnet BTC
+${OPNET_NET === 'testnet' ? '- Faucet: https://faucet.opnet.org for testnet BTC' : ''}
 
 ## BitPredict Architecture
-- BPUSD token: OP-20 MintableToken at opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d (publicMint enabled)
-- PredictionMarket contract: opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj
+- BPUSD token: OP-20 MintableToken at ${PRED_TOKEN} (publicMint enabled)
+- PredictionMarket contract: ${PREDICTION_MARKET_ADDRESS}
+- StakingVault: ${process.env.STAKING_VAULT_ADDRESS || ''}
+- PriceOracle: ${process.env.PRICE_ORACLE_ADDRESS || ''}
 - AMM: constant-product (x·y=k), 2% protocol fee (200 bps), fee rounds UP to favor protocol
 - Markets: binary YES/NO outcomes, shares priced 0–1 BPUSD
 - Resolution: oracle/creator resolves, winning shares redeem 1:1 from pool
 - On-chain flow: approve BPUSD → buyShares(marketId, isYes, amount) → claimPayout(marketId)
-- SDK pattern: getContract() → simulate() → sendTransaction({signer:null, mldsaSigner:null})
-- signer is ALWAYS null on frontend — OP_WALLET extension handles all signing
+- SDK pattern: getContract() → simulate() → sendTransaction() — wallet handles signing on frontend
 - Security: reentrancy guards, tx.sender (not tx.origin), checked u256 math
 
 ## Trading Concepts
@@ -2523,7 +2511,7 @@ ${marketContext}${userContext}
 - Be opinionated on markets — give clear YES/NO recommendations with reasoning
 - Always calculate expected value: EV = (probability × payout) - cost
 - Warn about risks but don't be overly cautious — traders want actionable signals
-- If someone asks how to use the platform, walk them through: connect OP_WALLET → get testnet BTC from faucet.opnet.org → mint BPUSD tokens → pick a market → place a bet
+- If someone asks how to use the platform, walk them through: connect OP_WALLET → ${OPNET_NET === 'testnet' ? 'get testnet BTC from faucet.opnet.org → ' : ''}mint BPUSD tokens → pick a market → place a bet
 - The entire BitPredict platform is English-only. Never respond in any other language.
 - ALWAYS respond in English regardless of the user's language
 - Keep answers focused: 3-6 sentences for simple questions, longer for deep analysis
@@ -3037,12 +3025,12 @@ app.get('/api/social/top-predictors', (req, res) => {
       SUM(CASE WHEN b.status = 'won' THEN b.payout - b.amount ELSE 0 END) -
       SUM(CASE WHEN b.status = 'lost' THEN b.amount ELSE 0 END) as pnl
     FROM users u JOIN bets b ON u.address = b.user_address
-    WHERE u.address LIKE '${OPNET_ADDRESS_PREFIX}%'
+    WHERE u.address LIKE ? || '%'
     GROUP BY u.address
     HAVING total_bets >= 1
     ORDER BY pnl DESC
     LIMIT 20
-  `).all();
+  `).all(OPNET_ADDRESS_PREFIX);
 
   res.json(leaders.map((l, i) => ({
     rank: i + 1,

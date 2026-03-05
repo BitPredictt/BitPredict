@@ -25,6 +25,11 @@ export type RemoveOracle = CallResult<{}, OPNetEvent<never>[]>;
 export type SubmitPrice = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
+ * @description Represents the result of the setAdmin function call.
+ */
+export type SetAdmin = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
  * @description Represents the result of the pause function call.
  */
 export type Pause = CallResult<{}, OPNetEvent<never>[]>;
@@ -51,6 +56,7 @@ export interface IPriceOracle extends IOP_NETContract {
     addOracle(oracle: Address): Promise<AddOracle>;
     removeOracle(oracle: Address): Promise<RemoveOracle>;
     submitPrice(assetId: bigint, price: bigint): Promise<SubmitPrice>;
+    setAdmin(newAdmin: Address): Promise<SetAdmin>;
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;
     getPrice(assetId: bigint): Promise<GetPrice>;

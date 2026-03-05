@@ -1,0 +1,15 @@
+{
+  "name": "bitpredict-oracle-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Oracle bot that submits real BTC prices to PriceOracle contract",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@btc-vision/bitcoin": "^7.0.0-rc.6",
+    "@btc-vision/transaction": "^1.8.0-rc.9",
+    "opnet": "^1.8.1-rc.15"
+  }
+}

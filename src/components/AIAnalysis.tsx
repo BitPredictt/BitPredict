@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { BrainCircuit, Bot, Code2, Shield, Workflow, ExternalLink, HelpCircle, ChevronDown, ChevronUp, Zap, Wallet, Globe, BookOpen } from 'lucide-react';
+import { OPNET_CONFIG } from '../lib/opnet';
+
+const isTestnet = OPNET_CONFIG.network === 'testnet';
 
 interface FAQItem {
   q: string;
@@ -10,7 +13,7 @@ interface FAQItem {
 const FAQ_DATA: FAQItem[] = [
   { category: 'opnet', q: 'What is OP_NET?', a: 'OP_NET is a Bitcoin Layer 1 smart contract platform. It uses Tapscript-encoded calldata to execute WASM-compiled AssemblyScript smart contracts directly on Bitcoin, without sidechains or bridges. It provides Solidity-like development experience on Bitcoin.' },
   { category: 'opnet', q: 'How does OP_NET differ from other Bitcoin L2s?', a: 'Unlike Lightning, Stacks, or RSK, OP_NET runs directly on Bitcoin L1. Smart contracts are compiled to WebAssembly (WASM) and executed by OP_NET validators. Settlement happens on Bitcoin mainchain with PoW + OP_NET consensus.' },
-  { category: 'opnet', q: 'What is the OP_NET Testnet?', a: 'The OP_NET Testnet (Signet fork) is the current testing environment for OP_NET smart contracts. It uses testnet BTC (opt1 addresses) and connects to https://testnet.opnet.org RPC. You can get testnet BTC from the faucet at faucet.opnet.org.' },
+  ...(isTestnet ? [{ category: 'opnet' as const, q: 'What is the OP_NET Testnet?', a: 'The OP_NET Testnet (Signet fork) is the current testing environment for OP_NET smart contracts. It uses testnet BTC (opt1 addresses) and connects to https://testnet.opnet.org RPC. You can get testnet BTC from the faucet at faucet.opnet.org.' }] : []),
   { category: 'opnet', q: 'What is Bob AI?', a: 'Bob is the OP_NET AI agent accessible via MCP (Model Context Protocol). Bob can analyze smart contracts, audit code, generate market insights, and help developers build on OP_NET. Bob powers the AI analysis signals in BitPredict.' },
   { category: 'opnet', q: 'What programming language are contracts written in?', a: 'OP_NET smart contracts are written in AssemblyScript (TypeScript-like language) and compiled to WASM. The runtime (btc-runtime) provides Solidity-like patterns: storage, events, modifiers, and u256 math. No floating-point arithmetic is allowed.' },
   { category: 'platform', q: 'What is BitPredict?', a: 'BitPredict is a decentralized prediction market platform built on OP_NET. You can trade YES/NO shares on binary outcomes across Crypto, Politics, Sports, Tech, and Culture categories. Prices are determined by a constant-product AMM (x·y=k).' },
@@ -18,8 +21,10 @@ const FAQ_DATA: FAQItem[] = [
   { category: 'platform', q: 'What happens when a market resolves?', a: 'When the outcome is determined, the market creator (or oracle) resolves the market. Winning shares become redeemable 1:1 from the total pool. Losers receive nothing. Payouts settle on Bitcoin L1 via OP_NET smart contract.' },
   { category: 'platform', q: 'How are achievements and XP earned?', a: 'Complete quests and milestones to earn XP: place predictions, use Bob AI analysis, connect your wallet, explore the leaderboard, and more. XP accumulates to increase your level shown in the Quests tab.' },
   { category: 'wallet', q: 'What wallet do I need?', a: 'BitPredict uses OP_WALLET, a browser extension (UniSat fork) that supports OP_NET smart contract interactions. Install it from opnet.org. It exposes APIs for account connection, transaction signing (signPsbt), and broadcasting.' },
-  { category: 'wallet', q: 'How do I get testnet BTC?', a: 'Visit the OP_NET faucet at https://faucet.opnet.org to receive free testnet BTC. Your wallet address should start with opt1 for OPNet testnet. The faucet distributes small amounts sufficient for testing.' },
-  { category: 'wallet', q: 'Why does my balance show 0?', a: 'Balance is fetched live from the OP_NET testnet RPC. If you are using a demo wallet (random address), the balance will be 0. Connect a real OP_WALLET with testnet BTC from the faucet to see a non-zero balance.' },
+  ...(isTestnet ? [
+    { category: 'wallet' as const, q: 'How do I get testnet BTC?', a: 'Visit the OP_NET faucet at https://faucet.opnet.org to receive free testnet BTC. Your wallet address should start with opt1 for OPNet testnet. The faucet distributes small amounts sufficient for testing.' },
+    { category: 'wallet' as const, q: 'Why does my balance show 0?', a: 'Balance is fetched live from the OP_NET testnet RPC. If you are using a demo wallet (random address), the balance will be 0. Connect a real OP_WALLET with testnet BTC from the faucet to see a non-zero balance.' },
+  ] : []),
   { category: 'trading', q: 'What is slippage?', a: 'Slippage is the difference between the expected price and the actual execution price. Larger trades relative to pool liquidity cause more slippage. The AMM details panel in the bet modal shows your exact price impact.' },
   { category: 'trading', q: 'What is the protocol fee?', a: 'A 2% (200 basis points) fee is charged on each trade. This fee goes to liquidity providers and the protocol. It is automatically deducted from your trade amount before calculating shares received.' },
   { category: 'trading', q: 'Can I lose more than I invest?', a: 'No. Your maximum loss is limited to the amount you invest. If your prediction is wrong, you lose your stake. If correct, your shares are redeemable for a proportional share of the total pool.' },
@@ -101,11 +106,11 @@ export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
           <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">OP_NET Docs</div>
           <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
         </a>
-        <a href="https://faucet.opnet.org" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
+        {isTestnet && <a href="https://faucet.opnet.org" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
           <Wallet size={18} className="text-green-400 mx-auto mb-1" />
           <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Get Testnet BTC</div>
           <ExternalLink size={8} className="text-gray-600 mx-auto mt-1" />
-        </a>
+        </a>}
         <a href="https://opscan.org" target="_blank" rel="noopener noreferrer" className="bg-surface-2/50 border border-white/5 rounded-xl p-3 text-center hover:border-btc/20 transition-all group">
           <Globe size={18} className="text-purple-400 mx-auto mb-1" />
           <div className="text-[10px] font-bold text-gray-400 group-hover:text-white">Block Explorer</div>

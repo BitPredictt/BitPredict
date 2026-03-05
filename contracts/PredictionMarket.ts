@@ -43,8 +43,8 @@ const INITIAL_LIQUIDITY: u256 = u256.fromU64(1_000_000); // 1M sats initial virt
 const MIN_MARKET_DURATION: u64 = 6;      // 6 blocks ≈ 1 hour
 
 // Cross-contract call selectors (OP-20 standard)
-const TRANSFER_FROM_SELECTOR: u32 = 0x23b872dd; // transferFrom(address,address,uint256)
-const TRANSFER_SELECTOR: u32 = 0xa9059cbb;      // transfer(address,uint256)
+const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7; // transferFrom — OPNet SHA-256 selector
+const TRANSFER_SELECTOR: u32 = 0x3b88ef57;      // transfer — OPNet SHA-256 selector
 
 // ============================================================
 // Events
@@ -130,6 +130,8 @@ export class PredictionMarket extends ReentrancyGuard {
   private tokenAddress: StoredAddress;  // BPUSD token contract
   private _paused: StoredBoolean;
   private marketFeeBps: StoredU256;     // governance-adjustable fee (in BPS)
+  private accumulatedFees: StoredU256;  // total fees accumulated (withdrawable by admin)
+  private feeRecipient: StoredAddress;  // address to receive withdrawn fees
 
   // Per-market state (keyed by sha256(marketId))
   private yesReserves:    AddressMemoryMap;
@@ -154,6 +156,8 @@ export class PredictionMarket extends ReentrancyGuard {
     this.tokenAddress  = new StoredAddress(Blockchain.nextPointer);
     this._paused       = new StoredBoolean(Blockchain.nextPointer, false);
     this.marketFeeBps  = new StoredU256(Blockchain.nextPointer, emptySubPointer);
+    this.accumulatedFees = new StoredU256(Blockchain.nextPointer, emptySubPointer);
+    this.feeRecipient  = new StoredAddress(Blockchain.nextPointer);
 
     this.yesReserves    = new AddressMemoryMap(Blockchain.nextPointer);
     this.noReserves     = new AddressMemoryMap(Blockchain.nextPointer);
@@ -180,6 +184,8 @@ export class PredictionMarket extends ReentrancyGuard {
     this.adminAddress.value = Blockchain.tx.sender;
     this.nextMarketId.value = u256.One;
     this.marketFeeBps.value = u256.fromU64(200); // default 2%
+    this.accumulatedFees.value = u256.Zero;
+    this.feeRecipient.value = Blockchain.tx.sender; // admin is default fee recipient
   }
 
   // ============================================================
@@ -280,38 +286,50 @@ export class PredictionMarket extends ReentrancyGuard {
     const noReserve: u256  = this.noReserves.get(marketKey);
     const k: u256          = SafeMath.mul(yesReserve, noReserve);
 
-    let shares: u256 = u256.Zero;
     const userKey: Address = this.userKey(marketId, Blockchain.tx.sender);
 
-    // === EFFECTS (state updates BEFORE external calls) ===
+    // Calculate shares BEFORE state mutations (M-1 fix)
+    let shares: u256 = u256.Zero;
+    let newYesReserve: u256 = u256.Zero;
+    let newNoReserve: u256 = u256.Zero;
+
     if (isYes) {
-      const newNoReserve: u256  = SafeMath.add(noReserve, netAmount);
-      const newYesReserve: u256 = SafeMath.div(k, newNoReserve);
+      newNoReserve = SafeMath.add(noReserve, netAmount);
+      newYesReserve = SafeMath.div(k, newNoReserve);
       shares = SafeMath.sub(yesReserve, newYesReserve);
-      this.yesReserves.set(marketKey, newYesReserve);
-      this.noReserves.set(marketKey, newNoReserve);
+    } else {
+      newYesReserve = SafeMath.add(yesReserve, netAmount);
+      newNoReserve = SafeMath.div(k, newYesReserve);
+      shares = SafeMath.sub(noReserve, newNoReserve);
+    }
+
+    // Check BEFORE any state mutations (M-1 fix)
+    if (u256.eq(shares, u256.Zero)) {
+      throw new Revert('Slippage: zero shares');
+    }
+
+    // === EFFECTS (state updates BEFORE external calls) ===
+    this.yesReserves.set(marketKey, newYesReserve);
+    this.noReserves.set(marketKey, newNoReserve);
+
+    if (isYes) {
       const cur: u256 = this.userYesShares.get(userKey);
       this.userYesShares.set(userKey, SafeMath.add(cur, shares));
       const tot: u256 = this.totalYesShares.get(marketKey);
       this.totalYesShares.set(marketKey, SafeMath.add(tot, shares));
     } else {
-      const newYesReserve: u256 = SafeMath.add(yesReserve, netAmount);
-      const newNoReserve: u256  = SafeMath.div(k, newYesReserve);
-      shares = SafeMath.sub(noReserve, newNoReserve);
-      this.yesReserves.set(marketKey, newYesReserve);
-      this.noReserves.set(marketKey, newNoReserve);
       const cur: u256 = this.userNoShares.get(userKey);
       this.userNoShares.set(userKey, SafeMath.add(cur, shares));
       const tot: u256 = this.totalNoShares.get(marketKey);
       this.totalNoShares.set(marketKey, SafeMath.add(tot, shares));
     }
 
-    if (u256.eq(shares, u256.Zero)) {
-      throw new Revert('Slippage: zero shares');
-    }
+    // Track fees (M-3 fix)
+    this.accumulatedFees.value = SafeMath.add(this.accumulatedFees.value, fee);
 
+    // Pool tracks netAmount only (M-4 fix: was 'amount' which included fees)
     const pool: u256 = this.totalPools.get(marketKey);
-    this.totalPools.set(marketKey, SafeMath.add(pool, amount));
+    this.totalPools.set(marketKey, SafeMath.add(pool, netAmount));
 
     // YES price in bps for the event
     const newYesR: u256  = this.yesReserves.get(marketKey);
@@ -532,12 +550,15 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Payout too small after fee');
     }
 
-    // Decrease pool tracking
+    // Track fees (M-3 fix)
+    this.accumulatedFees.value = SafeMath.add(this.accumulatedFees.value, fee);
+
+    // Decrease pool tracking (M-4 fix: netPayout instead of grossPayout)
     const pool: u256 = this.totalPools.get(marketKey);
-    if (u256.gt(grossPayout, pool)) {
+    if (u256.gt(netPayout, pool)) {
       this.totalPools.set(marketKey, u256.Zero);
     } else {
-      this.totalPools.set(marketKey, SafeMath.sub(pool, grossPayout));
+      this.totalPools.set(marketKey, SafeMath.sub(pool, netPayout));
     }
 
     // === INTERACTIONS (external call after state) ===
@@ -571,6 +592,41 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Fee exceeds maximum (5%)');
     }
     this.marketFeeBps.value = newFeeBps;
+    return new BytesWriter(0);
+  }
+
+  /**
+   * withdrawFees() — Admin withdraws accumulated protocol fees.
+   */
+  @method()
+  @returns({ name: 'amount', type: ABIDataTypes.UINT256 })
+  public withdrawFees(_calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+
+    const fees: u256 = this.accumulatedFees.value;
+    if (u256.eq(fees, u256.Zero)) {
+      throw new Revert('No fees to withdraw');
+    }
+
+    // EFFECTS first
+    this.accumulatedFees.value = u256.Zero;
+
+    // INTERACTIONS
+    this._transferToken(this.feeRecipient.value, fees);
+
+    const writer = new BytesWriter(32);
+    writer.writeU256(fees);
+    return writer;
+  }
+
+  /**
+   * setFeeRecipient(recipient: Address) — Admin sets fee recipient.
+   */
+  @method({ name: 'recipient', type: ABIDataTypes.ADDRESS })
+  public setFeeRecipient(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+    const recipient: Address = calldata.readAddress();
+    this.feeRecipient.value = recipient;
     return new BytesWriter(0);
   }
 

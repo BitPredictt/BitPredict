@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { Achievement, Quest, Bet } from '../types';
 import * as api from '../lib/api';
+import { OPNET_CONFIG } from '../lib/opnet';
 
 const STORAGE_KEY = 'bitpredict_achievements';
 const QUEST_STORAGE_KEY = 'bitpredict_quests';
@@ -213,18 +214,18 @@ const DEFAULT_QUESTS: Quest[] = [
     xpReward: 300,
     action: 'bet',
   },
-  {
+  ...(OPNET_CONFIG.network === 'testnet' ? [{
     id: 'visit_faucet',
     title: 'Get Testnet BTC',
     description: 'Visit the OP_NET faucet to get testnet BTC',
     icon: '🚰',
-    type: 'onetime',
+    type: 'onetime' as const,
     completed: false,
     progress: 0,
     maxProgress: 1,
     xpReward: 75,
-    action: 'link',
-  },
+    action: 'link' as const,
+  }] : []),
   {
     id: 'check_leaderboard',
     title: 'Competitive Spirit',

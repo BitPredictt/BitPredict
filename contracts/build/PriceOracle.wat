@@ -471,7 +471,7 @@
   (local $3 i32)
   (local $4 i32)
   (local $5 i32)
-  block $__inlined_func$~lib/util/string/joinReferenceArray<~lib/string/String>$13 (result i32)
+  block $__inlined_func$~lib/util/string/joinReferenceArray<~lib/string/String>$14 (result i32)
    i32.const 2032
    local.get $0
    local.tee $1
@@ -485,7 +485,7 @@
    local.tee $2
    i32.const 0
    i32.lt_s
-   br_if $__inlined_func$~lib/util/string/joinReferenceArray<~lib/string/String>$13
+   br_if $__inlined_func$~lib/util/string/joinReferenceArray<~lib/string/String>$14
    drop
    local.get $2
    i32.eqz
@@ -496,7 +496,7 @@
     i32.const 2032
     local.get $0
     select
-    br $__inlined_func$~lib/util/string/joinReferenceArray<~lib/string/String>$13
+    br $__inlined_func$~lib/util/string/joinReferenceArray<~lib/string/String>$14
    end
    i32.const 2032
    local.set $0
@@ -4063,7 +4063,7 @@
    i32.const 34
    i32.eq
    if
-    block $__inlined_func$PriceOracle/PriceOracle#execute$703 (result i32)
+    block $__inlined_func$PriceOracle/PriceOracle#execute$704 (result i32)
      local.get $1
      i32.const 213552157
      i32.eq
@@ -4071,7 +4071,7 @@
       local.get $2
       local.get $0
       call $PriceOracle/PriceOracle#addOracle
-      br $__inlined_func$PriceOracle/PriceOracle#execute$703
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
      end
      local.get $1
      i32.const 1759515691
@@ -4157,7 +4157,7 @@
       call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
       i32.const 0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-      br $__inlined_func$PriceOracle/PriceOracle#execute$703
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
      end
      local.get $1
      i32.const 1006034199
@@ -4166,7 +4166,22 @@
       local.get $2
       local.get $0
       call $PriceOracle/PriceOracle#submitPrice
-      br $__inlined_func$PriceOracle/PriceOracle#execute$703
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
+     end
+     local.get $1
+     i32.const 448784557
+     i32.eq
+     if
+      local.get $2
+      call $PriceOracle/PriceOracle#requireAdmin
+      local.get $2
+      i32.load offset=12
+      local.get $0
+      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readAddress
+      call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#set:value
+      i32.const 0
+      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
      end
      local.get $1
      i32.const 557378572
@@ -4180,7 +4195,7 @@
       call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredBoolean/StoredBoolean#set:value
       i32.const 0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-      br $__inlined_func$PriceOracle/PriceOracle#execute$703
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
      end
      local.get $1
      i32.const -2126221029
@@ -4194,7 +4209,7 @@
       call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredBoolean/StoredBoolean#set:value
       i32.const 0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-      br $__inlined_func$PriceOracle/PriceOracle#execute$703
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
      end
      local.get $1
      i32.const 1288773540
@@ -4203,7 +4218,7 @@
       local.get $2
       local.get $0
       call $PriceOracle/PriceOracle#getPrice
-      br $__inlined_func$PriceOracle/PriceOracle#execute$703
+      br $__inlined_func$PriceOracle/PriceOracle#execute$704
      end
      local.get $1
      call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#execute
@@ -4233,96 +4248,9 @@
   end
   i32.const 0
  )
- (func $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#onDeployment (param $0 i32)
-  (local $1 i32)
-  (local $2 i32)
-  local.get $0
-  i32.load offset=16
-  i32.load offset=12
-  local.set $2
-  loop $for-loop|0
-   local.get $1
-   local.get $2
-   i32.lt_s
-   if
-    local.get $0
-    i32.load offset=16
-    local.get $1
-    call $~lib/array/Array<~lib/@btc-vision/btc-runtime/runtime/plugins/Plugin/Plugin>#__uget
-    drop
-    local.get $1
-    i32.const 1
-    i32.add
-    local.set $1
-    br $for-loop|0
-   end
-  end
-  local.get $0
-  call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#get:contract
-  local.tee $0
-  i32.const 8
-  i32.sub
-  i32.load
-  i32.const 34
-  i32.eq
-  if
-   local.get $0
-   i32.load offset=12
-   local.set $1
-   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-   local.tee $2
-   i32.load offset=28
-   i32.eqz
-   if
-    i32.const 10464
-    i32.const 5456
-    i32.const 146
-    i32.const 13
-    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-    unreachable
-   end
-   local.get $2
-   i32.load offset=28
-   local.tee $2
-   i32.eqz
-   if
-    i32.const 7984
-    i32.const 5456
-    i32.const 148
-    i32.const 16
-    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-    unreachable
-   end
-   local.get $2
-   i32.load offset=4
-   local.tee $2
-   local.get $1
-   call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#get:value
-   call $~lib/@btc-vision/btc-runtime/runtime/types/Address/Address#equals
-   i32.eqz
-   if
-    local.get $1
-    local.get $2
-    i32.store offset=8
-    global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-    local.get $1
-    i32.load
-    local.get $1
-    i32.load offset=8
-    call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#_internalSetStorageAt
-   end
-   local.get $0
-   i32.load offset=20
-   i64.const 0
-   i64.const 0
-   i64.const 0
-   i64.const 0
-   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-   call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
-  end
- )
  (func $~lib/@btc-vision/btc-runtime/runtime/exports/index/onDeploy (param $0 i32) (result i32)
   (local $1 i32)
+  (local $2 i32)
   i32.const 0
   i32.const 512
   i32.const 512
@@ -4350,8 +4278,77 @@
   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
   i32.const 0
   call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#onExecutionStarted
+  i32.const 0
+  local.set $0
   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-  call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#onDeployment
+  local.tee $1
+  i32.load offset=16
+  i32.load offset=12
+  local.set $2
+  loop $for-loop|0
+   local.get $0
+   local.get $2
+   i32.lt_s
+   if
+    local.get $1
+    i32.load offset=16
+    local.get $0
+    call $~lib/array/Array<~lib/@btc-vision/btc-runtime/runtime/plugins/Plugin/Plugin>#__uget
+    drop
+    local.get $0
+    i32.const 1
+    i32.add
+    local.set $0
+    br $for-loop|0
+   end
+  end
+  local.get $1
+  call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#get:contract
+  local.tee $0
+  i32.const 8
+  i32.sub
+  i32.load
+  i32.const 34
+  i32.eq
+  if
+   local.get $0
+   i32.load offset=12
+   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
+   local.tee $2
+   i32.load offset=28
+   i32.eqz
+   if
+    i32.const 10464
+    i32.const 5456
+    i32.const 146
+    i32.const 13
+    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
+    unreachable
+   end
+   local.get $2
+   i32.load offset=28
+   local.tee $2
+   i32.eqz
+   if
+    i32.const 7984
+    i32.const 5456
+    i32.const 148
+    i32.const 16
+    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
+    unreachable
+   end
+   local.get $2
+   i32.load offset=4
+   call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#set:value
+   local.get $0
+   i32.load offset=20
+   i64.const 0
+   i64.const 0
+   i64.const 0
+   i64.const 0
+   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
+   call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
+  end
   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
   i32.const 0
   call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#onExecutionCompleted
@@ -5603,7 +5600,7 @@
   if
    i32.const 10544
    i32.const 10592
-   i32.const 331
+   i32.const 341
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -7046,6 +7043,24 @@
   i32.const 16
   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
   unreachable
+ )
+ (func $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#set:value (param $0 i32) (param $1 i32)
+  local.get $1
+  local.get $0
+  call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#get:value
+  call $~lib/@btc-vision/btc-runtime/runtime/types/Address/Address#equals
+  if
+   return
+  end
+  local.get $0
+  local.get $1
+  i32.store offset=8
+  global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
+  local.get $0
+  i32.load
+  local.get $0
+  i32.load offset=8
+  call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#_internalSetStorageAt
  )
  (func $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub (param $0 i32) (param $1 i32) (result i32)
   (local $2 i64)

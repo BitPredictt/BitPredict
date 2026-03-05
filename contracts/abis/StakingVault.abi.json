@@ -76,6 +76,19 @@
             "outputs": []
         },
         {
+            "name": "setAdmin",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "newAdmin",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": []
+        },
+        {
             "name": "pause",
             "type": "Function",
             "payable": false,

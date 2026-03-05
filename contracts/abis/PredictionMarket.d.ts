@@ -65,6 +65,21 @@ export type SetAdmin = CallResult<{}, OPNetEvent<never>[]>;
 export type SetFee = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
+ * @description Represents the result of the withdrawFees function call.
+ */
+export type WithdrawFees = CallResult<
+    {
+        amount: bigint;
+    },
+    OPNetEvent<never>[]
+>;
+
+/**
+ * @description Represents the result of the setFeeRecipient function call.
+ */
+export type SetFeeRecipient = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
  * @description Represents the result of the pause function call.
  */
 export type Pause = CallResult<{}, OPNetEvent<never>[]>;
@@ -115,6 +130,8 @@ export interface IPredictionMarket extends IOP_NETContract {
     sellShares(marketId: bigint, isYes: boolean, shares: bigint): Promise<SellShares>;
     setAdmin(newAdmin: Address): Promise<SetAdmin>;
     setFee(newFeeBps: bigint): Promise<SetFee>;
+    withdrawFees(): Promise<WithdrawFees>;
+    setFeeRecipient(recipient: Address): Promise<SetFeeRecipient>;
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;
     getMarketInfo(marketId: bigint): Promise<GetMarketInfo>;

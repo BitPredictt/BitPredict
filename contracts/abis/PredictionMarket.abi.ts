@@ -57,6 +57,18 @@ export const PredictionMarketAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
+        name: 'withdrawFees',
+        inputs: [],
+        outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'setFeeRecipient',
+        inputs: [{ name: 'recipient', type: ABIDataTypes.ADDRESS }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
         name: 'pause',
         inputs: [],
         outputs: [],

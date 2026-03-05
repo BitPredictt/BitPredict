@@ -1,4 +1,7 @@
 import { Github, ExternalLink, Zap } from 'lucide-react';
+import { OPNET_CONFIG } from '../lib/opnet';
+
+const isTestnet = OPNET_CONFIG.network === 'testnet';
 
 export function Footer() {
   return (
@@ -18,7 +21,7 @@ export function Footer() {
             <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">OP_NET</h4>
             <ul className="space-y-2">
               <li><a href="https://dev.opnet.org" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1">Docs <ExternalLink size={8} /></a></li>
-              <li><a href="https://faucet.opnet.org" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1">Faucet <ExternalLink size={8} /></a></li>
+              {isTestnet && <li><a href="https://faucet.opnet.org" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1">Faucet <ExternalLink size={8} /></a></li>}
               <li><a href="https://opscan.org" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1">Explorer <ExternalLink size={8} /></a></li>
               <li><a href="https://ai.opnet.org/mcp" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 hover:text-btc transition-colors flex items-center gap-1">Bob AI <ExternalLink size={8} /></a></li>
             </ul>

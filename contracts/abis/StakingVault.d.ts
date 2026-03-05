@@ -50,6 +50,11 @@ export type SetAutoCompound = CallResult<{}, OPNetEvent<never>[]>;
 export type DistributeRevenue = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
+ * @description Represents the result of the setAdmin function call.
+ */
+export type SetAdmin = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
  * @description Represents the result of the pause function call.
  */
 export type Pause = CallResult<{}, OPNetEvent<never>[]>;
@@ -88,6 +93,7 @@ export interface IStakingVault extends IOP_NETContract {
     claimRewards(): Promise<ClaimRewards>;
     setAutoCompound(enabled: boolean): Promise<SetAutoCompound>;
     distributeRevenue(amount: bigint): Promise<DistributeRevenue>;
+    setAdmin(newAdmin: Address): Promise<SetAdmin>;
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;
     getVaultInfo(): Promise<GetVaultInfo>;
