@@ -30,7 +30,7 @@ export const OPNET_CONFIG = {
   network: OPNET_NETWORK,
   rpcUrl: import.meta.env.VITE_OPNET_RPC_URL || (OPNET_NETWORK === 'mainnet' ? 'https://api.opnet.org' : 'https://testnet.opnet.org'),
   explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://opscan.org',
-  faucetUrl: 'https://faucet.opnet.org', // testnet only
+  faucetUrl: OPNET_NETWORK === 'testnet' ? 'https://faucet.opnet.org' : '',
   motoswapUrl: 'https://motoswap.org',
   contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqqdd8znxxg09lxy3064l5zf9t6sghgq3ysfxtqqx',
   vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqqezewxtf2f4hjyxk6pydkzj9d3dc9g5jcv40ak7',
@@ -145,13 +145,12 @@ export function isOPWalletAvailable(): boolean {
 }
 
 /**
- * Validate an OP_NET testnet address
- * OPNet testnet uses opt1 prefix (Signet fork)
+ * Validate an OP_NET address (testnet or mainnet)
  */
 export function isValidOPNetAddress(address: string): boolean {
   if (!address) return false;
-  // opt1 (OPNet testnet bech32m), bcrt1 (regtest fallback), tb1 (Bitcoin testnet)
-  return /^(opt1[a-z0-9]{39,80}|bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn][a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
+  // opt1 (OPNet testnet), bc1 (mainnet taproot/segwit), bcrt1 (regtest), tb1 (Bitcoin testnet)
+  return /^(opt1[a-z0-9]{39,80}|bc1[a-z0-9]{39,80}|bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn13][a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
 }
 
 /**

@@ -184,30 +184,50 @@ async function runOnce() {
 
   // ±0.1% spread for each oracle (simulate different sources)
   const spreads = [-0.001, 0, 0.001];
-  let submitted = 0;
 
-  for (let i = 0; i < 3; i++) {
+  // Strategy: submit oracle 0+1 in same block → wait 1 block → submit oracle 2
+  // Oracle 2's _tryAggregate sees oracles 0+1 from storage + its own = 3 >= QUORUM
+  // (AddressMemoryMap.get() can't see set() from same TX, so we need separate blocks)
+
+  console.log('  Phase 1: submitting oracles 0 and 1...');
+  let phase1ok = 0;
+  for (let i = 0; i < 2; i++) {
     const adjustedPrice = price * (1 + spreads[i]);
     const priceBigInt = BigInt(Math.round(adjustedPrice * PRICE_DECIMALS));
     console.log(`  [${i}] price=$${adjustedPrice.toFixed(2)} → ${priceBigInt}`);
     const ok = await submitFromWallet(i, priceBigInt);
-    if (ok) submitted++;
-    // Small delay between submissions
-    if (i < 2) await new Promise(r => setTimeout(r, 3000));
+    if (ok) phase1ok++;
+    if (i === 0) await new Promise(r => setTimeout(r, 3000));
+  }
+  console.log(`  Phase 1: ${phase1ok}/2 submitted`);
+
+  if (phase1ok < 2) {
+    console.warn('  Phase 1 failed — not enough submissions, skipping phase 2');
+    return;
   }
 
-  console.log(`Submitted: ${submitted}/3`);
+  // Wait 1 block for phase 1 TXs to finalize
+  console.log('  Waiting 1 block for phase 1 to finalize...');
+  await waitBlocks(1);
 
-  // Check aggregated price after next block
-  if (submitted >= 2) {
-    console.log('Waiting 1 block for aggregation...');
+  // Phase 2: submit oracle 2 (triggers aggregation)
+  console.log('  Phase 2: submitting oracle 2 (triggers aggregation)...');
+  const adjustedPrice2 = price * (1 + spreads[2]);
+  const priceBigInt2 = BigInt(Math.round(adjustedPrice2 * PRICE_DECIMALS));
+  console.log(`  [2] price=$${adjustedPrice2.toFixed(2)} → ${priceBigInt2}`);
+  const ok2 = await submitFromWallet(2, priceBigInt2);
+
+  if (ok2) {
+    console.log('  Waiting 1 block for aggregation...');
     await waitBlocks(1);
     const aggregated = await readAggregatedPrice();
     if (aggregated > 0) {
-      console.log(`Aggregated oracle price: $${aggregated.toFixed(2)}`);
+      console.log(`  ✅ Aggregated oracle price: $${aggregated.toFixed(2)}`);
     } else {
-      console.log('Aggregated price still 0 — quorum may need more submissions');
+      console.log('  ⚠ Aggregated price still 0 — check quorum');
     }
+  } else {
+    console.warn('  Oracle 2 submission failed');
   }
 }
 
