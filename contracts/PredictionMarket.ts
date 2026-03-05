@@ -100,6 +100,32 @@ class PayoutClaimedEvent extends NetEvent {
   }
 }
 
+class AdminChangedEvent extends NetEvent {
+  constructor(oldAdmin: Address, newAdmin: Address) {
+    const data = new BytesWriter(64);
+    data.writeAddress(oldAdmin);
+    data.writeAddress(newAdmin);
+    super('AdminChanged', data);
+  }
+}
+
+class FeeChangedEvent extends NetEvent {
+  constructor(oldFeeBps: u256, newFeeBps: u256) {
+    const data = new BytesWriter(64);
+    data.writeU256(oldFeeBps);
+    data.writeU256(newFeeBps);
+    super('FeeChanged', data);
+  }
+}
+
+class FeeRecipientChangedEvent extends NetEvent {
+  constructor(newRecipient: Address) {
+    const data = new BytesWriter(32);
+    data.writeAddress(newRecipient);
+    super('FeeRecipientChanged', data);
+  }
+}
+
 class PausedEvent extends NetEvent {
   constructor(admin: Address) {
     const data = new BytesWriter(32);
@@ -132,6 +158,7 @@ export class PredictionMarket extends ReentrancyGuard {
   private marketFeeBps: StoredU256;     // governance-adjustable fee (in BPS)
   private accumulatedFees: StoredU256;  // total fees accumulated (withdrawable by admin)
   private feeRecipient: StoredAddress;  // address to receive withdrawn fees
+  private activeMarketCount: StoredU256; // number of unresolved markets
 
   // Per-market state (keyed by sha256(marketId))
   private yesReserves:    AddressMemoryMap;
@@ -158,6 +185,7 @@ export class PredictionMarket extends ReentrancyGuard {
     this.marketFeeBps  = new StoredU256(Blockchain.nextPointer, emptySubPointer);
     this.accumulatedFees = new StoredU256(Blockchain.nextPointer, emptySubPointer);
     this.feeRecipient  = new StoredAddress(Blockchain.nextPointer);
+    this.activeMarketCount = new StoredU256(Blockchain.nextPointer, emptySubPointer);
 
     this.yesReserves    = new AddressMemoryMap(Blockchain.nextPointer);
     this.noReserves     = new AddressMemoryMap(Blockchain.nextPointer);
@@ -186,6 +214,7 @@ export class PredictionMarket extends ReentrancyGuard {
     this.marketFeeBps.value = u256.fromU64(200); // default 2%
     this.accumulatedFees.value = u256.Zero;
     this.feeRecipient.value = Blockchain.tx.sender; // admin is default fee recipient
+    this.activeMarketCount.value = u256.Zero;
   }
 
   // ============================================================
@@ -198,6 +227,7 @@ export class PredictionMarket extends ReentrancyGuard {
   @method({ name: 'endBlock', type: ABIDataTypes.UINT256 })
   @returns({ name: 'marketId', type: ABIDataTypes.UINT256 })
   public createMarket(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
     this.whenNotPaused();
 
     const endBlock: u256 = calldata.readU256();
@@ -226,6 +256,7 @@ export class PredictionMarket extends ReentrancyGuard {
     this.totalPools.set(marketKey, u256.Zero);
 
     this.nextMarketId.value = SafeMath.add(marketId, u256.One);
+    this.activeMarketCount.value = SafeMath.add(this.activeMarketCount.value, u256.One);
 
     this.emitEvent(new MarketCreatedEvent(marketId, endBlock, Blockchain.tx.sender));
 
@@ -242,6 +273,7 @@ export class PredictionMarket extends ReentrancyGuard {
     { name: 'marketId', type: ABIDataTypes.UINT256 },
     { name: 'isYes',    type: ABIDataTypes.BOOL },
     { name: 'amount',   type: ABIDataTypes.UINT256 },
+    { name: 'minSharesOut', type: ABIDataTypes.UINT256 },
   )
   @returns({ name: 'shares', type: ABIDataTypes.UINT256 })
   public buyShares(calldata: Calldata): BytesWriter {
@@ -250,6 +282,7 @@ export class PredictionMarket extends ReentrancyGuard {
     const marketId: u256 = calldata.readU256();
     const isYes: boolean = calldata.readBoolean();
     const amount: u256   = calldata.readU256();
+    const minSharesOut: u256 = calldata.readU256();
 
     if (u256.lt(amount, MIN_TRADE_AMOUNT)) {
       throw new Revert('Amount below minimum');
@@ -303,9 +336,13 @@ export class PredictionMarket extends ReentrancyGuard {
       shares = SafeMath.sub(noReserve, newNoReserve);
     }
 
-    // Check BEFORE any state mutations (M-1 fix)
     if (u256.eq(shares, u256.Zero)) {
       throw new Revert('Slippage: zero shares');
+    }
+
+    // Slippage protection: ensure shares >= minSharesOut
+    if (!u256.eq(minSharesOut, u256.Zero) && u256.lt(shares, minSharesOut)) {
+      throw new Revert('Slippage: shares below minimum');
     }
 
     // === EFFECTS (state updates BEFORE external calls) ===
@@ -381,6 +418,7 @@ export class PredictionMarket extends ReentrancyGuard {
 
     this.resolvedFlags.set(marketKey, u256.One);
     this.outcomes.set(marketKey, outcome ? u256.One : u256.Zero);
+    this.activeMarketCount.value = SafeMath.sub(this.activeMarketCount.value, u256.One);
 
     this.emitEvent(new MarketResolvedEvent(marketId, outcome, Blockchain.tx.sender));
 
@@ -462,6 +500,7 @@ export class PredictionMarket extends ReentrancyGuard {
     { name: 'marketId', type: ABIDataTypes.UINT256 },
     { name: 'isYes',    type: ABIDataTypes.BOOL },
     { name: 'shares',   type: ABIDataTypes.UINT256 },
+    { name: 'minPayoutOut', type: ABIDataTypes.UINT256 },
   )
   @returns({ name: 'payout', type: ABIDataTypes.UINT256 })
   public sellShares(calldata: Calldata): BytesWriter {
@@ -470,6 +509,7 @@ export class PredictionMarket extends ReentrancyGuard {
     const marketId: u256 = calldata.readU256();
     const isYes: boolean = calldata.readBoolean();
     const shares: u256   = calldata.readU256();
+    const minPayoutOut: u256 = calldata.readU256();
 
     if (u256.eq(shares, u256.Zero)) {
       throw new Revert('Shares must be > 0');
@@ -552,6 +592,11 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Payout too small after fee');
     }
 
+    // Slippage protection: ensure netPayout >= minPayoutOut
+    if (!u256.eq(minPayoutOut, u256.Zero) && u256.lt(netPayout, minPayoutOut)) {
+      throw new Revert('Slippage: payout below minimum');
+    }
+
     // Track fees (M-3 fix)
     this.accumulatedFees.value = SafeMath.add(this.accumulatedFees.value, fee);
 
@@ -581,7 +626,14 @@ export class PredictionMarket extends ReentrancyGuard {
     if (newAdmin.equals(Blockchain.tx.sender)) {
       throw new Revert('Admin unchanged');
     }
+    // Prevent locking admin to zero address
+    const zeroAddr = new Address(new Array<u8>(32).fill(0));
+    if (newAdmin.equals(zeroAddr)) {
+      throw new Revert('New admin cannot be zero address');
+    }
+    const oldAdmin: Address = this.adminAddress.value;
     this.adminAddress.value = newAdmin;
+    this.emitEvent(new AdminChangedEvent(oldAdmin, newAdmin));
     return new BytesWriter(0);
   }
 
@@ -596,7 +648,9 @@ export class PredictionMarket extends ReentrancyGuard {
     if (u256.gt(newFeeBps, u256.fromU64(MAX_FEE_BPS))) {
       throw new Revert('Fee exceeds maximum (5%)');
     }
+    const oldFeeBps: u256 = this.marketFeeBps.value;
     this.marketFeeBps.value = newFeeBps;
+    this.emitEvent(new FeeChangedEvent(oldFeeBps, newFeeBps));
     return new BytesWriter(0);
   }
 
@@ -607,6 +661,10 @@ export class PredictionMarket extends ReentrancyGuard {
   @returns({ name: 'amount', type: ABIDataTypes.UINT256 })
   public withdrawFees(_calldata: Calldata): BytesWriter {
     this.requireAdmin();
+
+    if (!u256.eq(this.activeMarketCount.value, u256.Zero)) {
+      throw new Revert('Cannot withdraw fees while markets are active');
+    }
 
     const fees: u256 = this.accumulatedFees.value;
     if (u256.eq(fees, u256.Zero)) {
@@ -632,6 +690,7 @@ export class PredictionMarket extends ReentrancyGuard {
     this.requireAdmin();
     const recipient: Address = calldata.readAddress();
     this.feeRecipient.value = recipient;
+    this.emitEvent(new FeeRecipientChangedEvent(recipient));
     return new BytesWriter(0);
   }
 

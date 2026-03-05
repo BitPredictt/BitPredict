@@ -76,6 +76,15 @@ class RewardsClaimedEvent extends NetEvent {
   }
 }
 
+class AdminChangedEvent extends NetEvent {
+  constructor(oldAdmin: Address, newAdmin: Address) {
+    const data = new BytesWriter(64);
+    data.writeAddress(oldAdmin);
+    data.writeAddress(newAdmin);
+    super('AdminChanged', data);
+  }
+}
+
 class RevenueDistributedEvent extends NetEvent {
   constructor(amount: u256, newRewardsPerShare: u256, totalStaked: u256) {
     const data = new BytesWriter(96);
@@ -187,9 +196,9 @@ export class StakingVault extends ReentrancyGuard {
       PRECISION
     ));
 
-    // Update stake block for CSV timelock on EVERY stake (S-1 fix)
-    this.userStakeBlock.set(user, u256.fromU64(Blockchain.block.number));
+    // Only set stake block on first stake — don't reset timelock on additional stakes
     if (u256.eq(currentStake, u256.Zero)) {
+      this.userStakeBlock.set(user, u256.fromU64(Blockchain.block.number));
       this.stakerCount.value = SafeMath.add(this.stakerCount.value, u256.One);
     }
 
@@ -377,6 +386,52 @@ export class StakingVault extends ReentrancyGuard {
   }
 
   /**
+   * emergencyWithdraw(amount: u256) — Emergency withdrawal bypassing paused state.
+   * No rewards are paid. CSV timelock still enforced.
+   */
+  @method({ name: 'amount', type: ABIDataTypes.UINT256 })
+  @returns({ name: 'success', type: ABIDataTypes.BOOL })
+  public emergencyWithdraw(calldata: Calldata): BytesWriter {
+    // NOTE: does NOT check whenNotPaused — always available
+    const amount: u256 = calldata.readU256();
+    const user: Address = Blockchain.tx.sender;
+    const currentStake: u256 = this.userStakes.get(user);
+
+    if (u256.lt(currentStake, amount)) {
+      throw new Revert('Insufficient staked amount');
+    }
+
+    // CSV timelock still enforced
+    const stakeBlock: u256 = this.userStakeBlock.get(user);
+    const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
+    const unlockBlock: u256 = SafeMath.add(stakeBlock, u256.fromU64(MIN_LOCK_BLOCKS));
+    if (u256.lt(currentBlock, unlockBlock)) {
+      throw new Revert('Stake is locked (minimum 144 blocks ~1 day)');
+    }
+
+    const newStake: u256 = SafeMath.sub(currentStake, amount);
+    this.userStakes.set(user, newStake);
+    this.totalStaked.value = SafeMath.sub(this.totalStaked.value, amount);
+
+    // Reset reward debt (forfeiting pending rewards)
+    this.userRewardDebt.set(user, SafeMath.div(
+      SafeMath.mul(newStake, this.rewardsPerShare.value),
+      PRECISION
+    ));
+
+    if (u256.eq(newStake, u256.Zero)) {
+      this.stakerCount.value = SafeMath.sub(this.stakerCount.value, u256.One);
+    }
+
+    this._transferToken(user, amount);
+    this.emitEvent(new UnstakedEvent(user, amount, this.totalStaked.value));
+
+    const writer = new BytesWriter(1);
+    writer.writeBoolean(true);
+    return writer;
+  }
+
+  /**
    * setAdmin(newAdmin: Address) — Transfer admin role.
    */
   @method({ name: 'newAdmin', type: ABIDataTypes.ADDRESS })
@@ -386,7 +441,13 @@ export class StakingVault extends ReentrancyGuard {
     if (newAdmin.equals(Blockchain.tx.sender)) {
       throw new Revert('Admin unchanged');
     }
+    const zeroAddr = new Address(new Array<u8>(32).fill(0));
+    if (newAdmin.equals(zeroAddr)) {
+      throw new Revert('New admin cannot be zero address');
+    }
+    const oldAdmin: Address = this.adminAddress.value;
     this.adminAddress.value = newAdmin;
+    this.emitEvent(new AdminChangedEvent(oldAdmin, newAdmin));
     return new BytesWriter(0);
   }
 

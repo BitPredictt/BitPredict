@@ -34,6 +34,12 @@ export const StakingVaultAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
+        name: 'emergencyWithdraw',
+        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
+        outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
         name: 'setAdmin',
         inputs: [{ name: 'newAdmin', type: ABIDataTypes.ADDRESS }],
         outputs: [],

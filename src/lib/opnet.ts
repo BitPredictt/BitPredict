@@ -32,10 +32,10 @@ export const OPNET_CONFIG = {
   explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://opscan.org',
   faucetUrl: 'https://faucet.opnet.org', // testnet only
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqrgefh7fnhuc5rfj6zpmdkyghxecfvaafcz66wt9',
-  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqqa3a72w3dn8uv3js6zvpgsa7h7qe6z6ggasvgqu',
-  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqznh4x738smuw8l8sk02levcgzf9r34ulc4dvryq',
-  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0x1d3464d997e5eae639e3e4663f4c0433cddbab54eb309c3e1db3edbaf634661d',
+  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqqdd8znxxg09lxy3064l5zf9t6sghgq3ysfxtqqx',
+  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqqezewxtf2f4hjyxk6pydkzj9d3dc9g5jcv40ak7',
+  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqqnzsr53k6n8n7sgaheehhk4uvejfuszx5hzrq4n',
+  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0x332c219a9f98dd8d7f776c48d1c57bcce3b45a3214b62ae4a6a5acb73f1040e0',
   tokenDecimals: 8,
   tokenSymbol: 'BPUSD',
   mintAmount: 1000,
@@ -727,7 +727,7 @@ export async function buySharesOnChain(
 
     const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
     const sim = await withRetry(() =>
-      (contract as any).buyShares(BigInt(onchainMarketId), isYes, rawAmount),
+      (contract as any).buyShares(BigInt(onchainMarketId), isYes, rawAmount, 0n),
     ) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `buyShares revert: ${sim.revert}` };
 

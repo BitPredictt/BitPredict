@@ -5585,7 +5585,7 @@
          if
           i32.const 11648
           i32.const 10928
-          i32.const 94
+          i32.const 98
           i32.const 13
           call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
           unreachable
@@ -7024,7 +7024,7 @@
   if
    i32.const 10864
    i32.const 10928
-   i32.const 138
+   i32.const 142
    i32.const 13
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable

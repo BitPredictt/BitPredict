@@ -22,12 +22,12 @@ let opnetFactory = null;
 let opnetNetwork = null;
 let opnetRpcProvider = null; // JSONRpcProvider for getContract() calls
 
-const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqznh4x738smuw8l8sk02levcgzf9r34ulc4dvryq';
+const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqqnzsr53k6n8n7sgaheehhk4uvejfuszx5hzrq4n';
 const PRED_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 
 // PredictionMarket contract address (env var for mainnet/testnet switch)
-const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqrgefh7fnhuc5rfj6zpmdkyghxecfvaafcz66wt9';
+const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqqdd8znxxg09lxy3064l5zf9t6sghgq3ysfxtqqx';
 // Selectors: SHA256 first 4 bytes of function signature (OPNet standard)
 const CREATE_MARKET_SELECTOR = 0x89eb2691;   // createMarket(uint256)
 const RESOLVE_MARKET_SELECTOR = 0xaa5b3340;  // resolveMarket(uint256,bool)

@@ -71,6 +71,15 @@ class OracleAddedEvent extends NetEvent {
   }
 }
 
+class AdminChangedEvent extends NetEvent {
+  constructor(oldAdmin: Address, newAdmin: Address) {
+    const data = new BytesWriter(64);
+    data.writeAddress(oldAdmin);
+    data.writeAddress(newAdmin);
+    super('AdminChanged', data);
+  }
+}
+
 class OracleRemovedEvent extends NetEvent {
   constructor(oracle: Address) {
     const data = new BytesWriter(32);
@@ -95,6 +104,8 @@ export class PriceOracle extends ReentrancyGuard {
   private authorizedOracles: AddressMemoryMap;
   // Oracle index: oracle address -> slot index (1-based, 0=not assigned)
   private oracleIndex: AddressMemoryMap;
+  // Free slot tracking: slot index -> u256.One if freed
+  private freeSlots: AddressMemoryMap;
 
   // Per-asset per-oracle submissions: key(assetId, slotIndex) -> price
   private priceSubmissions: AddressMemoryMap;
@@ -113,6 +124,7 @@ export class PriceOracle extends ReentrancyGuard {
 
     this.authorizedOracles = new AddressMemoryMap(Blockchain.nextPointer);
     this.oracleIndex = new AddressMemoryMap(Blockchain.nextPointer);
+    this.freeSlots = new AddressMemoryMap(Blockchain.nextPointer);
     this.priceSubmissions = new AddressMemoryMap(Blockchain.nextPointer);
     this.submissionBlocks = new AddressMemoryMap(Blockchain.nextPointer);
     this.aggregatedPrices = new AddressMemoryMap(Blockchain.nextPointer);
@@ -150,17 +162,34 @@ export class PriceOracle extends ReentrancyGuard {
       return new BytesWriter(0);
     }
 
-    // New oracle — assign next slot
-    const count: u256 = this.oracleCount.value;
-    if (u256.ge(count, u256.fromU64(<u64>MAX_ORACLES))) {
-      throw new Revert('Max oracles reached');
+    // New oracle — try to recycle a free slot first
+    const maxSlots: u64 = this.oracleCount.value.toU64();
+    let recycledSlot: u256 = u256.Zero;
+    for (let s: u64 = 1; s <= maxSlots && s <= <u64>MAX_ORACLES; s++) {
+      const sU: u256 = u256.fromU64(s);
+      const slotKey: Address = this.slotKey(sU);
+      if (u256.eq(this.freeSlots.get(slotKey), u256.One)) {
+        recycledSlot = sU;
+        this.freeSlots.set(slotKey, u256.Zero); // claim slot
+        break;
+      }
     }
 
-    this.authorizedOracles.set(oracle, u256.One);
-    // Assign slot = count + 1 (1-based)
-    const slot: u256 = SafeMath.add(count, u256.One);
-    this.oracleIndex.set(oracle, slot);
-    this.oracleCount.value = slot;
+    if (!u256.eq(recycledSlot, u256.Zero)) {
+      // Reuse recycled slot
+      this.authorizedOracles.set(oracle, u256.One);
+      this.oracleIndex.set(oracle, recycledSlot);
+    } else {
+      // Allocate new slot
+      const count: u256 = this.oracleCount.value;
+      if (u256.ge(count, u256.fromU64(<u64>MAX_ORACLES))) {
+        throw new Revert('Max oracles reached');
+      }
+      this.authorizedOracles.set(oracle, u256.One);
+      const slot: u256 = SafeMath.add(count, u256.One);
+      this.oracleIndex.set(oracle, slot);
+      this.oracleCount.value = slot;
+    }
 
     this.emitEvent(new OracleAddedEvent(oracle));
     return new BytesWriter(0);
@@ -180,8 +209,12 @@ export class PriceOracle extends ReentrancyGuard {
     }
 
     this.authorizedOracles.set(oracle, u256.Zero);
-    // Keep oracleIndex — slot stays assigned but oracle is deauthorized
-    // oracleCount stays the same (represents max slot ever assigned)
+    // Mark slot as free for recycling
+    const slot: u256 = this.oracleIndex.get(oracle);
+    if (!u256.eq(slot, u256.Zero)) {
+      const slotKey: Address = this.slotKey(slot);
+      this.freeSlots.set(slotKey, u256.One);
+    }
     this.emitEvent(new OracleRemovedEvent(oracle));
     return new BytesWriter(0);
   }
@@ -239,7 +272,13 @@ export class PriceOracle extends ReentrancyGuard {
     if (newAdmin.equals(Blockchain.tx.sender)) {
       throw new Revert('Admin unchanged');
     }
+    const zeroAddr = new Address(new Array<u8>(32).fill(0));
+    if (newAdmin.equals(zeroAddr)) {
+      throw new Revert('New admin cannot be zero address');
+    }
+    const oldAdmin: Address = this.adminAddress.value;
     this.adminAddress.value = newAdmin;
+    this.emitEvent(new AdminChangedEvent(oldAdmin, newAdmin));
     return new BytesWriter(0);
   }
 
@@ -428,6 +467,16 @@ export class PriceOracle extends ReentrancyGuard {
     const buf = new Uint8Array(32);
     const ab: Uint8Array = assetId.toUint8Array(true);
     for (let i: i32 = 0; i < 32; i++) buf[i] = ab[i];
+    const hash: Uint8Array = Blockchain.sha256(buf);
+    const arr: u8[] = new Array<u8>(32);
+    for (let i: i32 = 0; i < 32; i++) arr[i] = hash[i];
+    return new Address(arr);
+  }
+
+  private slotKey(slot: u256): Address {
+    const buf = new Uint8Array(32);
+    const sb: Uint8Array = slot.toUint8Array(true);
+    for (let i: i32 = 0; i < 32; i++) buf[i] = sb[i];
     const hash: Uint8Array = Blockchain.sha256(buf);
     const arr: u8[] = new Array<u8>(32);
     for (let i: i32 = 0; i < 32; i++) arr[i] = hash[i];

@@ -76,6 +76,24 @@
             "outputs": []
         },
         {
+            "name": "emergencyWithdraw",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
             "name": "setAdmin",
             "type": "Function",
             "payable": false,

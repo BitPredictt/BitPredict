@@ -68,6 +68,10 @@ export class PredToken extends OP20 {
         return super.transferFrom(calldata);
     }
 
+    public approve(_calldata: Calldata): BytesWriter {
+        throw new Revert('Use increaseAllowance instead of approve');
+    }
+
     /**
      * mint(to, amount) — Admin-only mint (for airdrops, liquidity).
      * publicMint is REMOVED — this is the only mint path besides collateral.

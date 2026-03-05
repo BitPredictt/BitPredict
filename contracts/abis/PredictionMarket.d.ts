@@ -124,10 +124,10 @@ export type GetPrice = CallResult<
 // ------------------------------------------------------------------
 export interface IPredictionMarket extends IOP_NETContract {
     createMarket(endBlock: bigint): Promise<CreateMarket>;
-    buyShares(marketId: bigint, isYes: boolean, amount: bigint): Promise<BuyShares>;
+    buyShares(marketId: bigint, isYes: boolean, amount: bigint, minSharesOut: bigint): Promise<BuyShares>;
     resolveMarket(marketId: bigint, outcome: boolean): Promise<ResolveMarket>;
     claimPayout(marketId: bigint): Promise<ClaimPayout>;
-    sellShares(marketId: bigint, isYes: boolean, shares: bigint): Promise<SellShares>;
+    sellShares(marketId: bigint, isYes: boolean, shares: bigint, minPayoutOut: bigint): Promise<SellShares>;
     setAdmin(newAdmin: Address): Promise<SetAdmin>;
     setFee(newFeeBps: bigint): Promise<SetFee>;
     withdrawFees(): Promise<WithdrawFees>;

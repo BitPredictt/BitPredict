@@ -35,6 +35,10 @@
                 {
                     "name": "amount",
                     "type": "UINT256"
+                },
+                {
+                    "name": "minSharesOut",
+                    "type": "UINT256"
                 }
             ],
             "outputs": [
@@ -95,6 +99,10 @@
                 },
                 {
                     "name": "shares",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "minPayoutOut",
                     "type": "UINT256"
                 }
             ],
