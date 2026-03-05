@@ -124,6 +124,7 @@ export class PredToken extends OP20 {
     /**
      * getMintRate() → (rate: u256, treasury: Address)
      */
+    @method()
     @returns({ name: 'rate', type: ABIDataTypes.UINT256 })
     public getMintRate(_calldata: Calldata): BytesWriter {
         const writer = new BytesWriter(64);

@@ -35,7 +35,7 @@ import {
 
 const MAX_ORACLES: i32 = 5;
 const QUORUM: i32 = 3;            // 3-of-5 required for aggregation
-const MAX_STALENESS: u64 = 6;     // max 6 blocks stale
+const MAX_STALENESS: u64 = 50;    // max 50 blocks stale (~8 hours at 10 min/block)
 
 // ============================================================
 // Events
@@ -223,7 +223,8 @@ export class PriceOracle extends ReentrancyGuard {
     this.emitEvent(new PriceSubmittedEvent(sender, assetId, price, u256.fromU64(Blockchain.block.number)));
 
     // Attempt aggregation (median of fresh submissions)
-    this._tryAggregate(assetId);
+    // Pass current slot + price explicitly because get() may not see set() from same TX
+    this._tryAggregate(assetId, slot, price);
 
     return new BytesWriter(0);
   }
@@ -234,7 +235,11 @@ export class PriceOracle extends ReentrancyGuard {
   @method({ name: 'newAdmin', type: ABIDataTypes.ADDRESS })
   public setAdmin(calldata: Calldata): BytesWriter {
     this.requireAdmin();
-    this.adminAddress.value = calldata.readAddress();
+    const newAdmin: Address = calldata.readAddress();
+    if (newAdmin.equals(Blockchain.tx.sender)) {
+      throw new Revert('Admin unchanged');
+    }
+    this.adminAddress.value = newAdmin;
     return new BytesWriter(0);
   }
 
@@ -258,6 +263,10 @@ export class PriceOracle extends ReentrancyGuard {
 
   /**
    * getPrice(assetId: u256) → (price: u256, blockNumber: u256, stale: bool)
+   *
+   * Returns aggregated median price for the given asset.
+   * stale=true means price was not updated within MAX_STALENESS blocks.
+   * price=0 means no aggregation has occurred yet (less than QUORUM submissions).
    */
   @method({ name: 'assetId', type: ABIDataTypes.UINT256 })
   @returns({ name: 'price', type: ABIDataTypes.UINT256 })
@@ -267,18 +276,66 @@ export class PriceOracle extends ReentrancyGuard {
 
     const price: u256 = this.aggregatedPrices.get(aKey);
     const priceBlock: u256 = this.aggregatedBlocks.get(aKey);
-    const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
+    const currentBlockU256: u256 = u256.fromU64(Blockchain.block.number);
 
     let stale: boolean = true;
     if (!u256.eq(priceBlock, u256.Zero)) {
-      const age: u256 = SafeMath.sub(currentBlock, priceBlock);
-      stale = u256.gt(age, u256.fromU64(MAX_STALENESS));
+      // Use u256 subtraction to avoid underflow; if priceBlock > currentBlock treat as fresh
+      let ageU256: u256 = u256.Zero;
+      if (u256.gt(currentBlockU256, priceBlock)) {
+        ageU256 = SafeMath.sub(currentBlockU256, priceBlock);
+      }
+      stale = u256.gt(ageU256, u256.fromU64(MAX_STALENESS));
     }
 
     const writer = new BytesWriter(65);
     writer.writeU256(price);
     writer.writeU256(priceBlock);
     writer.writeBoolean(stale);
+    return writer;
+  }
+
+  /**
+   * getSubmission(assetId: u256, slot: u256) → (price: u256, blockNumber: u256)
+   *
+   * Diagnostic method: read the raw submission for a specific oracle slot.
+   * Useful for debugging why aggregation is not happening.
+   * slot is 1-based (1 to oracleCount).
+   */
+  @method(
+    { name: 'assetId', type: ABIDataTypes.UINT256 },
+    { name: 'slot',    type: ABIDataTypes.UINT256 },
+  )
+  @returns({ name: 'price', type: ABIDataTypes.UINT256 })
+  public getSubmission(calldata: Calldata): BytesWriter {
+    const assetId: u256 = calldata.readU256();
+    const slot: u256 = calldata.readU256();
+    const subKey: Address = this.assetSlotKey(assetId, slot);
+
+    const price: u256 = this.priceSubmissions.get(subKey);
+    const blockNum: u256 = this.submissionBlocks.get(subKey);
+
+    const writer = new BytesWriter(64);
+    writer.writeU256(price);
+    writer.writeU256(blockNum);
+    return writer;
+  }
+
+  /**
+   * getOracleInfo(oracle: Address) → (authorized: bool, slot: u256)
+   *
+   * Diagnostic method: check oracle authorization and slot assignment.
+   */
+  @method({ name: 'oracle', type: ABIDataTypes.ADDRESS })
+  @returns({ name: 'authorized', type: ABIDataTypes.BOOL })
+  public getOracleInfo(calldata: Calldata): BytesWriter {
+    const oracle: Address = calldata.readAddress();
+    const authorized: bool = u256.eq(this.authorizedOracles.get(oracle), u256.One);
+    const slot: u256 = this.oracleIndex.get(oracle);
+
+    const writer = new BytesWriter(33);
+    writer.writeBoolean(authorized);
+    writer.writeU256(slot);
     return writer;
   }
 
@@ -289,24 +346,39 @@ export class PriceOracle extends ReentrancyGuard {
   /**
    * Collect fresh (non-stale) submissions from all slots.
    * If >= QUORUM fresh prices exist, compute median and update aggregated price.
+   *
+   * IMPORTANT: staleness check uses u256 arithmetic to avoid u64 underflow
+   * when subBlock > currentBlock (should not happen, but defensive coding).
    */
-  private _tryAggregate(assetId: u256): void {
+  private _tryAggregate(assetId: u256, currentSlot: u256, currentPrice: u256): void {
     const currentBlock: u64 = Blockchain.block.number;
+    const currentBlockU256: u256 = u256.fromU64(currentBlock);
+    const maxStalenessU256: u256 = u256.fromU64(MAX_STALENESS);
     const maxSlots: u64 = this.oracleCount.value.toU64();
 
     // Collect fresh prices into a fixed-size array
-    // MAX_ORACLES = 5, so we use a fixed-size approach (no unbounded loops)
     const prices: u256[] = [];
+
+    // Always include current submission explicitly (get() may not see set() from same TX)
+    prices.push(currentPrice);
 
     for (let slot: u64 = 1; slot <= maxSlots && slot <= <u64>MAX_ORACLES; slot++) {
       const slotU256: u256 = u256.fromU64(slot);
+
+      // Skip current oracle's slot — already included above
+      if (u256.eq(slotU256, currentSlot)) continue;
+
       const subKey: Address = this.assetSlotKey(assetId, slotU256);
       const subBlock: u256 = this.submissionBlocks.get(subKey);
 
-      // Skip if no submission or stale
       if (u256.eq(subBlock, u256.Zero)) continue;
-      const age: u64 = currentBlock - subBlock.toU64();
-      if (age > MAX_STALENESS) continue;
+
+      // Staleness check using u256 to avoid u64 underflow
+      let ageU256: u256 = u256.Zero;
+      if (u256.gt(currentBlockU256, subBlock)) {
+        ageU256 = SafeMath.sub(currentBlockU256, subBlock);
+      }
+      if (u256.gt(ageU256, maxStalenessU256)) continue;
 
       const subPrice: u256 = this.priceSubmissions.get(subKey);
       if (u256.eq(subPrice, u256.Zero)) continue;
@@ -335,10 +407,10 @@ export class PriceOracle extends ReentrancyGuard {
     // Update aggregated price
     const aKey: Address = this.assetKey(assetId);
     this.aggregatedPrices.set(aKey, medianPrice);
-    this.aggregatedBlocks.set(aKey, u256.fromU64(currentBlock));
+    this.aggregatedBlocks.set(aKey, currentBlockU256);
 
     this.emitEvent(new PriceAggregatedEvent(
-      assetId, medianPrice, u256.fromU64(<u64>prices.length), u256.fromU64(currentBlock),
+      assetId, medianPrice, u256.fromU64(<u64>prices.length), currentBlockU256,
     ));
   }
 

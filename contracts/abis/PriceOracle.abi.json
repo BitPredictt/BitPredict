@@ -89,6 +89,46 @@
                     "type": "UINT256"
                 }
             ]
+        },
+        {
+            "name": "getSubmission",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "assetId",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "slot",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "price",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "getOracleInfo",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "oracle",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "authorized",
+                    "type": "BOOL"
+                }
+            ]
         }
     ],
     "events": []

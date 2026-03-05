@@ -48,6 +48,21 @@ export const PriceOracleAbi = [
         outputs: [{ name: 'price', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
+    {
+        name: 'getSubmission',
+        inputs: [
+            { name: 'assetId', type: ABIDataTypes.UINT256 },
+            { name: 'slot', type: ABIDataTypes.UINT256 },
+        ],
+        outputs: [{ name: 'price', type: ABIDataTypes.UINT256 }],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'getOracleInfo',
+        inputs: [{ name: 'oracle', type: ABIDataTypes.ADDRESS }],
+        outputs: [{ name: 'authorized', type: ABIDataTypes.BOOL }],
+        type: BitcoinAbiTypes.Function,
+    },
     ...PriceOracleEvents,
     ...OP_NET_ABI,
 ];

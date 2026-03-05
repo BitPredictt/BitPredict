@@ -49,6 +49,26 @@ export type GetPrice = CallResult<
     OPNetEvent<never>[]
 >;
 
+/**
+ * @description Represents the result of the getSubmission function call.
+ */
+export type GetSubmission = CallResult<
+    {
+        price: bigint;
+    },
+    OPNetEvent<never>[]
+>;
+
+/**
+ * @description Represents the result of the getOracleInfo function call.
+ */
+export type GetOracleInfo = CallResult<
+    {
+        authorized: boolean;
+    },
+    OPNetEvent<never>[]
+>;
+
 // ------------------------------------------------------------------
 // IPriceOracle
 // ------------------------------------------------------------------
@@ -60,4 +80,6 @@ export interface IPriceOracle extends IOP_NETContract {
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;
     getPrice(assetId: bigint): Promise<GetPrice>;
+    getSubmission(assetId: bigint, slot: bigint): Promise<GetSubmission>;
+    getOracleInfo(oracle: Address): Promise<GetOracleInfo>;
 }

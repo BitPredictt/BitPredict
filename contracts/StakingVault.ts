@@ -292,6 +292,7 @@ export class StakingVault extends ReentrancyGuard {
    * claimRewards() — Claim or auto-compound pending rewards.
    * Performs real transfer of BPUSD tokens if not auto-compounding.
    */
+  @method()
   @returns({ name: 'claimed', type: ABIDataTypes.UINT256 })
   public claimRewards(_calldata: Calldata): BytesWriter {
     this.whenNotPaused();
@@ -381,7 +382,11 @@ export class StakingVault extends ReentrancyGuard {
   @method({ name: 'newAdmin', type: ABIDataTypes.ADDRESS })
   public setAdmin(calldata: Calldata): BytesWriter {
     this.requireAdmin();
-    this.adminAddress.value = calldata.readAddress();
+    const newAdmin: Address = calldata.readAddress();
+    if (newAdmin.equals(Blockchain.tx.sender)) {
+      throw new Revert('Admin unchanged');
+    }
+    this.adminAddress.value = newAdmin;
     return new BytesWriter(0);
   }
 
@@ -409,6 +414,7 @@ export class StakingVault extends ReentrancyGuard {
   // Read-Only Methods
   // ============================================================
 
+  @method()
   @returns({ name: 'totalStaked', type: ABIDataTypes.UINT256 })
   public getVaultInfo(_calldata: Calldata): BytesWriter {
     const writer = new BytesWriter(128);

@@ -578,6 +578,9 @@ export class PredictionMarket extends ReentrancyGuard {
   public setAdmin(calldata: Calldata): BytesWriter {
     this.requireAdmin();
     const newAdmin: Address = calldata.readAddress();
+    if (newAdmin.equals(Blockchain.tx.sender)) {
+      throw new Revert('Admin unchanged');
+    }
     this.adminAddress.value = newAdmin;
     return new BytesWriter(0);
   }

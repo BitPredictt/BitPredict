@@ -362,16 +362,18 @@
  (data $158.1 (i32.const 13176) "\02\00\00\00&\00\00\00I\00n\00s\00u\00f\00f\00i\00c\00i\00e\00n\00t\00 \00s\00h\00a\00r\00e\00s")
  (data $159 (i32.const 13228) "L")
  (data $159.1 (i32.const 13240) "\02\00\00\004\00\00\00P\00a\00y\00o\00u\00t\00 \00t\00o\00o\00 \00s\00m\00a\00l\00l\00 \00a\00f\00t\00e\00r\00 \00f\00e\00e")
- (data $160 (i32.const 13308) "L")
- (data $160.1 (i32.const 13320) "\02\00\00\000\00\00\00F\00e\00e\00 \00e\00x\00c\00e\00e\00d\00s\00 \00m\00a\00x\00i\00m\00u\00m\00 \00(\005\00%\00)")
- (data $161 (i32.const 13388) "<")
- (data $161.1 (i32.const 13400) "\02\00\00\00&\00\00\00N\00o\00 \00f\00e\00e\00s\00 \00t\00o\00 \00w\00i\00t\00h\00d\00r\00a\00w")
- (data $162 (i32.const 13452) "\1c")
- (data $162.1 (i32.const 13464) "\02\00\00\00\0c\00\00\00P\00a\00u\00s\00e\00d")
- (data $163 (i32.const 13484) ",")
- (data $163.1 (i32.const 13496) "\02\00\00\00\10\00\00\00U\00n\00p\00a\00u\00s\00e\00d")
- (data $164 (i32.const 13532) "\\")
- (data $164.1 (i32.const 13544) "\02\00\00\00@\00\00\00R\00e\00e\00n\00t\00r\00a\00n\00c\00y\00G\00u\00a\00r\00d\00:\00 \00D\00e\00p\00t\00h\00 \00u\00n\00d\00e\00r\00f\00l\00o\00w")
+ (data $160 (i32.const 13308) "<")
+ (data $160.1 (i32.const 13320) "\02\00\00\00\1e\00\00\00A\00d\00m\00i\00n\00 \00u\00n\00c\00h\00a\00n\00g\00e\00d")
+ (data $161 (i32.const 13372) "L")
+ (data $161.1 (i32.const 13384) "\02\00\00\000\00\00\00F\00e\00e\00 \00e\00x\00c\00e\00e\00d\00s\00 \00m\00a\00x\00i\00m\00u\00m\00 \00(\005\00%\00)")
+ (data $162 (i32.const 13452) "<")
+ (data $162.1 (i32.const 13464) "\02\00\00\00&\00\00\00N\00o\00 \00f\00e\00e\00s\00 \00t\00o\00 \00w\00i\00t\00h\00d\00r\00a\00w")
+ (data $163 (i32.const 13516) "\1c")
+ (data $163.1 (i32.const 13528) "\02\00\00\00\0c\00\00\00P\00a\00u\00s\00e\00d")
+ (data $164 (i32.const 13548) ",")
+ (data $164.1 (i32.const 13560) "\02\00\00\00\10\00\00\00U\00n\00p\00a\00u\00s\00e\00d")
+ (data $165 (i32.const 13596) "\\")
+ (data $165.1 (i32.const 13608) "\02\00\00\00@\00\00\00R\00e\00e\00n\00t\00r\00a\00n\00c\00y\00G\00u\00a\00r\00d\00:\00 \00D\00e\00p\00t\00h\00 \00u\00n\00d\00e\00r\00f\00l\00o\00w")
  (table $0 2 2 funcref)
  (elem $0 (i32.const 1) $start:src/index~anonymous|0)
  (export "abort" (func $src/index/abort))
@@ -2139,7 +2141,7 @@
   (local $2 i32)
   (local $3 i32)
   (local $4 i32)
-  i32.const 13628
+  i32.const 13692
   global.set $~lib/rt/stub/offset
   i64.const 0
   i64.const 0
@@ -4068,7 +4070,7 @@
       i64.or
       i64.eqz
       if
-       i32.const 13552
+       i32.const 13616
        i32.const 10000
        i32.const 100
        i32.const 17
@@ -5435,7 +5437,7 @@
   if
    i32.const 10464
    i32.const 10528
-   i32.const 733
+   i32.const 736
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8020,7 +8022,7 @@
      if
       i32.const 12304
       i32.const 10528
-      i32.const 759
+      i32.const 762
       i32.const 9
       call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
       unreachable
@@ -8163,7 +8165,7 @@
   if
    i32.const 12432
    i32.const 10528
-   i32.const 740
+   i32.const 743
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8464,7 +8466,7 @@
    if
     i32.const 13008
     i32.const 10528
-    i32.const 777
+    i32.const 780
     i32.const 9
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
@@ -9708,11 +9710,33 @@
       local.get $2
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readAddress
       local.set $1
+      global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
+      local.tee $2
+      i32.load offset=28
+      i32.eqz
+      br_if $folding-inner0
+      local.get $2
+      i32.load offset=28
+      local.tee $2
+      i32.eqz
+      br_if $folding-inner2
+      local.get $1
+      local.get $2
+      i32.load offset=4
+      call $~lib/@btc-vision/btc-runtime/runtime/types/Address/Address#equals
+      if
+       i32.const 13328
+       i32.const 10528
+       i32.const 582
+       i32.const 7
+       call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
+       unreachable
+      end
       local.get $0
       i32.load offset=16
       local.get $1
       call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#set:value
-      br $folding-inner0
+      br $folding-inner1
      end
      local.get $1
      i32.const -1600338329
@@ -9731,9 +9755,9 @@
       local.get $1
       call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
       if
-       i32.const 13328
+       i32.const 13392
        i32.const 10528
-       i32.const 594
+       i32.const 597
        i32.const 7
        call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
        unreachable
@@ -9742,7 +9766,7 @@
       i32.load offset=28
       local.get $1
       call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
-      br $folding-inner0
+      br $folding-inner1
      end
      local.get $1
      i32.const -745552428
@@ -9793,9 +9817,9 @@
        i32.const 0
       end
       if
-       i32.const 13408
+       i32.const 13472
        i32.const 10528
-       i32.const 610
+       i32.const 613
        i32.const 7
        call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
        unreachable
@@ -9835,7 +9859,7 @@
       i32.load offset=36
       local.get $1
       call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#set:value
-      br $folding-inner0
+      br $folding-inner1
      end
      local.get $1
      i32.const 557378572
@@ -9851,7 +9875,7 @@
       local.tee $0
       i32.load offset=28
       i32.eqz
-      br_if $folding-inner1
+      br_if $folding-inner0
       local.get $0
       i32.load offset=28
       local.tee $0
@@ -9868,13 +9892,11 @@
       local.tee $2
       local.get $0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-      i32.const 13472
+      i32.const 13536
       local.get $2
       call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
       call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
-      i32.const 0
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-      return
+      br $folding-inner1
      end
      local.get $1
      i32.const -2126221029
@@ -9890,7 +9912,7 @@
       local.tee $0
       i32.load offset=28
       i32.eqz
-      br_if $folding-inner1
+      br_if $folding-inner0
       local.get $0
       i32.load offset=28
       local.tee $0
@@ -9907,13 +9929,11 @@
       local.tee $2
       local.get $0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-      i32.const 13504
+      i32.const 13568
       local.get $2
       call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
       call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
-      i32.const 0
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-      return
+      br $folding-inner1
      end
      local.get $1
      i32.const 256321957
@@ -10050,16 +10070,16 @@
      call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#execute
      return
     end
-    i32.const 0
-    call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-    return
+    i32.const 11232
+    i32.const 5456
+    i32.const 146
+    i32.const 13
+    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
+    unreachable
    end
-   i32.const 11232
-   i32.const 5456
-   i32.const 146
-   i32.const 13
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
+   i32.const 0
+   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
+   return
   end
   i32.const 7984
   i32.const 5456
