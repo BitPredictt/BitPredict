@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, TrendingUp, Droplets, ChevronRight, Zap, Shield, Link } from 'lucide-react';
+import { Clock, TrendingUp, Droplets, ChevronRight, Zap, Shield, Link, Share2, Star } from 'lucide-react';
 import type { Market } from '../types';
 import { PriceSparkline } from './PriceSparkline';
 
@@ -7,6 +7,8 @@ interface MarketCardProps {
   market: Market;
   onSelect: (market: Market) => void;
   index: number;
+  isFavorite?: boolean;
+  onToggleFavorite?: (marketId: string) => void;
 }
 
 const categoryColors: Record<string, string> = {
@@ -18,7 +20,7 @@ const categoryColors: Record<string, string> = {
   'Fast Bets': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
 };
 
-export function MarketCard({ market, onSelect, index }: MarketCardProps) {
+export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavorite }: MarketCardProps) {
   const yesRaw = market.yesPrice * 100;
   const noRaw = market.noPrice * 100;
   const fmtPct = (v: number) => {
@@ -31,7 +33,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
   const noPct = fmtPct(noRaw);
   const yesWidth = Math.max(0.5, Math.min(99.5, yesRaw));
   const noWidth = 100 - yesWidth;
-  const endMs = market.endTime ? market.endTime * 1000 : new Date(market.endDate).getTime();
+  const endMs = market.endTime ? market.endTime * 1000 : (new Date(market.endDate).getTime() || Date.now());
 
   const [now, setNow] = useState(Date.now());
   const msLeft = Math.max(0, endMs - now);
@@ -68,7 +70,7 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
   return (
     <div
       onClick={() => !isResolved && onSelect(market)}
-      className={`glass-card rounded-2xl p-5 group animate-fade-in ${isResolved ? 'opacity-60' : 'cursor-pointer'} ${isUrgent ? 'market-urgent' : ''}`}
+      className={`glass-card rounded-2xl p-5 group animate-fade-in ${isResolved ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${isUrgent ? 'market-urgent' : ''}`}
       style={{ animationDelay: `${index * 60}ms` }}
     >
       {/* Category badge */}
@@ -143,8 +145,18 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
       {market.marketType === 'price_5min' && !isResolved && (
         <PriceSparkline
           asset={market.id.startsWith('eth') ? 'eth' : market.id.startsWith('sol') ? 'sol' : 'btc'}
-          threshold={(() => { try { const src = market.tags?.find(t => t.includes('price')); return undefined; } catch { return undefined; } })()}
+          threshold={undefined}
         />
+      )}
+
+      {/* Countdown bar for active markets */}
+      {!isResolved && !isEnded && market.marketType === 'price_5min' && (
+        <div className="mb-2">
+          <div className="h-1 rounded-full bg-surface-3 overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-1000 ${isUrgent ? 'bg-red-500 animate-pulse' : 'bg-btc/60'}`}
+              style={{ width: `${Math.max(1, Math.min(100, (msLeft / 300000) * 100))}%` }} />
+          </div>
+        </div>
       )}
 
       {/* Stats */}
@@ -159,7 +171,25 @@ export function MarketCard({ market, onSelect, index }: MarketCardProps) {
             <span>{formatVolume(market.liquidity)} liq</span>
           </div>
         </div>
-        <ChevronRight size={14} className="text-gray-600 group-hover:text-btc transition-colors" />
+        <div className="flex items-center gap-1">
+          {onToggleFavorite && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleFavorite(market.id); }}
+              className={`p-1 rounded-lg transition-all ${isFavorite ? 'text-yellow-400 hover:text-yellow-300' : 'text-gray-600 hover:text-yellow-400 hover:bg-yellow-500/10'}`}
+              title={isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
+            >
+              <Star size={12} fill={isFavorite ? 'currentColor' : 'none'} />
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); navigator.share?.({ title: market.question, url: `https://bitpredict.club/?m=${market.id}` }).catch(() => navigator.clipboard?.writeText(`https://bitpredict.club/?m=${market.id}`)); }}
+            className="p-1 rounded-lg text-gray-600 hover:text-btc hover:bg-btc/10 transition-all"
+            title="Share"
+          >
+            <Share2 size={12} />
+          </button>
+          <ChevronRight size={14} className="text-gray-600 group-hover:text-btc transition-colors" />
+        </div>
       </div>
     </div>
   );

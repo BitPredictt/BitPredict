@@ -1,19 +1,15 @@
 /**
  * BitPredict — Prediction Market Smart Contract for OP_NET (Bitcoin L1)
  *
- * Written in AssemblyScript for the OP_NET runtime (btc-runtime).
- * Compiles to WebAssembly and runs on Bitcoin Layer 1 via OP_NET consensus.
+ * Production-ready version with:
+ * - Real BPUSD token transfers via Blockchain.call() (transferFrom/transfer)
+ * - ReentrancyGuard (STANDARD level) on all write methods
+ * - Pausable pattern (_paused + whenNotPaused)
+ * - Governance fee (StoredU256, admin-adjustable up to 5%)
+ * - MIN_MARKET_DURATION enforcement (6 blocks ≈ 1 hour)
+ * - Increased MIN_TRADE_AMOUNT (50,000 sats ≈ $50)
  *
- * Fixed per Bob (ai.opnet.org) audit:
- * - Added @method() decorators on all public methods (required for getContract() SDK)
- * - Uses SHA256 for userKey composite (not XOR)
- * - Correct compact types: u32 for block height, bool for flags, u16 for fee BPS
- * - AddressMemoryMap stores raw u256 (booleans as u256.One / u256.Zero)
- * - StoredAddress for admin (uses .value getter/setter)
- * - claimPayout() marks claim + emits event — BTC payouts via verify-don't-custody
- * - Block height via Blockchain.block.number (NOT medianTimestamp)
- *
- * Deployment: cd contracts && npm run build → deploy via OP_WALLET to OP_NET testnet
+ * Deployment: cd contracts && npm run build → deploy via OP_WALLET
  */
 
 import {
@@ -26,22 +22,29 @@ import {
   BytesWriter,
   Calldata,
   NetEvent,
-  OP_NET,
   Revert,
   SafeMath,
   StoredU256,
   StoredAddress,
+  StoredBoolean,
   AddressMemoryMap,
+  ReentrancyGuard,
+  ReentrancyLevel,
 } from '@btc-vision/btc-runtime/runtime';
 
 // ============================================================
 // Constants
 // ============================================================
 
-const MARKET_FEE_BPS: u64 = 200;         // 2% fee on trades
 const BPS_BASE: u64 = 10000;
-const MIN_TRADE_AMOUNT: u256 = u256.fromU64(100); // 100 sats minimum
+const MAX_FEE_BPS: u64 = 500;           // max 5% fee
+const MIN_TRADE_AMOUNT: u256 = u256.fromU64(50_000); // 50,000 sats minimum (~$50)
 const INITIAL_LIQUIDITY: u256 = u256.fromU64(1_000_000); // 1M sats initial virtual liquidity
+const MIN_MARKET_DURATION: u64 = 6;      // 6 blocks ≈ 1 hour
+
+// Cross-contract call selectors (OP-20 standard)
+const TRANSFER_FROM_SELECTOR: u32 = 0x23b872dd; // transferFrom(address,address,uint256)
+const TRANSFER_SELECTOR: u32 = 0xa9059cbb;      // transfer(address,uint256)
 
 // ============================================================
 // Events
@@ -66,7 +69,7 @@ class SharesPurchasedEvent extends NetEvent {
     shares: u256,
     yesPriceBps: u256,
   ) {
-    const data = new BytesWriter(161); // 32+32+1+32+32+32
+    const data = new BytesWriter(161);
     data.writeU256(marketId);
     data.writeAddress(buyer);
     data.writeBoolean(isYes);
@@ -79,7 +82,7 @@ class SharesPurchasedEvent extends NetEvent {
 
 class MarketResolvedEvent extends NetEvent {
   constructor(marketId: u256, outcome: boolean, resolver: Address) {
-    const data = new BytesWriter(65); // 32+1+32
+    const data = new BytesWriter(65);
     data.writeU256(marketId);
     data.writeBoolean(outcome);
     data.writeAddress(resolver);
@@ -97,15 +100,36 @@ class PayoutClaimedEvent extends NetEvent {
   }
 }
 
+class PausedEvent extends NetEvent {
+  constructor(admin: Address) {
+    const data = new BytesWriter(32);
+    data.writeAddress(admin);
+    super('Paused', data);
+  }
+}
+
+class UnpausedEvent extends NetEvent {
+  constructor(admin: Address) {
+    const data = new BytesWriter(32);
+    data.writeAddress(admin);
+    super('Unpaused', data);
+  }
+}
+
 // ============================================================
 // Contract
 // ============================================================
 
 @final
-export class PredictionMarket extends OP_NET {
+export class PredictionMarket extends ReentrancyGuard {
+  protected readonly reentrancyLevel: ReentrancyLevel = ReentrancyLevel.STANDARD;
+
   // Singleton storage
   private nextMarketId: StoredU256;
   private adminAddress: StoredAddress;
+  private tokenAddress: StoredAddress;  // BPUSD token contract
+  private _paused: StoredBoolean;
+  private marketFeeBps: StoredU256;     // governance-adjustable fee (in BPS)
 
   // Per-market state (keyed by sha256(marketId))
   private yesReserves:    AddressMemoryMap;
@@ -113,20 +137,23 @@ export class PredictionMarket extends OP_NET {
   private totalYesShares: AddressMemoryMap;
   private totalNoShares:  AddressMemoryMap;
   private endBlocks:      AddressMemoryMap;
-  private resolvedFlags:  AddressMemoryMap; // u256.One = true, u256.Zero = false
-  private outcomes:       AddressMemoryMap; // u256.One = YES, u256.Zero = NO
+  private resolvedFlags:  AddressMemoryMap;
+  private outcomes:       AddressMemoryMap;
   private totalPools:     AddressMemoryMap;
 
   // Per-user share tracking (keyed by sha256(marketId || userAddress))
   private userYesShares: AddressMemoryMap;
   private userNoShares:  AddressMemoryMap;
-  private userClaimed:   AddressMemoryMap; // u256.One = claimed
+  private userClaimed:   AddressMemoryMap;
 
   constructor() {
     super();
     const emptySubPointer = new Uint8Array(0);
     this.nextMarketId  = new StoredU256(Blockchain.nextPointer, emptySubPointer);
     this.adminAddress  = new StoredAddress(Blockchain.nextPointer);
+    this.tokenAddress  = new StoredAddress(Blockchain.nextPointer);
+    this._paused       = new StoredBoolean(Blockchain.nextPointer, false);
+    this.marketFeeBps  = new StoredU256(Blockchain.nextPointer, emptySubPointer);
 
     this.yesReserves    = new AddressMemoryMap(Blockchain.nextPointer);
     this.noReserves     = new AddressMemoryMap(Blockchain.nextPointer);
@@ -146,27 +173,38 @@ export class PredictionMarket extends OP_NET {
   // Lifecycle
   // ============================================================
 
-  public override onDeployment(_calldata: Calldata): void {
-    this.adminAddress.value = Blockchain.tx.origin;
+  public override onDeployment(calldata: Calldata): void {
+    // calldata: tokenAddress (Address)
+    const token: Address = calldata.readAddress();
+    this.tokenAddress.value = token;
+    this.adminAddress.value = Blockchain.tx.sender;
     this.nextMarketId.value = u256.One;
+    this.marketFeeBps.value = u256.fromU64(200); // default 2%
   }
 
   // ============================================================
-  // Write Methods (public, routed via @method decorators)
+  // Write Methods
   // ============================================================
 
   /**
    * createMarket(endBlock: u256) → marketId: u256
-   * Creates a new binary prediction market with 50/50 starting price.
    */
   @method({ name: 'endBlock', type: ABIDataTypes.UINT256 })
   @returns({ name: 'marketId', type: ABIDataTypes.UINT256 })
   public createMarket(calldata: Calldata): BytesWriter {
+    this.whenNotPaused();
+
     const endBlock: u256 = calldata.readU256();
     const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
 
     if (u256.le(endBlock, currentBlock)) {
       throw new Revert('End block must be in the future');
+    }
+
+    // Enforce minimum market duration (6 blocks ≈ 1 hour)
+    const minEndBlock: u256 = SafeMath.add(currentBlock, u256.fromU64(MIN_MARKET_DURATION));
+    if (u256.lt(endBlock, minEndBlock)) {
+      throw new Revert('Market duration too short (min 6 blocks)');
     }
 
     const marketId: u256 = this.nextMarketId.value;
@@ -192,9 +230,7 @@ export class PredictionMarket extends OP_NET {
 
   /**
    * buyShares(marketId: u256, isYes: bool, amount: u256) → shares: u256
-   * Purchase YES or NO shares via constant-product AMM (x*y=k).
-   * NOTE: Contract tracks share accounting. BTC payment verified via Blockchain.tx.outputs
-   * in a full NativeSwap-style implementation; for demo, amount is passed in calldata.
+   * Performs real transferFrom of BPUSD tokens from buyer to contract.
    */
   @method(
     { name: 'marketId', type: ABIDataTypes.UINT256 },
@@ -203,6 +239,8 @@ export class PredictionMarket extends OP_NET {
   )
   @returns({ name: 'shares', type: ABIDataTypes.UINT256 })
   public buyShares(calldata: Calldata): BytesWriter {
+    this.whenNotPaused();
+
     const marketId: u256 = calldata.readU256();
     const isYes: boolean = calldata.readBoolean();
     const amount: u256   = calldata.readU256();
@@ -227,8 +265,9 @@ export class PredictionMarket extends OP_NET {
       throw new Revert('Market already resolved');
     }
 
-    // 2% fee — round UP to favor protocol (ATK-13 audit fix)
-    const numerator: u256 = SafeMath.mul(amount, u256.fromU64(MARKET_FEE_BPS));
+    // 2% fee — round UP to favor protocol
+    const feeBps: u256 = this.marketFeeBps.value;
+    const numerator: u256 = SafeMath.mul(amount, feeBps);
     const base: u256 = u256.fromU64(BPS_BASE);
     const remainder: u256 = SafeMath.mod(numerator, base);
     let fee: u256 = SafeMath.div(numerator, base);
@@ -244,6 +283,7 @@ export class PredictionMarket extends OP_NET {
     let shares: u256 = u256.Zero;
     const userKey: Address = this.userKey(marketId, Blockchain.tx.sender);
 
+    // === EFFECTS (state updates BEFORE external calls) ===
     if (isYes) {
       const newNoReserve: u256  = SafeMath.add(noReserve, netAmount);
       const newYesReserve: u256 = SafeMath.div(k, newNoReserve);
@@ -266,6 +306,10 @@ export class PredictionMarket extends OP_NET {
       this.totalNoShares.set(marketKey, SafeMath.add(tot, shares));
     }
 
+    if (u256.eq(shares, u256.Zero)) {
+      throw new Revert('Slippage: zero shares');
+    }
+
     const pool: u256 = this.totalPools.get(marketKey);
     this.totalPools.set(marketKey, SafeMath.add(pool, amount));
 
@@ -274,6 +318,10 @@ export class PredictionMarket extends OP_NET {
     const newNoR: u256   = this.noReserves.get(marketKey);
     const totalRes: u256 = SafeMath.add(newYesR, newNoR);
     const yesBps: u256   = SafeMath.div(SafeMath.mul(newNoR, u256.fromU64(BPS_BASE)), totalRes);
+
+    // === INTERACTIONS (external calls AFTER state updates) ===
+    // transferFrom: pull BPUSD tokens from buyer to contract
+    this._transferFromToken(Blockchain.tx.sender, Blockchain.contract.address, amount);
 
     this.emitEvent(new SharesPurchasedEvent(
       marketId, Blockchain.tx.sender, isYes, amount, shares, yesBps,
@@ -323,12 +371,13 @@ export class PredictionMarket extends OP_NET {
 
   /**
    * claimPayout(marketId: u256) → payout: u256
-   * Returns payout amount for winner. Marks claim and emits event.
-   * Actual BTC transfer happens via verify-don't-custody on Bitcoin L1.
+   * Transfers BPUSD tokens to winner.
    */
   @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
   @returns({ name: 'payout', type: ABIDataTypes.UINT256 })
   public claimPayout(calldata: Calldata): BytesWriter {
+    this.whenNotPaused();
+
     const marketId: u256  = calldata.readU256();
     const marketKey: Address = this.marketKey(marketId);
     const userKey: Address   = this.userKey(marketId, Blockchain.tx.sender);
@@ -369,7 +418,15 @@ export class PredictionMarket extends OP_NET {
       totalWinningShares,
     );
 
+    if (u256.eq(payout, u256.Zero)) {
+      throw new Revert('Nothing to claim');
+    }
+
+    // Mark claimed BEFORE external call (checks-effects-interactions)
     this.userClaimed.set(userKey, u256.One);
+
+    // *** REAL TOKEN TRANSFER: transfer(claimer, payout) ***
+    this._transferToken(Blockchain.tx.sender, payout);
 
     this.emitEvent(new PayoutClaimedEvent(marketId, Blockchain.tx.sender, payout));
 
@@ -379,8 +436,120 @@ export class PredictionMarket extends OP_NET {
   }
 
   /**
+   * sellShares(marketId: u256, isYes: bool, shares: u256) → payout: u256
+   * Reverse AMM operation: sell shares back to the pool for BPUSD.
+   * Only possible on open (unresolved, not ended) markets.
+   */
+  @method(
+    { name: 'marketId', type: ABIDataTypes.UINT256 },
+    { name: 'isYes',    type: ABIDataTypes.BOOL },
+    { name: 'shares',   type: ABIDataTypes.UINT256 },
+  )
+  @returns({ name: 'payout', type: ABIDataTypes.UINT256 })
+  public sellShares(calldata: Calldata): BytesWriter {
+    this.whenNotPaused();
+
+    const marketId: u256 = calldata.readU256();
+    const isYes: boolean = calldata.readBoolean();
+    const shares: u256   = calldata.readU256();
+
+    if (u256.eq(shares, u256.Zero)) {
+      throw new Revert('Shares must be > 0');
+    }
+
+    const marketKey: Address = this.marketKey(marketId);
+
+    const endBlock: u256 = this.endBlocks.get(marketKey);
+    if (u256.eq(endBlock, u256.Zero)) {
+      throw new Revert('Market does not exist');
+    }
+
+    const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
+    if (u256.ge(currentBlock, endBlock)) {
+      throw new Revert('Market has ended');
+    }
+
+    if (u256.eq(this.resolvedFlags.get(marketKey), u256.One)) {
+      throw new Revert('Market already resolved');
+    }
+
+    const userKey: Address = this.userKey(marketId, Blockchain.tx.sender);
+
+    // Check user has enough shares
+    let userShareBalance: u256;
+    if (isYes) {
+      userShareBalance = this.userYesShares.get(userKey);
+    } else {
+      userShareBalance = this.userNoShares.get(userKey);
+    }
+
+    if (u256.lt(userShareBalance, shares)) {
+      throw new Revert('Insufficient shares');
+    }
+
+    // Reverse AMM: selling shares increases that reserve, other reserve decreases
+    const yesReserve: u256 = this.yesReserves.get(marketKey);
+    const noReserve: u256  = this.noReserves.get(marketKey);
+    const k: u256          = SafeMath.mul(yesReserve, noReserve);
+
+    let grossPayout: u256 = u256.Zero;
+
+    // === EFFECTS (state updates before external calls) ===
+    if (isYes) {
+      // Selling YES shares: add shares back to yesReserve, noReserve decreases
+      const newYesReserve: u256 = SafeMath.add(yesReserve, shares);
+      const newNoReserve: u256  = SafeMath.div(k, newYesReserve);
+      grossPayout = SafeMath.sub(noReserve, newNoReserve);
+      this.yesReserves.set(marketKey, newYesReserve);
+      this.noReserves.set(marketKey, newNoReserve);
+      this.userYesShares.set(userKey, SafeMath.sub(userShareBalance, shares));
+      const tot: u256 = this.totalYesShares.get(marketKey);
+      this.totalYesShares.set(marketKey, SafeMath.sub(tot, shares));
+    } else {
+      // Selling NO shares: add shares back to noReserve, yesReserve decreases
+      const newNoReserve: u256  = SafeMath.add(noReserve, shares);
+      const newYesReserve: u256 = SafeMath.div(k, newNoReserve);
+      grossPayout = SafeMath.sub(yesReserve, newYesReserve);
+      this.yesReserves.set(marketKey, newYesReserve);
+      this.noReserves.set(marketKey, newNoReserve);
+      this.userNoShares.set(userKey, SafeMath.sub(userShareBalance, shares));
+      const tot: u256 = this.totalNoShares.get(marketKey);
+      this.totalNoShares.set(marketKey, SafeMath.sub(tot, shares));
+    }
+
+    // Apply fee (same as buy — round UP to favor protocol)
+    const feeBps: u256 = this.marketFeeBps.value;
+    const feeNumerator: u256 = SafeMath.mul(grossPayout, feeBps);
+    const base: u256 = u256.fromU64(BPS_BASE);
+    const feeRemainder: u256 = SafeMath.mod(feeNumerator, base);
+    let fee: u256 = SafeMath.div(feeNumerator, base);
+    if (!u256.eq(feeRemainder, u256.Zero)) {
+      fee = SafeMath.add(fee, u256.One);
+    }
+    const netPayout: u256 = SafeMath.sub(grossPayout, fee);
+
+    if (u256.eq(netPayout, u256.Zero)) {
+      throw new Revert('Payout too small after fee');
+    }
+
+    // Decrease pool tracking
+    const pool: u256 = this.totalPools.get(marketKey);
+    if (u256.gt(grossPayout, pool)) {
+      this.totalPools.set(marketKey, u256.Zero);
+    } else {
+      this.totalPools.set(marketKey, SafeMath.sub(pool, grossPayout));
+    }
+
+    // === INTERACTIONS (external call after state) ===
+    this._transferToken(Blockchain.tx.sender, netPayout);
+
+    const writer = new BytesWriter(32);
+    writer.writeU256(netPayout);
+    return writer;
+  }
+
+  /**
    * setAdmin(newAdmin: Address) → void
-   * Admin key rotation.
    */
   @method({ name: 'newAdmin', type: ABIDataTypes.ADDRESS })
   public setAdmin(calldata: Calldata): BytesWriter {
@@ -390,12 +559,49 @@ export class PredictionMarket extends OP_NET {
     return new BytesWriter(0);
   }
 
+  /**
+   * setFee(newFeeBps: u256) → void
+   * Admin can adjust fee up to MAX_FEE_BPS (5%).
+   */
+  @method({ name: 'newFeeBps', type: ABIDataTypes.UINT256 })
+  public setFee(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+    const newFeeBps: u256 = calldata.readU256();
+    if (u256.gt(newFeeBps, u256.fromU64(MAX_FEE_BPS))) {
+      throw new Revert('Fee exceeds maximum (5%)');
+    }
+    this.marketFeeBps.value = newFeeBps;
+    return new BytesWriter(0);
+  }
+
+  /**
+   * pause() — Admin pauses all write operations.
+   */
+  @method()
+  public pause(_calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+    this._paused.value = true;
+    this.emitEvent(new PausedEvent(Blockchain.tx.sender));
+    return new BytesWriter(0);
+  }
+
+  /**
+   * unpause() — Admin resumes operations.
+   */
+  @method()
+  public unpause(_calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+    this._paused.value = false;
+    this.emitEvent(new UnpausedEvent(Blockchain.tx.sender));
+    return new BytesWriter(0);
+  }
+
   // ============================================================
   // Read-Only Methods
   // ============================================================
 
   /**
-   * getMarketInfo(marketId: u256) → (yesReserve, noReserve, totalPool, endBlock, resolved, outcome)
+   * getMarketInfo(marketId: u256)
    */
   @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
   @returns({ name: 'yesReserve', type: ABIDataTypes.UINT256 })
@@ -406,7 +612,7 @@ export class PredictionMarket extends OP_NET {
     const resolved: boolean = u256.eq(this.resolvedFlags.get(marketKey), u256.One);
     const outcome: boolean  = u256.eq(this.outcomes.get(marketKey), u256.One);
 
-    const writer = new BytesWriter(130); // 4×32 + 2×1
+    const writer = new BytesWriter(130);
     writer.writeU256(this.yesReserves.get(marketKey));
     writer.writeU256(this.noReserves.get(marketKey));
     writer.writeU256(this.totalPools.get(marketKey));
@@ -417,7 +623,7 @@ export class PredictionMarket extends OP_NET {
   }
 
   /**
-   * getUserShares(marketId: u256, user: Address) → (yesShares, noShares, claimed)
+   * getUserShares(marketId: u256, user: Address)
    */
   @method(
     { name: 'marketId', type: ABIDataTypes.UINT256 },
@@ -431,7 +637,7 @@ export class PredictionMarket extends OP_NET {
 
     const claimed: boolean = u256.eq(this.userClaimed.get(userKey), u256.One);
 
-    const writer = new BytesWriter(65); // 2×32 + 1
+    const writer = new BytesWriter(65);
     writer.writeU256(this.userYesShares.get(userKey));
     writer.writeU256(this.userNoShares.get(userKey));
     writer.writeBoolean(claimed);
@@ -439,7 +645,7 @@ export class PredictionMarket extends OP_NET {
   }
 
   /**
-   * getPrice(marketId: u256) → (yesPriceBps: u256, noPriceBps: u256)
+   * getPrice(marketId: u256)
    */
   @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
   @returns({ name: 'yesPriceBps', type: ABIDataTypes.UINT256 })
@@ -464,6 +670,12 @@ export class PredictionMarket extends OP_NET {
   // Internal Helpers
   // ============================================================
 
+  private whenNotPaused(): void {
+    if (this._paused.value) {
+      throw new Revert('Contract is paused');
+    }
+  }
+
   private requireAdmin(): void {
     const admin: Address = this.adminAddress.value;
     if (!Blockchain.tx.sender.equals(admin)) {
@@ -471,8 +683,45 @@ export class PredictionMarket extends OP_NET {
     }
   }
 
+  /**
+   * transferFrom: pull BPUSD tokens from sender to contract via cross-contract call.
+   * User must have approved this contract beforehand.
+   */
+  private _transferFromToken(from: Address, to: Address, amount: u256): void {
+    const writer = new BytesWriter(100);
+    writer.writeSelector(TRANSFER_FROM_SELECTOR);
+    writer.writeAddress(from);
+    writer.writeAddress(to);
+    writer.writeU256(amount);
+
+    const result = Blockchain.call(this.tokenAddress.value, writer, true);
+
+    if (result.data.byteLength > 0) {
+      if (!result.data.readBoolean()) {
+        throw new Revert('TransferFrom failed');
+      }
+    }
+  }
+
+  /**
+   * transfer: send BPUSD tokens from contract to recipient via cross-contract call.
+   */
+  private _transferToken(to: Address, amount: u256): void {
+    const writer = new BytesWriter(68);
+    writer.writeSelector(TRANSFER_SELECTOR);
+    writer.writeAddress(to);
+    writer.writeU256(amount);
+
+    const result = Blockchain.call(this.tokenAddress.value, writer, true);
+
+    if (result.data.byteLength > 0) {
+      if (!result.data.readBoolean()) {
+        throw new Revert('Transfer failed');
+      }
+    }
+  }
+
   private marketKey(marketId: u256): Address {
-    // SHA256(marketId bytes) → deterministic 32-byte storage key
     const buf = new Uint8Array(32);
     const mb: Uint8Array = marketId.toUint8Array(true);
     for (let i: i32 = 0; i < 32; i++) buf[i] = mb[i];
@@ -483,7 +732,6 @@ export class PredictionMarket extends OP_NET {
   }
 
   private userKey(marketId: u256, user: Address): Address {
-    // SHA256(marketId || userAddress) → collision-resistant composite key
     const buf = new Uint8Array(64);
     const mb: Uint8Array = marketId.toUint8Array(true);
     for (let i: i32 = 0; i < 32; i++) buf[i] = mb[i];

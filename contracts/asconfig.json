@@ -29,6 +29,16 @@
             "outFile": "build/StakingVault.wasm",
             "textFile": "build/StakingVault.wat",
             "use": ["abort=src/vault-index/abort"]
+        },
+        "oracle-debug": {
+            "outFile": "build/PriceOracle.wasm",
+            "textFile": "build/PriceOracle.wat",
+            "use": ["abort=src/oracle-index/abort"]
+        },
+        "oracle-release": {
+            "outFile": "build/PriceOracle.wasm",
+            "textFile": "build/PriceOracle.wat",
+            "use": ["abort=src/oracle-index/abort"]
         }
     },
     "options": {

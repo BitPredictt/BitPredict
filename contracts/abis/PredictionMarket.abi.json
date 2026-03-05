@@ -80,6 +80,32 @@
             ]
         },
         {
+            "name": "sellShares",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "marketId",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "isYes",
+                    "type": "BOOL"
+                },
+                {
+                    "name": "shares",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "payout",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
             "name": "setAdmin",
             "type": "Function",
             "payable": false,
@@ -90,6 +116,35 @@
                     "type": "ADDRESS"
                 }
             ],
+            "outputs": []
+        },
+        {
+            "name": "setFee",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "newFeeBps",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "name": "pause",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [],
+            "outputs": []
+        },
+        {
+            "name": "unpause",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [],
             "outputs": []
         },
         {

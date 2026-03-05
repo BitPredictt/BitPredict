@@ -45,9 +45,34 @@ export type ClaimPayout = CallResult<
 >;
 
 /**
+ * @description Represents the result of the sellShares function call.
+ */
+export type SellShares = CallResult<
+    {
+        payout: bigint;
+    },
+    OPNetEvent<never>[]
+>;
+
+/**
  * @description Represents the result of the setAdmin function call.
  */
 export type SetAdmin = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
+ * @description Represents the result of the setFee function call.
+ */
+export type SetFee = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
+ * @description Represents the result of the pause function call.
+ */
+export type Pause = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
+ * @description Represents the result of the unpause function call.
+ */
+export type Unpause = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
  * @description Represents the result of the getMarketInfo function call.
@@ -87,7 +112,11 @@ export interface IPredictionMarket extends IOP_NETContract {
     buyShares(marketId: bigint, isYes: boolean, amount: bigint): Promise<BuyShares>;
     resolveMarket(marketId: bigint, outcome: boolean): Promise<ResolveMarket>;
     claimPayout(marketId: bigint): Promise<ClaimPayout>;
+    sellShares(marketId: bigint, isYes: boolean, shares: bigint): Promise<SellShares>;
     setAdmin(newAdmin: Address): Promise<SetAdmin>;
+    setFee(newFeeBps: bigint): Promise<SetFee>;
+    pause(): Promise<Pause>;
+    unpause(): Promise<Unpause>;
     getMarketInfo(marketId: bigint): Promise<GetMarketInfo>;
     getUserShares(marketId: bigint, user: Address): Promise<GetUserShares>;
     getPrice(marketId: bigint): Promise<GetPrice>;

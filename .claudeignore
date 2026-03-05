@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+contracts/node_modules/
+server/node_modules/
+
+# Build output
+dist/
+contracts/build/
+.wrangler/
+
+# Git
+.git/
+
+# Database
+*.db
+*.db-journal
+
+# Source maps and logs
+*.map
+*.log
+
+# Images and media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.webp
+
+# Lock files (large, not needed for code understanding)
+package-lock.json
+contracts/package-lock.json
+server/package-lock.json
+
+# Misc
+.DS_Store
+Thumbs.db
+*.wasm
+*.wat

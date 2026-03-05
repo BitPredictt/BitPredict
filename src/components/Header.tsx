@@ -1,8 +1,8 @@
-import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Trophy, HelpCircle } from 'lucide-react';
+import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Trophy, HelpCircle, ExternalLink } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
 import { NotificationBell } from './NotificationBell';
-import * as api from '../lib/api';
+import { OPNET_CONFIG } from '../lib/opnet';
 
 interface HeaderProps {
   wallet: WalletState;
@@ -11,48 +11,14 @@ interface HeaderProps {
   connecting: boolean;
   activeTab: Tab;
   onTabChange: (tab: Tab) => void;
-  predBalance: number;
-  btcBalance: number;
-  onBalanceUpdate: (balance: number, btcBalance: number) => void;
+  onChainBalance: number;
 }
 
-export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, predBalance, btcBalance, onBalanceUpdate }: HeaderProps) {
+export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, onChainBalance }: HeaderProps) {
   const [mobileMenu, setMobileMenu] = useState(false);
-  const [claimingFaucet, setClaimingFaucet] = useState<'bpusd' | 'btc' | null>(null);
 
   const formatAddress = (addr: string) =>
     addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
-
-  const handleBtcFaucet = async () => {
-    if (claimingFaucet || !wallet.address) return;
-    setClaimingFaucet('btc');
-    try {
-      const r = await api.claimBtcFaucet(wallet.address);
-      onBalanceUpdate(r.newBalance, r.newBtcBalance);
-    } catch { /* cooldown */ }
-    setClaimingFaucet(null);
-  };
-
-  const handleBuyBpusd = async () => {
-    if (claimingFaucet || !wallet.address) return;
-    const input = window.prompt('Buy BPUSD with BTC\n1,000 sats = 1 BPUSD\n\nHow much BPUSD?', '100');
-    if (!input) return;
-    const amount = Math.floor(Number(input));
-    if (!amount || amount < 1) return;
-    const satsCost = amount * 1000;
-    if (satsCost > btcBalance) {
-      alert(`Not enough BTC. Need ${satsCost.toLocaleString()} sats, have ${btcBalance.toLocaleString()} sats`);
-      return;
-    }
-    setClaimingFaucet('bpusd');
-    try {
-      const r = await api.buyBpusd(wallet.address, amount);
-      onBalanceUpdate(r.newBalance, r.newBtcBalance);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Exchange failed');
-    }
-    setClaimingFaucet(null);
-  };
 
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
     { id: 'markets', label: 'Markets', icon: <BarChart3 size={14} /> },
@@ -104,30 +70,26 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
             {wallet.connected ? (
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500 status-breathing shrink-0" />
-                <div className="hidden sm:block text-right">
+                <div className="text-right">
                   <div className="flex items-center gap-1.5 justify-end">
-                    <span className="text-[10px] font-bold text-btc">{predBalance.toLocaleString()} BPUSD</span>
+                    <span className="text-[10px] font-bold text-btc">{Math.floor(onChainBalance).toLocaleString()} BPUSD</span>
                     <span className="text-gray-600 text-[10px]">|</span>
-                    <span className="text-[10px] font-bold text-orange-400">{btcBalance.toLocaleString()} sats</span>
+                    <span className="text-[10px] font-bold text-orange-400">{wallet.balanceSats.toLocaleString()} sats</span>
                   </div>
                   <div className="flex items-center gap-1 justify-end mt-0.5">
                     <div className="text-[9px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>
-                    <button
-                      onClick={handleBuyBpusd}
-                      disabled={!!claimingFaucet}
-                      className="text-[8px] px-1 py-0.5 rounded bg-btc/10 text-btc hover:bg-btc/20 transition-all disabled:opacity-50"
-                      title="Buy BPUSD with BTC (1000 sats = 1 BPUSD)"
+                    {OPNET_CONFIG.network === 'testnet' && (
+                    <a
+                      href={OPNET_CONFIG.faucetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[8px] px-1.5 py-0.5 rounded bg-btc/10 text-btc hover:bg-btc/20 transition-all flex items-center gap-0.5"
+                      title="Get testnet BTC from OP_NET faucet"
                     >
-                      Buy BPUSD
-                    </button>
-                    <button
-                      onClick={handleBtcFaucet}
-                      disabled={!!claimingFaucet}
-                      className="text-[8px] px-1 py-0.5 rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-all disabled:opacity-50"
-                      title="Claim BTC faucet (2000 sats)"
-                    >
-                      +BTC
-                    </button>
+                      <ExternalLink size={7} />
+                      Faucet
+                    </a>
+                    )}
                   </div>
                 </div>
                 <NotificationBell walletAddress={wallet.address} />

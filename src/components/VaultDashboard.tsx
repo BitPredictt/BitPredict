@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, ExternalLink, BarChart3, Zap, Clock, CheckCircle2 } from 'lucide-react';
+import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, ExternalLink, BarChart3, Zap, Clock, CheckCircle2, Link } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../lib/api';
-import { signVaultProof, getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
+import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo } from '../lib/opnet';
 import type { VaultInfo, VaultUserInfo, VaultRewardEntry, VaultVesting } from '../types';
 import { TopPredictors } from './TopPredictors';
 
@@ -10,17 +10,17 @@ interface VaultDashboardProps {
   walletConnected: boolean;
   walletAddress: string;
   walletBtcBalance: number;
-  predBalance: number;
+  onChainBalance: number;
   onConnect: () => void;
-  onBalanceUpdate: (balance: number) => void;
+  onBalanceRefresh: () => void;
   walletProvider: unknown;
   walletNetwork: unknown;
   walletAddressObj: unknown;
 }
 
 export function VaultDashboard({
-  walletConnected, walletAddress, walletBtcBalance, predBalance,
-  onConnect, onBalanceUpdate, walletProvider, walletNetwork, walletAddressObj,
+  walletConnected, walletAddress, walletBtcBalance, onChainBalance,
+  onConnect, onBalanceRefresh, walletProvider, walletNetwork, walletAddressObj,
 }: VaultDashboardProps) {
   const [vaultInfo, setVaultInfo] = useState<VaultInfo | null>(null);
   const [userInfo, setUserInfo] = useState<VaultUserInfo | null>(null);
@@ -31,6 +31,7 @@ export function VaultDashboard({
   const [loading, setLoading] = useState(false);
   const [txMsg, setTxMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claiming, setClaiming] = useState(false);
+  const [onChainTvl, setOnChainTvl] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const info = await api.getVaultInfo().catch(() => null);
@@ -43,8 +44,12 @@ export function VaultDashboard({
       setUserInfo(uInfo);
       const vests = await api.getVaultVesting(walletAddress).catch(() => []);
       setVestings(vests);
+      // Read on-chain TVL from StakingVault contract
+      getOnChainVaultInfo(walletProvider, walletNetwork, walletAddressObj)
+        .then(r => { if (r) setOnChainTvl((Number(r.totalStaked) / 1e8).toLocaleString()); })
+        .catch(() => {});
     }
-  }, [walletAddress]);
+  }, [walletAddress, walletProvider, walletNetwork, walletAddressObj]);
 
   useEffect(() => {
     loadData();
@@ -54,30 +59,31 @@ export function VaultDashboard({
 
   const handleStakeUnstake = async () => {
     const amtNum = Number(amount);
-    const max = mode === 'stake' ? predBalance : (userInfo?.staked || 0);
+    const max = mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0);
     if (!amtNum || amtNum < 100 || amtNum > max || loading) return;
 
     setLoading(true);
     setTxMsg({ text: 'Sign the transaction in OP_WALLET...', type: 'success' });
 
     try {
-      const proof = await signVaultProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
-      if (!proof.success) throw new Error(proof.error || 'TX signing failed');
+      // Call real StakingVault contract (single wallet popup)
+      const onChainFn = mode === 'stake' ? stakeOnChain : unstakeOnChain;
+      const r = await onChainFn(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
+      if (!r.success) throw new Error(r.error || 'TX failed');
 
       setTxMsg({ text: 'TX signed! Processing...', type: 'success' });
 
-      let result;
       if (mode === 'stake') {
-        result = await api.stakeVault(walletAddress, amtNum, proof.txHash);
+        await api.stakeVault(walletAddress, amtNum, r.txHash);
       } else {
-        result = await api.unstakeVault(walletAddress, amtNum, proof.txHash);
+        await api.unstakeVault(walletAddress, amtNum, r.txHash);
       }
 
-      onBalanceUpdate(result.newBalance);
+      onBalanceRefresh();
       setTxMsg({
-        text: `${mode === 'stake' ? 'Staked' : 'Unstaked'} ${amtNum.toLocaleString()} BPUSD!`,
+        text: `${mode === 'stake' ? 'Staked' : 'Unstaked'} ${amtNum.toLocaleString()} BPUSD on-chain!`,
         type: 'success',
-        txHash: proof.txHash,
+        txHash: r.txHash,
       });
       setAmount('');
       loadData();
@@ -94,15 +100,16 @@ export function VaultDashboard({
     setTxMsg({ text: 'Sign claim TX in OP_WALLET...', type: 'success' });
 
     try {
-      const proof = await signVaultProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, userInfo.pendingRewards);
-      if (!proof.success) throw new Error(proof.error || 'TX signing failed');
+      // Call real StakingVault.claimRewards() on-chain
+      const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
+      if (!r.success) throw new Error(r.error || 'Claim TX failed');
 
-      const result = await api.claimVaultRewards(walletAddress, proof.txHash);
-      onBalanceUpdate(result.newBalance);
+      const result = await api.claimVaultRewards(walletAddress, r.txHash);
+      onBalanceRefresh();
       setTxMsg({
-        text: `Claimed ${result.claimed.toLocaleString()} BPUSD!`,
+        text: `Claimed ${result.claimed.toLocaleString()} BPUSD on-chain!`,
         type: 'success',
-        txHash: proof.txHash,
+        txHash: r.txHash,
       });
       loadData();
     } catch (err) {
@@ -115,11 +122,15 @@ export function VaultDashboard({
   const handleAutoCompound = async () => {
     if (!userInfo) return;
     const newVal = !userInfo.autoCompound;
-    await api.setAutoCompound(walletAddress, newVal).catch(() => {});
-    setUserInfo({ ...userInfo, autoCompound: newVal });
+    setUserInfo({ ...userInfo, autoCompound: newVal }); // optimistic
+    try {
+      await api.setAutoCompound(walletAddress, newVal);
+    } catch {
+      setUserInfo({ ...userInfo, autoCompound: !newVal }); // rollback
+    }
   };
 
-  const maxAmount = mode === 'stake' ? predBalance : (userInfo?.staked || 0);
+  const maxAmount = mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0);
 
   const formatNum = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -213,6 +224,11 @@ export function VaultDashboard({
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">TVL</div>
               <div className="text-lg font-black text-white">{formatNum(vaultInfo?.totalStaked || 0)}</div>
               <div className="text-[9px] text-gray-500">BPUSD</div>
+              {onChainTvl && (
+                <div className="flex items-center gap-0.5 mt-1 text-[8px] text-sky-400">
+                  <Link size={7} /> On-chain: {onChainTvl}
+                </div>
+              )}
             </div>
             <div className={`bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover ${highApy ? 'vault-pulse' : ''}`}>
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">APY</div>
@@ -300,7 +316,7 @@ export function VaultDashboard({
             </div>
 
             <div className="flex items-center justify-between mb-4 text-[10px] text-gray-500">
-              <span>Available: {formatNum(mode === 'stake' ? predBalance : (userInfo?.staked || 0))} BPUSD</span>
+              <span>Available: {formatNum(mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0))} BPUSD</span>
               <span>Fee: 0%</span>
             </div>
 
@@ -348,10 +364,10 @@ export function VaultDashboard({
               )}
             </div>
 
-            {walletBtcBalance < MIN_BTC_FOR_TX && walletBtcBalance >= 0 && (
+            {walletBtcBalance > 0 && walletBtcBalance < MIN_BTC_FOR_TX && (
               <div className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-400 font-bold text-center">
                 Low BTC balance: {satsToBtc(walletBtcBalance)} BTC — need at least {satsToBtc(MIN_BTC_FOR_TX)} BTC for gas.
-                <a href={OPNET_CONFIG.faucetUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-btc underline">Get testnet BTC</a>
+                {OPNET_CONFIG.network === 'testnet' && <a href={OPNET_CONFIG.faucetUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-btc underline">Get testnet BTC</a>}
               </div>
             )}
 

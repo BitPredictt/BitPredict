@@ -35,8 +35,36 @@ export const PredictionMarketAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
+        name: 'sellShares',
+        inputs: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'isYes', type: ABIDataTypes.BOOL },
+            { name: 'shares', type: ABIDataTypes.UINT256 },
+        ],
+        outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
         name: 'setAdmin',
         inputs: [{ name: 'newAdmin', type: ABIDataTypes.ADDRESS }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'setFee',
+        inputs: [{ name: 'newFeeBps', type: ABIDataTypes.UINT256 }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'pause',
+        inputs: [],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'unpause',
+        inputs: [],
         outputs: [],
         type: BitcoinAbiTypes.Function,
     },

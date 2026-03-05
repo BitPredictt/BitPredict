@@ -5,27 +5,75 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://bitpredict.club';
 
+const TOKEN_KEY = 'bp_jwt';
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', ...opts?.headers },
-  });
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(opts?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
   let data: Record<string, unknown>;
   try {
     data = await res.json();
   } catch {
     throw new Error(`API error ${res.status}: server returned non-JSON response`);
   }
+  if (res.status === 401) {
+    clearAuthToken();
+  }
   if (!res.ok) throw new Error((data.error as string) || `API error ${res.status}`);
   return data as T;
 }
 
 // --- Auth / Balance ---
-export async function authUser(address: string, referrer?: string) {
-  return apiFetch<{ address: string; balance: number; btcBalance: number; referrer: string | null }>('/api/auth', {
+export async function getAuthChallenge(address: string) {
+  return apiFetch<{ challenge: string; expiresAt: number }>('/api/auth/challenge', {
     method: 'POST',
-    body: JSON.stringify({ address, referrer }),
+    body: JSON.stringify({ address }),
   });
+}
+
+export async function authUser(address: string, signature: string, challenge: string, referrer?: string) {
+  const result = await apiFetch<{ address: string; balance: number; btcBalance: number; referrer: string | null; token?: string }>('/api/auth', {
+    method: 'POST',
+    body: JSON.stringify({ address, signature, challenge, referrer }),
+  });
+  if (result.token) {
+    setAuthToken(result.token);
+  }
+  return result;
+}
+
+/**
+ * Full login flow: get challenge → sign with wallet → authenticate.
+ * signMessage: wallet-provided function that signs a string and returns hex signature.
+ */
+export async function loginWithWallet(
+  address: string,
+  signMessage: (message: string) => Promise<string>,
+  referrer?: string,
+) {
+  const { challenge } = await getAuthChallenge(address);
+  const message = `Sign this challenge to authenticate with BitPredict: ${challenge}`;
+  const signature = await signMessage(message);
+  return authUser(address, signature, challenge, referrer);
 }
 
 export async function getBalance(address: string) {
@@ -175,10 +223,10 @@ export interface RewardClaim {
   claimed_at: number;
 }
 
-export async function claimReward(address: string, rewardId: string, rewardType: string, amount: number) {
+export async function claimReward(address: string, rewardId: string) {
   return apiFetch<{ success: boolean; amount: number; newBalance: number }>('/api/reward/claim', {
     method: 'POST',
-    body: JSON.stringify({ address, rewardId, rewardType, amount }),
+    body: JSON.stringify({ address, rewardId }),
   });
 }
 
@@ -311,21 +359,7 @@ export async function sellShares(address: string, betId: string, sharesToSell?: 
   });
 }
 
-// --- BTC Faucet ---
-export async function claimBtcFaucet(address: string) {
-  return apiFetch<{ success: boolean; claimed: number; newBalance: number; newBtcBalance: number; message: string }>('/api/faucet/btc', {
-    method: 'POST',
-    body: JSON.stringify({ address }),
-  });
-}
-
-// --- Exchange: Buy BPUSD with BTC ---
-export async function buyBpusd(address: string, bpusdAmount: number) {
-  return apiFetch<{ success: boolean; bought: number; satsCost: number; newBalance: number; newBtcBalance: number; message: string }>('/api/exchange/buy-bpusd', {
-    method: 'POST',
-    body: JSON.stringify({ address, bpusdAmount }),
-  });
-}
+// BTC faucet and exchange removed — use real wallet BTC + on-chain BPUSD mint
 
 // --- User Market Creation ---
 export async function createMarket(address: string, question: string, endTime: number, category?: string, initialLiquidity?: number, tags?: string[]) {

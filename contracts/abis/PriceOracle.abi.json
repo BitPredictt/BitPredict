@@ -1,44 +1,44 @@
 {
     "functions": [
         {
-            "name": "mint",
+            "name": "addOracle",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
                 {
-                    "name": "to",
+                    "name": "oracle",
                     "type": "ADDRESS"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "name": "removeOracle",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "oracle",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "name": "submitPrice",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "assetId",
+                    "type": "UINT256"
                 },
                 {
-                    "name": "amount",
+                    "name": "price",
                     "type": "UINT256"
-                }
-            ],
-            "outputs": []
-        },
-        {
-            "name": "setMintRate",
-            "type": "Function",
-            "payable": false,
-            "onlyOwner": false,
-            "inputs": [
-                {
-                    "name": "newRate",
-                    "type": "UINT256"
-                }
-            ],
-            "outputs": []
-        },
-        {
-            "name": "setTreasury",
-            "type": "Function",
-            "payable": false,
-            "onlyOwner": false,
-            "inputs": [
-                {
-                    "name": "newTreasury",
-                    "type": "ADDRESS"
                 }
             ],
             "outputs": []
@@ -60,14 +60,19 @@
             "outputs": []
         },
         {
-            "name": "getMintRate",
+            "name": "getPrice",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
-            "inputs": [],
+            "inputs": [
+                {
+                    "name": "assetId",
+                    "type": "UINT256"
+                }
+            ],
             "outputs": [
                 {
-                    "name": "rate",
+                    "name": "price",
                     "type": "UINT256"
                 }
             ]

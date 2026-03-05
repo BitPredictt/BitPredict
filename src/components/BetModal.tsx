@@ -1,14 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import { X, AlertCircle, Zap, Info, BrainCircuit, Loader2, MessageCircle, Send, TrendingUp } from 'lucide-react';
 import type { Market, WalletState } from '../types';
-import { calculateShares } from '../lib/opnet';
+import { calculateShares, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface BetModalProps {
   market: Market;
   wallet: WalletState;
-  predBalance: number;
-  btcBalance: number;
+  onChainBalance: number; // real BPUSD from on-chain balanceOf
   onClose: () => void;
   onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd') => void;
 }
@@ -17,7 +16,7 @@ interface BetModalProps {
 const signalCache = new Map<string, { signal: string; ts: number }>();
 const SIGNAL_TTL = 300000; // 5 min
 
-export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onPlaceBet }: BetModalProps) {
+export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }: BetModalProps) {
   const isMultiOutcome = !!(market.outcomes && market.outcomes.length > 1);
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
@@ -87,10 +86,12 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
   const signalBg = signalType === 'bullish' ? 'bg-green-500/10 border-green-500/20' : signalType === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
 
   const amountNum = parseInt(amount) || 0;
-  const feePct = currency === 'btc' ? 0.05 : 0.02;
-  const feeAmount = Math.ceil(amountNum * feePct);
-  const totalCharge = amountNum + feeAmount;
-  const activeBalance = currency === 'btc' ? btcBalance : predBalance;
+  const feePct = currency === 'btc' ? BTC_BET_FEE_PCT : BPUSD_BET_FEE_PCT;
+  // For BTC bets: amount is in BPUSD, total cost is in sats (amount * SATS_PER_BPUSD * (1+fee))
+  const btcCostSats = currency === 'btc' ? Math.ceil(amountNum * SATS_PER_BPUSD * (1 + BTC_BET_FEE_PCT)) : 0;
+  const feeAmount = currency === 'btc' ? Math.ceil(amountNum * SATS_PER_BPUSD * BTC_BET_FEE_PCT) : Math.ceil(amountNum * BPUSD_BET_FEE_PCT);
+  const totalCharge = currency === 'btc' ? btcCostSats : amountNum + feeAmount;
+  const activeBalance = currency === 'btc' ? wallet.balanceSats : Math.floor(onChainBalance);
   const currLabel = currency === 'btc' ? 'sats' : 'BPUSD';
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
@@ -127,7 +128,7 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
     }
   };
 
-  const presets = currency === 'btc' ? [500, 1000, 2500, 5000] : [100, 250, 500, 1000];
+  const presets = [100, 250, 500, 1000]; // Always BPUSD amounts
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
@@ -157,14 +158,14 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
             BPUSD <span className="text-[10px] opacity-60">2% fee</span>
           </button>
           <button
-            onClick={() => { setCurrency('btc'); setAmount(String(1000)); }}
+            onClick={() => { setCurrency('btc'); setAmount(String(100)); }}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
               currency === 'btc'
                 ? 'border-orange-500 bg-orange-500/10 text-orange-400'
                 : 'border-white/5 bg-surface-2 text-gray-500 hover:border-white/10'
             }`}
           >
-            BTC (sats) <span className="text-[10px] opacity-60">5% fee</span>
+            BTC → BPUSD <span className="text-[10px] opacity-60">5% fee · auto-convert</span>
           </button>
         </div>
 
@@ -255,7 +256,9 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
 
         {/* Amount */}
         <div className="mb-4">
-          <label className="text-xs font-semibold text-gray-400 mb-2 block">Amount ({currLabel}) — Balance: {activeBalance.toLocaleString()} {currLabel}</label>
+          <label className="text-xs font-semibold text-gray-400 mb-2 block">
+            Amount (BPUSD) — {currency === 'btc' ? `Wallet: ${activeBalance.toLocaleString()} sats` : `Balance: ${activeBalance.toLocaleString()} BPUSD`}
+          </label>
           <input
             type="number"
             value={amount}
@@ -283,12 +286,24 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
         {/* Summary */}
         {amountNum > 0 && (
           <div className="bg-surface-2 rounded-xl p-4 mb-5 space-y-2">
+            {currency === 'btc' && (
+              <div className="flex justify-between items-center py-1.5 px-3 -mx-1 rounded-lg bg-orange-500/10 border border-orange-500/20 mb-1">
+                <span className="text-xs text-orange-300 font-bold">You pay (BTC)</span>
+                <span className="text-base text-orange-400 font-black">{btcCostSats.toLocaleString()} sats</span>
+              </div>
+            )}
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Bet amount</span>
-              <span className="text-white font-bold">{amountNum.toLocaleString()} {currLabel}</span>
+              <span className="text-white font-bold">{amountNum.toLocaleString()} BPUSD</span>
             </div>
+            {currency === 'btc' && (
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Rate: {SATS_PER_BPUSD.toLocaleString()} sats/BPUSD</span>
+                <span className="text-gray-400 font-medium">{(amountNum * SATS_PER_BPUSD).toLocaleString()} sats</span>
+              </div>
+            )}
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Fee ({Math.round(feePct * 100)}% on top)</span>
+              <span className="text-gray-500">Fee ({Math.round(feePct * 100)}%)</span>
               <span className="text-gray-400 font-medium">+{feeAmount.toLocaleString()} {currLabel}</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-1">
@@ -367,7 +382,10 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
         {insufficientBalance && wallet.connected && amountNum > 0 && (
           <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
             <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-red-400">Insufficient {currLabel}: {activeBalance.toLocaleString()} (need {totalCharge.toLocaleString()} incl. fee)</p>
+            <p className="text-xs text-red-400">
+              Insufficient {currLabel}: {activeBalance.toLocaleString()} (need {totalCharge.toLocaleString()})
+              {currency === 'btc' && ' — get BTC for gas'}
+            </p>
           </div>
         )}
 
@@ -391,13 +409,13 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
           ) : amountNum < 100 ? (
             `Minimum bet: 100 ${currLabel}`
           ) : insufficientBalance ? (
-            `Insufficient ${currLabel} (${activeBalance.toLocaleString()})`
+            `Insufficient ${currLabel} (${activeBalance.toLocaleString()} ${currLabel})`
           ) : (
             <>
               <Zap size={16} />
               {isMultiOutcome
-                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${amountNum.toLocaleString()} ${currLabel}`
-                : `Place ${side.toUpperCase()} — ${amountNum.toLocaleString()} ${currLabel}`}
+                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${amountNum.toLocaleString()} BPUSD${currency === 'btc' ? ` (${btcCostSats.toLocaleString()} sats)` : ''}`
+                : `Place ${side.toUpperCase()} — ${amountNum.toLocaleString()} BPUSD${currency === 'btc' ? ` (${btcCostSats.toLocaleString()} sats)` : ''}`}
             </>
           )}
         </button>
@@ -477,7 +495,7 @@ export function BetModal({ market, wallet, predBalance, btcBalance, onClose, onP
         )}
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
-          Powered by OP_NET · Bitcoin Layer 1 · Testnet · BPUSD virtual currency
+          Powered by OP_NET · Bitcoin Layer 1 · Real on-chain transactions
         </p>
       </div>
     </div>

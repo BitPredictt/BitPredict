@@ -427,8 +427,8 @@ export function useAchievements() {
     } catch { /* ignore */ }
   }, []);
 
-  const claimReward = useCallback(async (address: string, rewardId: string, rewardType: 'achievement' | 'quest', amount: number) => {
-    const result = await api.claimReward(address, rewardId, rewardType, amount);
+  const claimReward = useCallback(async (address: string, rewardId: string, rewardType: 'achievement' | 'quest') => {
+    const result = await api.claimReward(address, rewardId);
     if (rewardType === 'achievement') {
       setAchievements(prev => prev.map(a => a.id === rewardId ? { ...a, rewardClaimed: true } : a));
     } else {

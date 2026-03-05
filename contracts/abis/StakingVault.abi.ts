@@ -34,6 +34,18 @@ export const StakingVaultAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
+        name: 'pause',
+        inputs: [],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'unpause',
+        inputs: [],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
         name: 'getVaultInfo',
         inputs: [],
         outputs: [{ name: 'totalStaked', type: ABIDataTypes.UINT256 }],

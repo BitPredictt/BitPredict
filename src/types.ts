@@ -90,7 +90,7 @@ export interface LeaderboardEntry {
 }
 
 export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'achievements' | 'vault';
-export type CategoryFilter = 'All' | 'Fast Bets' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';
+export type CategoryFilter = 'All' | 'Favorites' | 'Fast Bets' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';
 
 // --- Vault types ---
 export interface VaultInfo {

@@ -10,7 +10,7 @@ interface AchievementsProps {
   xpToNext: number;
   onFaucetVisited: () => void;
   walletAddress?: string;
-  onClaimReward?: (rewardId: string, rewardType: 'achievement' | 'quest', amount: number) => Promise<void>;
+  onClaimReward?: (rewardId: string, rewardType: 'achievement' | 'quest') => Promise<void>;
 }
 
 function BPUSDBadge({ amount, claimed }: { amount: number; claimed?: boolean }) {
@@ -199,7 +199,7 @@ export function Achievements({
     setClaimingId(id);
     setClaimError(null);
     try {
-      await onClaimReward(id, 'achievement', ach.xpReward);
+      await onClaimReward(id, 'achievement');
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : String(err));
     } finally { setClaimingId(null); }
@@ -212,7 +212,7 @@ export function Achievements({
     setClaimingId(id);
     setClaimError(null);
     try {
-      await onClaimReward(id, 'quest', q.xpReward);
+      await onClaimReward(id, 'quest');
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : String(err));
     } finally { setClaimingId(null); }
@@ -245,7 +245,7 @@ export function Achievements({
         <p className="text-xs text-gray-500 mt-1">
           Complete challenges, earn BPUSD tokens on OP_NET
         </p>
-        <p className="text-[10px] text-gray-600 mt-1">Claiming requires an on-chain TX — make sure you have testnet BTC for gas</p>
+        <p className="text-[10px] text-gray-600 mt-1">Claiming requires an on-chain TX — make sure you have BTC for gas</p>
         {claimError && (
           <div className="mt-2 mx-auto max-w-sm p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] text-red-400 font-bold text-center">
             {claimError}

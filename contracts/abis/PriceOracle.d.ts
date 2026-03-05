@@ -10,19 +10,19 @@ import { CallResult, OPNetEvent, IOP_NETContract } from 'opnet';
 // ------------------------------------------------------------------
 
 /**
- * @description Represents the result of the mint function call.
+ * @description Represents the result of the addOracle function call.
  */
-export type Mint = CallResult<{}, OPNetEvent<never>[]>;
+export type AddOracle = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
- * @description Represents the result of the setMintRate function call.
+ * @description Represents the result of the removeOracle function call.
  */
-export type SetMintRate = CallResult<{}, OPNetEvent<never>[]>;
+export type RemoveOracle = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
- * @description Represents the result of the setTreasury function call.
+ * @description Represents the result of the submitPrice function call.
  */
-export type SetTreasury = CallResult<{}, OPNetEvent<never>[]>;
+export type SubmitPrice = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
  * @description Represents the result of the pause function call.
@@ -35,23 +35,23 @@ export type Pause = CallResult<{}, OPNetEvent<never>[]>;
 export type Unpause = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
- * @description Represents the result of the getMintRate function call.
+ * @description Represents the result of the getPrice function call.
  */
-export type GetMintRate = CallResult<
+export type GetPrice = CallResult<
     {
-        rate: bigint;
+        price: bigint;
     },
     OPNetEvent<never>[]
 >;
 
 // ------------------------------------------------------------------
-// IPredToken
+// IPriceOracle
 // ------------------------------------------------------------------
-export interface IPredToken extends IOP_NETContract {
-    mint(to: Address, amount: bigint): Promise<Mint>;
-    setMintRate(newRate: bigint): Promise<SetMintRate>;
-    setTreasury(newTreasury: Address): Promise<SetTreasury>;
+export interface IPriceOracle extends IOP_NETContract {
+    addOracle(oracle: Address): Promise<AddOracle>;
+    removeOracle(oracle: Address): Promise<RemoveOracle>;
+    submitPrice(assetId: bigint, price: bigint): Promise<SubmitPrice>;
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;
-    getMintRate(): Promise<GetMintRate>;
+    getPrice(assetId: bigint): Promise<GetPrice>;
 }

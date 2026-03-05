@@ -3,7 +3,11 @@
     "version": "1.0.0",
     "private": true,
     "scripts": {
-        "build": "asc src/index.ts --target release --config asconfig.json",
+        "build": "asc src/index.ts --target release --config asconfig.json && asc src/pred-index.ts --target pred-release --config asconfig.json && asc src/vault-index.ts --target vault-release --config asconfig.json && asc src/oracle-index.ts --target oracle-release --config asconfig.json",
+        "build:market": "asc src/index.ts --target release --config asconfig.json",
+        "build:token": "asc src/pred-index.ts --target pred-release --config asconfig.json",
+        "build:vault": "asc src/vault-index.ts --target vault-release --config asconfig.json",
+        "build:oracle": "asc src/oracle-index.ts --target oracle-release --config asconfig.json",
         "build:debug": "asc src/index.ts --target debug --config asconfig.json"
     },
     "dependencies": {

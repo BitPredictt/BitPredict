@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity, Box, Cpu, Zap, ExternalLink } from 'lucide-react';
-import { fetchBlockHeight } from '../lib/opnet';
+import { fetchBlockHeight, OPNET_CONFIG } from '../lib/opnet';
 
 interface NetworkStatsProps {
   walletProvider?: unknown;
@@ -36,7 +36,7 @@ export function NetworkStats({ walletProvider, marketCount }: NetworkStatsProps)
   const stats: NetworkStat[] = [
     {
       label: 'Network',
-      value: 'OP_NET Testnet',
+      value: OPNET_CONFIG.network === 'mainnet' ? 'OP_NET Mainnet' : 'OP_NET Testnet',
       icon: <Activity size={12} className="text-green-400" />,
     },
     {

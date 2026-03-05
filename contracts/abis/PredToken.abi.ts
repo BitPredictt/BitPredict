@@ -13,6 +13,18 @@ export const PredTokenAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
+        name: 'setMintRate',
+        inputs: [{ name: 'newRate', type: ABIDataTypes.UINT256 }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'setTreasury',
+        inputs: [{ name: 'newTreasury', type: ABIDataTypes.ADDRESS }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
         name: 'pause',
         inputs: [],
         outputs: [],
@@ -22,6 +34,12 @@ export const PredTokenAbi = [
         name: 'unpause',
         inputs: [],
         outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'getMintRate',
+        inputs: [],
+        outputs: [{ name: 'rate', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
     ...PredTokenEvents,

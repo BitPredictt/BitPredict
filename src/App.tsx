@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signBetAmountProof, signRewardClaimProof, buySharesOnChain } from './lib/opnet';
+import { signRewardClaimProof, signBetAmountProof, buySharesOnChain, mintBpusdWithBtc, getOnChainBpusdBalance, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT, OPNET_CONFIG } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -22,7 +22,7 @@ import { VaultDashboard } from './components/VaultDashboard';
 import { ProtocolStats } from './components/ProtocolStats';
 
 function App() {
-  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj } = useWallet();
+  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj, signer } = useWallet();
   const achievements = useAchievements();
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
@@ -32,17 +32,37 @@ function App() {
   const [bets, setBets] = useState<Bet[]>([]);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
-  const [predBalance, setPredBalance] = useState(0);
-  const [btcBalance, setBtcBalance] = useState(0);
+  const [onChainBalance, setOnChainBalance] = useState(0); // BPUSD from on-chain balanceOf
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
   const [showCreateMarket, setShowCreateMarket] = useState(false);
   const marketsLoaded = useRef(false);
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('bp_favorites') || '[]')); } catch { return new Set(); }
+  });
+
+  const toggleFavorite = useCallback((marketId: string) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (next.has(marketId)) next.delete(marketId); else next.add(marketId);
+      localStorage.setItem('bp_favorites', JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
 
   // Load markets from server
   useEffect(() => {
     if (marketsLoaded.current) return;
     marketsLoaded.current = true;
-    api.getMarkets().then((m) => { setMarkets(m); setMarketsLoading(false); }).catch((e) => { console.error('Failed to load markets:', e); setMarketsLoading(false); });
+    api.getMarkets().then((m) => {
+      setMarkets(m);
+      setMarketsLoading(false);
+      // Deep link: ?m=marketId → auto-open market
+      const urlMarketId = new URLSearchParams(window.location.search).get('m');
+      if (urlMarketId) {
+        const found = m.find((mk) => mk.id === urlMarketId);
+        if (found && !found.resolved) setSelectedMarket(found);
+      }
+    }).catch((e) => { console.error('Failed to load markets:', e); setMarketsLoading(false); });
     // Refresh every 10s for real-time updates
     const iv = setInterval(() => {
       api.getMarkets().then(setMarkets).catch(() => {});
@@ -50,15 +70,29 @@ function App() {
     return () => clearInterval(iv);
   }, []);
 
-  // Auth user + load balance and bets when wallet connects, auto-refresh every 15s
+  // Auth user + load bets when wallet connects, auto-refresh every 15s
   useEffect(() => {
     if (!wallet.connected || !wallet.address) return;
     achievements.onWalletConnected();
 
     achievements.syncClaimedRewards(wallet.address);
+    // Authenticate with server: challenge → sign → JWT
+    const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
+    if (!api.getAuthToken()) {
+      api.loginWithWallet(
+        wallet.address,
+        async (message: string) => {
+          // Sign the challenge message with wallet (returns hex signature)
+          if (signer && typeof signer.signMessage === 'function') {
+            return await signer.signMessage(message);
+          }
+          throw new Error('Wallet does not support message signing. Please update your wallet.');
+        },
+        ref,
+      ).catch((err) => console.warn('Auth failed:', err.message));
+    }
+
     const loadBets = () => {
-      const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
-      api.authUser(wallet.address, ref).then((u) => { setPredBalance(u.balance); setBtcBalance(u.btcBalance || 0); }).catch(() => {});
       api.getUserBets(wallet.address).then((serverBets) => {
         setBets(serverBets.map((b) => ({
           id: b.id,
@@ -79,6 +113,25 @@ function App() {
     return () => clearInterval(iv);
   }, [wallet.connected, wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch on-chain BPUSD balance (real token balance from contract)
+  // Retries on initial load because wallet SDK provider may not be ready immediately after reconnect
+  useEffect(() => {
+    if (!wallet.connected || !provider || !addressObj) return;
+    let cancelled = false;
+    const fetchBalance = () => {
+      getOnChainBpusdBalance(provider, walletNetwork, addressObj)
+        .then((b) => { if (!cancelled) setOnChainBalance(b); })
+        .catch(() => {});
+    };
+    fetchBalance();
+    // Retry quickly in case provider wasn't ready on first attempt
+    const r1 = setTimeout(fetchBalance, 2000);
+    const r2 = setTimeout(fetchBalance, 5000);
+    const r3 = setTimeout(fetchBalance, 10000);
+    const iv = setInterval(fetchBalance, 30000);
+    return () => { cancelled = true; clearTimeout(r1); clearTimeout(r2); clearTimeout(r3); clearInterval(iv); };
+  }, [wallet.connected, provider, walletNetwork, addressObj]);
+
   // Track leaderboard visits
   useEffect(() => {
     if (activeTab === 'leaderboard') {
@@ -89,7 +142,9 @@ function App() {
   const filteredMarkets = useMemo(() => {
     let list = [...markets];
 
-    if (category === 'Fast Bets') {
+    if (category === 'Favorites') {
+      list = list.filter((m) => favorites.has(m.id));
+    } else if (category === 'Fast Bets') {
       list = list.filter((m) => m.marketType === 'price_5min');
     } else if (category !== 'All') {
       list = list.filter((m) => m.category === category && m.marketType !== 'price_5min');
@@ -132,10 +187,9 @@ function App() {
     });
 
     return list;
-  }, [markets, category, search, sortBy]);
+  }, [markets, category, search, sortBy, favorites]);
 
   const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd' = 'bpusd') => {
-    // Search parent markets first, then check multi-outcome sub-market IDs
     let market = markets.find((m) => m.id === marketId);
     if (!market) {
       market = markets.find((m) => m.outcomes?.some((o) => o.marketId === marketId));
@@ -153,50 +207,74 @@ function App() {
       currency,
     };
     setBets((prev) => [pendingBet, ...prev]);
-    setToast({ message: 'Step 1/2: Sign the transaction in OP_WALLET...', type: 'success' });
 
     try {
-      // Step 1: User signs on-chain TX (increaseAllowance as bet proof) — user pays gas
-      const proof = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
-      if (!proof.success) {
-        throw new Error(proof.error || 'TX signing failed');
+      let txHash = '';
+      const hasOnchain = market.onchainId && market.onchainId > 0;
+
+      if (currency === 'btc') {
+        // BTC bet: always popup #1 — mint BPUSD + send BTC to treasury
+        const btcCostSats = Math.ceil(amount * SATS_PER_BPUSD * (1 + BTC_BET_FEE_PCT));
+        setToast({ message: `${hasOnchain ? 'Step 1/2: ' : ''}Mint ${amount} BPUSD + send ${btcCostSats.toLocaleString()} sats... Sign in OP_WALLET`, type: 'success' });
+        const mintResult = await mintBpusdWithBtc(provider, walletNetwork, addressObj, wallet.address, amount, btcCostSats);
+        if (!mintResult.success) throw new Error(mintResult.error || 'BTC→BPUSD conversion failed');
+        txHash = mintResult.txHash;
+
+        // If market is on-chain, popup #2 — buyShares
+        if (hasOnchain) {
+          setToast({ message: 'Step 2/2: Placing bet on-chain... Sign in OP_WALLET', type: 'success' });
+          const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
+          if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
+          txHash = buyResult.txHash;
+        }
+      } else {
+        // BPUSD bet
+        if (hasOnchain) {
+          // On-chain market: buyShares directly (1 popup)
+          setToast({ message: 'Sign contract TX in OP_WALLET...', type: 'success' });
+          const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
+          if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
+          txHash = buyResult.txHash;
+        } else {
+          // Off-chain market: sign proof TX (1 popup)
+          setToast({ message: 'Sign bet proof in OP_WALLET...', type: 'success' });
+          const proofResult = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
+          if (!proofResult.success) throw new Error(proofResult.error || 'Bet proof signing failed');
+          txHash = proofResult.txHash;
+        }
       }
 
-      setToast({ message: 'Step 2/2: TX signed! Recording bet on Bitcoin...', type: 'success' });
+      setToast({ message: 'TX signed! Recording bet...', type: 'success' });
 
-      // Step 2: Send txHash to server — server records bet + AMM calc
-      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, proof.txHash, currency);
+      // Send txHash to server — server records bet + AMM calc
+      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txHash, currency);
 
-      setPredBalance(result.newBalance);
-      setBtcBalance(result.newBtcBalance || 0);
+      // Refresh on-chain BPUSD balance
+      getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
+      // Refresh wallet BTC balance
+      refreshBalance(wallet.address);
+
       const confirmedBet: Bet = {
         id: result.betId, marketId, side, amount,
         price: side === 'yes' ? market.yesPrice : market.noPrice,
         timestamp: Date.now(), status: 'active',
-        shares: result.shares, txHash: proof.txHash,
+        shares: result.shares, txHash,
         currency,
       };
       setBets((prev) => prev.map((b) => b.id === pendingId ? confirmedBet : b));
       setMarkets((prev) => prev.map((m) =>
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
-      const txLink = `https://opscan.org/transactions/${proof.txHash}?network=op_testnet`;
+      const txLink = `${OPNET_CONFIG.explorerUrl}/transactions/${txHash}?network=${OPNET_CONFIG.network === 'mainnet' ? 'op_mainnet' : 'op_testnet'}`;
       setToast({ message: 'Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
       achievements.onBetPlaced(confirmedBet, bets, market.category);
-
-      // Non-blocking: call buyShares on PredictionMarket contract if market has onchainId
-      if (market.onchainId) {
-        buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId, side === 'yes', amount)
-          .then(r => { if (r.success) console.log('buySharesOnChain TX:', r.txHash); })
-          .catch(() => {});
-      }
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ message: `Bet failed: ${msg}`, type: 'error' });
-      throw err; // Re-throw so BetModal knows it failed and stays open
+      throw err;
     }
-  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements, refreshBalance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">
@@ -207,9 +285,7 @@ function App() {
         connecting={walletLoading}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        predBalance={predBalance}
-        btcBalance={btcBalance}
-        onBalanceUpdate={(b, btc) => { setPredBalance(b); setBtcBalance(btc); }}
+        onChainBalance={onChainBalance}
       />
       <NetworkStats walletProvider={provider} marketCount={markets.filter(m => !m.resolved).length} />
 
@@ -320,6 +396,11 @@ function App() {
                 <Filter size={40} className="text-gray-700 mx-auto mb-3" />
                 <h3 className="text-sm font-bold text-gray-400">No markets found</h3>
                 <p className="text-xs text-gray-600 mt-1">Try a different search or category.</p>
+                {(search || category !== 'All') && (
+                  <button onClick={() => { setSearch(''); setCategory('All'); }} className="mt-3 px-4 py-2 rounded-lg bg-btc/10 text-btc text-xs font-bold hover:bg-btc/20 transition-all">
+                    Clear Filters
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -329,6 +410,8 @@ function App() {
                     market={market}
                     onSelect={setSelectedMarket}
                     index={i}
+                    isFavorite={favorites.has(market.id)}
+                    onToggleFavorite={toggleFavorite}
                   />
                 ))}
               </div>
@@ -343,9 +426,9 @@ function App() {
             walletConnected={wallet.connected}
             walletAddress={wallet.address}
             walletBtcBalance={wallet.balanceSats}
-            predBalance={predBalance}
+            onChainBalance={onChainBalance}
             onConnect={connectOPWallet}
-            onBalanceUpdate={setPredBalance}
+            onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             walletProvider={provider}
             walletNetwork={walletNetwork}
             walletAddressObj={addressObj}
@@ -356,14 +439,12 @@ function App() {
           <Portfolio
             bets={bets}
             markets={markets}
-            predBalance={predBalance}
-            btcBalance={btcBalance}
+            onChainBalance={onChainBalance}
             walletConnected={wallet.connected}
             walletAddress={wallet.address}
             walletBtcBalance={wallet.balanceSats}
             onConnect={connectOPWallet}
-            onBalanceUpdate={setPredBalance}
-            onBtcBalanceUpdate={setBtcBalance}
+            onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onBetsUpdate={setBets}
             walletProvider={provider}
             walletNetwork={walletNetwork}
@@ -386,13 +467,11 @@ function App() {
             xpToNext={achievements.xpToNext}
             onFaucetVisited={achievements.onFaucetVisited}
             walletAddress={wallet.address}
-            onClaimReward={async (rewardId, rewardType, amount) => {
-              // Step 1: Real on-chain TX (increaseAllowance for the reward amount)
-              const proof = await signRewardClaimProof(provider, walletNetwork, addressObj, wallet.address, amount);
-              if (!proof.success) throw new Error(proof.error || 'On-chain TX failed');
-              // Step 2: Server-side claim (credits BPUSD balance)
-              const result = await achievements.claimReward(wallet.address, rewardId, rewardType, amount);
-              setPredBalance(result.newBalance);
+            onClaimReward={async (rewardId, rewardType) => {
+              // Server-side claim (amount is now controlled by server)
+              await achievements.claimReward(wallet.address, rewardId, rewardType);
+              // Refresh on-chain balance
+              getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
             }}
           />
         )}
@@ -427,8 +506,7 @@ function App() {
         <BetModal
           market={selectedMarket}
           wallet={wallet}
-          predBalance={predBalance}
-          btcBalance={btcBalance}
+          onChainBalance={onChainBalance}
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
         />
@@ -438,10 +516,10 @@ function App() {
       {showCreateMarket && wallet.connected && (
         <CreateMarketModal
           walletAddress={wallet.address}
-          balance={predBalance}
+          balance={onChainBalance}
           onClose={() => setShowCreateMarket(false)}
-          onCreated={(marketId, newBalance) => {
-            setPredBalance(newBalance);
+          onCreated={(marketId, _newBalance) => {
+            getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
             setShowCreateMarket(false);
             setToast({ message: `Market created! ID: ${marketId.slice(0, 20)}...`, type: 'success' });
             api.getMarkets().then(setMarkets).catch(() => {});

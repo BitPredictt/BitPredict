@@ -13,21 +13,22 @@
  * Docs: https://dev.opnet.org / https://github.com/btc-vision/opnet
  */
 
-// OP_NET testnet configuration (Signet fork, opt1 prefix)
+// OP_NET configuration (env-driven for mainnet/testnet switch)
+const OPNET_NETWORK = (import.meta.env.VITE_OPNET_NETWORK || 'testnet') as 'testnet' | 'mainnet';
 export const OPNET_CONFIG = {
-  network: 'testnet' as const,
-  rpcUrl: 'https://testnet.opnet.org',
-  explorerUrl: 'https://opscan.org',
-  faucetUrl: 'https://faucet.opnet.org',
+  network: OPNET_NETWORK,
+  rpcUrl: import.meta.env.VITE_OPNET_RPC_URL || (OPNET_NETWORK === 'mainnet' ? 'https://api.opnet.org' : 'https://testnet.opnet.org'),
+  explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://opscan.org',
+  faucetUrl: 'https://faucet.opnet.org', // testnet only
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj', // Deployed PredictionMarket
-  vaultAddress: 'opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt', // Deployed StakingVault
-  tokenAddress: 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d', // BPUSD MintableToken (our own, publicMint enabled)
-  tokenPubkey: '0x1fc02c213008668e4a8bde3a600b5dc9afd6b3ad0b5c558c2e6dc128f4d14195',
+  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj',
+  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt',
+  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d',
+  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0x1fc02c213008668e4a8bde3a600b5dc9afd6b3ad0b5c558c2e6dc128f4d14195',
   tokenDecimals: 8,
   tokenSymbol: 'BPUSD',
-  mintAmount: 1000, // Fixed 1000 tokens per mint
-  maxMintPerTx: 10_000_000, // 10M BPUSD per tx
+  mintAmount: 1000,
+  maxMintPerTx: 10_000_000,
 };
 
 /**
@@ -162,7 +163,28 @@ export async function fetchBlockHeight(walletProvider?: unknown): Promise<number
 // wallet handles signing automatically via OP_WALLET extension.
 // Access results via result.properties.balance (not result.decoded).
 
-const MAX_SATS = 50000n;
+const MAX_SATS = 250_000n;
+
+// Exchange rate: 1 BPUSD = 1000 sats
+export const SATS_PER_BPUSD = 1000;
+// Fee percentages
+export const BTC_BET_FEE_PCT = 0.05; // 5%
+export const BPUSD_BET_FEE_PCT = 0.02; // 2%
+
+// Treasury address for BTC payments (deployer / contract owner)
+export const TREASURY_ADDRESS = 'opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj'; // PredictionMarket contract
+
+/**
+ * Get gas parameters from provider (reusable helper)
+ */
+export async function getGasParameters(provider: unknown): Promise<{ feeRate: number; priorityFee: bigint }> {
+  const gas = await (provider as any).gasParameters();
+  const feeRate = Number(gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10);
+  const gasPerSat = BigInt(gas?.gasPerSat || 1n) > 0n ? BigInt(gas.gasPerSat) : 1n;
+  const priorityFeeSats = BigInt(gas?.baseGas || 1000n) / gasPerSat;
+  const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+  return { feeRate, priorityFee };
+}
 
 // Minimum BTC balance (in sats) required to perform any on-chain action (gas fees)
 export const MIN_BTC_FOR_TX = 10_000; // 10,000 sats = 0.0001 BTC
@@ -199,6 +221,79 @@ export async function getPredBalanceOnChain(
 }
 
 /**
+ * Get BPUSD balance as a human-readable number (not raw bigint).
+ * Wrapper around getPredBalanceOnChain for convenience.
+ */
+export async function getOnChainBpusdBalance(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+): Promise<number> {
+  const raw = await getPredBalanceOnChain(provider, network, senderAddr);
+  return Number(raw) / 1e8; // 8 decimals → human number
+}
+
+/**
+ * Mint BPUSD with BTC — single wallet popup.
+ * Calls publicMint(bpusdAmount) on BPUSD token contract +
+ * sends BTC to treasury via extraOutputs.
+ * Used for BTC→BPUSD auto-conversion when placing BTC bets.
+ */
+export async function mintBpusdWithBtc(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  bpusdAmount: number,
+  btcCostSats: number,
+): Promise<{ success: boolean; txHash: string; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, ABIDataTypes, BitcoinAbiTypes, BitcoinUtils, OP_NET_ABI } = await import('opnet');
+
+    const MINTABLE_ABI = [
+      ...OP_NET_ABI,
+      {
+        name: 'publicMint',
+        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+      },
+    ] as any;
+
+    const contract = getContract(
+      OPNET_CONFIG.tokenAddress,
+      MINTABLE_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const rawAmount = BitcoinUtils.expandToDecimals(bpusdAmount, OPNET_CONFIG.tokenDecimals);
+    const sim = await withRetry(() => (contract as any).publicMint(rawAmount)) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `Mint reverted: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: BigInt(btcCostSats + 50000),
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      extraOutputs: [{ address: TREASURY_ADDRESS, value: BigInt(btcCostSats) }],
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    return { txHash, success: true };
+  } catch (err) {
+    let msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC first: https://faucet.opnet.org';
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
  * Sign a bet proof TX — user signs increaseAllowance on BPUSD token.
  * This creates a real on-chain TX that proves the user authorized the bet.
  * User pays gas from their own BTC UTXOs.
@@ -227,20 +322,14 @@ export async function signBetProof(
     const sim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, amount)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `Approve revert: ${sim.revert}` };
 
-    const gas = await (provider as any).gasParameters();
-    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
-    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
-    const priorityFeeSats = gas.baseGas / gasPerSat;
-    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+    const gas = await getGasParameters(provider);
 
     const receipt = await sim.sendTransaction({
-      signer: null,           // ALWAYS null on frontend — OP_WALLET handles signing
-      mldsaSigner: null,      // ALWAYS null on frontend — OP_WALLET handles signing
       refundTo: walletAddress,
-      maximumAllowedSatToSpend: 250_000n,
+      maximumAllowedSatToSpend: MAX_SATS,
       network,
-      feeRate,
-      priorityFee,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -334,9 +423,10 @@ export async function mintTokensOnChain(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    const { getContract, ABIDataTypes, BitcoinAbiTypes, BitcoinUtils } = await import('opnet');
+    const { getContract, ABIDataTypes, BitcoinAbiTypes, BitcoinUtils, OP_NET_ABI } = await import('opnet');
 
     const MINTABLE_ABI = [
+      ...OP_NET_ABI,
       {
         name: 'publicMint',
         inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
@@ -357,21 +447,14 @@ export async function mintTokensOnChain(
     const sim = await withRetry(() => (contract as any).publicMint(rawAmount)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `Mint reverted: ${sim.revert}` };
 
-    // Build TX params with gas from provider
-    const gas = await (provider as any).gasParameters();
-    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
-    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
-    const priorityFeeSats = gas.baseGas / gasPerSat;
-    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+    const gas = await getGasParameters(provider);
 
     const receipt = await sim.sendTransaction({
-      signer: null,           // ALWAYS null on frontend — OP_WALLET handles signing
-      mldsaSigner: null,      // ALWAYS null on frontend — OP_WALLET handles signing
       refundTo: walletAddress,
-      maximumAllowedSatToSpend: 250_000n,
+      maximumAllowedSatToSpend: MAX_SATS,
       network,
-      feeRate,
-      priorityFee,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
     });
 
     const txHash = receipt?.transactionId || receipt?.txid || '';
@@ -387,14 +470,199 @@ export async function mintTokensOnChain(
  * Generate a transaction explorer URL
  */
 export function getExplorerTxUrl(txHash: string): string {
-  return `${OPNET_CONFIG.explorerUrl}/transactions/${txHash}?network=op_testnet`;
+  return `${OPNET_CONFIG.explorerUrl}/transactions/${txHash}?network=${OPNET_CONFIG.network === 'mainnet' ? 'op_mainnet' : 'op_testnet'}`;
 }
 
 /**
  * Generate an address explorer URL
  */
 export function getExplorerAddressUrl(address: string): string {
-  return `${OPNET_CONFIG.explorerUrl}/accounts/${address}?network=op_testnet`;
+  return `${OPNET_CONFIG.explorerUrl}/accounts/${address}?network=${OPNET_CONFIG.network === 'mainnet' ? 'op_mainnet' : 'op_testnet'}`;
+}
+
+// ─── On-chain Vault operations (StakingVault contract) ───
+
+/**
+ * Stake BPUSD on-chain via StakingVault.stake(amount).
+ * Non-blocking — called after server records the stake.
+ */
+export async function stakeOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, BitcoinUtils } = await import('opnet');
+    const { StakingVaultAbi } = await import('../../contracts/abis/StakingVault.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.vaultAddress,
+      StakingVaultAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const sim = await withRetry(() => (contract as any).stake(rawAmount)) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `stake revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Unstake BPUSD on-chain via StakingVault.unstake(amount).
+ */
+export async function unstakeOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, BitcoinUtils } = await import('opnet');
+    const { StakingVaultAbi } = await import('../../contracts/abis/StakingVault.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.vaultAddress,
+      StakingVaultAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const sim = await withRetry(() => (contract as any).unstake(rawAmount)) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `unstake revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Claim vault rewards on-chain via StakingVault.claimRewards().
+ */
+export async function claimVaultOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract } = await import('opnet');
+    const { StakingVaultAbi } = await import('../../contracts/abis/StakingVault.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.vaultAddress,
+      StakingVaultAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const sim = await withRetry(() => (contract as any).claimRewards()) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `claimRewards revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Read on-chain market price via PredictionMarket.getPrice(marketId).
+ * Returns yesPriceBps (0-10000) or null on error.
+ */
+export async function getOnChainPrice(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  onchainMarketId: number,
+): Promise<{ yesPrice: number; noPrice: number } | null> {
+  if (!provider || !network || !senderAddr) return null;
+  try {
+    const { getContract } = await import('opnet');
+    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      PredictionMarketAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+    const result = await (contract as any).getPrice(BigInt(onchainMarketId));
+    const yesBps = Number(result?.properties?.yesPriceBps ?? 5000n);
+    return { yesPrice: yesBps / 10000, noPrice: 1 - yesBps / 10000 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read on-chain vault TVL via StakingVault.getVaultInfo().
+ */
+export async function getOnChainVaultInfo(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+): Promise<{ totalStaked: bigint } | null> {
+  if (!provider || !network || !senderAddr) return null;
+  try {
+    const { getContract } = await import('opnet');
+    const { StakingVaultAbi } = await import('../../contracts/abis/StakingVault.abi');
+    const contract = getContract(
+      OPNET_CONFIG.vaultAddress,
+      StakingVaultAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+    const result = await (contract as any).getVaultInfo();
+    return { totalStaked: result?.properties?.totalStaked ?? 0n };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -452,25 +720,18 @@ export async function buySharesOnChain(
     ) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `buyShares revert: ${sim.revert}` };
 
-    const gas = await (provider as any).gasParameters();
-    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
-    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
-    const priorityFeeSats = gas.baseGas / gasPerSat;
-    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+    const gas = await getGasParameters(provider);
 
     const receipt = await sim.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
       refundTo: walletAddress,
-      maximumAllowedSatToSpend: 250_000n,
+      maximumAllowedSatToSpend: MAX_SATS,
       network,
-      feeRate,
-      priorityFee,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('buySharesOnChain failed (non-blocking):', msg);
     return { txHash: '', success: false, error: msg };
   }
 }
@@ -504,25 +765,18 @@ export async function claimPayoutOnChain2(
     ) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `claimPayout revert: ${sim.revert}` };
 
-    const gas = await (provider as any).gasParameters();
-    const feeRate = gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10;
-    const gasPerSat = gas?.gasPerSat > 0n ? gas.gasPerSat : 1n;
-    const priorityFeeSats = gas.baseGas / gasPerSat;
-    const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
+    const gas = await getGasParameters(provider);
 
     const receipt = await sim.sendTransaction({
-      signer: null,
-      mldsaSigner: null,
       refundTo: walletAddress,
-      maximumAllowedSatToSpend: 250_000n,
+      maximumAllowedSatToSpend: MAX_SATS,
       network,
-      feeRate,
-      priorityFee,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('claimPayoutOnChain2 failed (non-blocking):', msg);
     return { txHash: '', success: false, error: msg };
   }
 }
