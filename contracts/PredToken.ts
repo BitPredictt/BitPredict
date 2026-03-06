@@ -2,9 +2,8 @@
  * $BPUSD — BitPredict Stablecoin Token (OP-20)
  *
  * Production-ready version:
- * - publicMint REMOVED (was exploit vector)
+ * - publicMint with 10K BPUSD per-tx cap (testnet faucet)
  * - Admin-only mint for controlled distribution
- * - mintWithCollateral: verifies BTC output in tx → mints proportional BPUSD
  * - Pausable + burnable
  * - Max supply: 100,000,000 BPUSD (8 decimals)
  */
@@ -74,7 +73,6 @@ export class PredToken extends OP20 {
 
     /**
      * mint(to, amount) — Admin-only mint (for airdrops, liquidity).
-     * publicMint is REMOVED — this is the only mint path besides collateral.
      */
     @method(
         { name: 'to', type: ABIDataTypes.ADDRESS },
@@ -84,6 +82,23 @@ export class PredToken extends OP20 {
         this.onlyDeployer(Blockchain.tx.sender);
         this.whenNotPaused();
         this._mint(calldata.readAddress(), calldata.readU256());
+        return new BytesWriter(0);
+    }
+
+    /**
+     * publicMint(amount) — Anyone can mint BPUSD (testnet faucet).
+     * Mints to msg.sender.
+     */
+    @method({ name: 'amount', type: ABIDataTypes.UINT256 })
+    public publicMint(calldata: Calldata): BytesWriter {
+        this.whenNotPaused();
+        const amount: u256 = calldata.readU256();
+        // Cap per-mint to 10,000 BPUSD (8 decimals = 10_000 * 1e8)
+        const maxMint: u256 = u256.fromU64(10_000_00000000);
+        if (u256.gt(amount, maxMint)) {
+            throw new Revert('Mint amount exceeds 10,000 BPUSD limit');
+        }
+        this._mint(Blockchain.tx.sender, amount);
         return new BytesWriter(0);
     }
 
