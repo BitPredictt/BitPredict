@@ -78,18 +78,25 @@ function App() {
     achievements.syncClaimedRewards(wallet.address);
     // Authenticate with server: challenge → sign → JWT
     const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
+    const doAuth = () => api.loginWithWallet(
+      wallet.address,
+      async (message: string) => {
+        if (signer && typeof signer.signMessage === 'function') {
+          return await signer.signMessage(message);
+        }
+        throw new Error('Wallet does not support message signing. Please update your wallet.');
+      },
+      ref,
+    ).catch((err) => console.warn('Auth failed:', err.message));
+
     if (!api.getAuthToken()) {
-      api.loginWithWallet(
-        wallet.address,
-        async (message: string) => {
-          // Sign the challenge message with wallet (returns hex signature)
-          if (signer && typeof signer.signMessage === 'function') {
-            return await signer.signMessage(message);
-          }
-          throw new Error('Wallet does not support message signing. Please update your wallet.');
-        },
-        ref,
-      ).catch((err) => console.warn('Auth failed:', err.message));
+      doAuth();
+    } else {
+      // Validate existing token — re-auth if server rejects it
+      api.getBalance(wallet.address).catch(() => {
+        api.clearAuthToken();
+        doAuth();
+      });
     }
 
     const loadBets = () => {
