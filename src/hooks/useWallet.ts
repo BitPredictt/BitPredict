@@ -30,12 +30,14 @@ export function useWallet() {
   const signerReadyRef = useRef(false);
 
   useEffect(() => {
-    const isReady = !!(walletAddress && signer);
+    // Bob: signer (UnisatSigner) is ALWAYS null for OP_WALLET — it's UniSat-only.
+    // Use walletInstance as readiness indicator for OP_WALLET signing.
+    const isReady = !!(walletAddress && walletInstance);
     if (isReady !== signerReadyRef.current) {
       signerReadyRef.current = isReady;
       setSignerReady(isReady);
     }
-  }, [walletAddress, signer]);
+  }, [walletAddress, walletInstance]);
 
   const wallet: WalletState = useMemo(() => ({
     connected: !!walletAddress,
