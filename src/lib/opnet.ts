@@ -291,6 +291,9 @@ export async function mintBpusdWithBtc(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
       extraOutputs: [{ address: TREASURY_ADDRESS, value: BigInt(btcCostSats) }],
     });
 
@@ -340,6 +343,9 @@ export async function signBetProof(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -465,6 +471,9 @@ export async function mintTokensOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
 
     const txHash = receipt?.transactionId || receipt?.txid || '';
@@ -528,6 +537,9 @@ export async function stakeOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -571,6 +583,9 @@ export async function unstakeOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -612,6 +627,9 @@ export async function claimVaultOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -738,6 +756,9 @@ export async function buySharesOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -783,10 +804,114 @@ export async function claimPayoutOnChain2(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Approve BPUSD allowance for the PredictionMarket contract.
+ * MUST be called BEFORE buySharesOnChain — this is wallet popup TX #1.
+ * Bob: OPNet uses increaseAllowance (not approve). Contract calls transferFrom internally.
+ * Two-step pattern: approveForMarket(TX #1) → buySharesOnChain(TX #2)
+ *
+ * @param amount - BPUSD amount in human units (e.g. 1000 = 1000 BPUSD)
+ */
+export async function approveForMarket(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
+    const { Address } = await import('@btc-vision/transaction');
+
+    const token = getContract(
+      OPNET_CONFIG.tokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const spenderAddr = Address.fromString(OPNET_CONFIG.contractAddress) as any;
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+
+    const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;
+    if (approveSim?.revert) return { txHash: '', success: false, error: `increaseAllowance revert: ${approveSim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const approveTx = await approveSim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      signer: null,
+      mldsaSigner: null,
+    });
+    return { txHash: approveTx?.transactionId || approveTx?.txid || '', success: true };
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Approve BPUSD allowance for the StakingVault contract.
+ * MUST be called BEFORE stakeOnChain — this is wallet popup TX #1.
+ * Two-step pattern: approveForVault(TX #1) → stakeOnChain(TX #2)
+ *
+ * @param amount - BPUSD amount in human units (e.g. 500 = 500 BPUSD)
+ */
+export async function approveForVault(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
+    const { Address } = await import('@btc-vision/transaction');
+
+    const token = getContract(
+      OPNET_CONFIG.tokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const spenderAddr = Address.fromString(OPNET_CONFIG.vaultAddress) as any;
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+
+    const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;
+    if (approveSim?.revert) return { txHash: '', success: false, error: `increaseAllowance revert: ${approveSim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const approveTx = await approveSim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      signer: null,
+      mldsaSigner: null,
+    });
+    return { txHash: approveTx?.transactionId || approveTx?.txid || '', success: true };
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

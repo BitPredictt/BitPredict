@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signRewardClaimProof, signBetAmountProof, buySharesOnChain, mintBpusdWithBtc, getOnChainBpusdBalance, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT, OPNET_CONFIG } from './lib/opnet';
+import { signRewardClaimProof, signBetAmountProof, buySharesOnChain, mintBpusdWithBtc, getOnChainBpusdBalance, approveForMarket, approveForVault, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT, OPNET_CONFIG } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -22,7 +22,7 @@ import { VaultDashboard } from './components/VaultDashboard';
 import { ProtocolStats } from './components/ProtocolStats';
 
 function App() {
-  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj, signer } = useWallet();
+  const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj, signer, signerReady, signMessage } = useWallet();
   const achievements = useAchievements();
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
@@ -38,18 +38,20 @@ function App() {
   const [showCreateMarket, setShowCreateMarket] = useState(false);
   const marketsLoaded = useRef(false);
 
-  // Ensure valid JWT before any authenticated API call
+  // Ensure valid JWT before any authenticated API call.
+  // Issue #3 fix: use signMessage from useWallet (checks walletInstance, not signer).
+  // signerReady guards against timing issue where walletAddress is set before signer.
   const ensureAuth = useCallback(async () => {
     if (api.getAuthToken()) return;
     if (!wallet.connected || !wallet.address) throw new Error('Wallet not connected');
-    if (!signer || typeof signer.signMessage !== 'function') throw new Error('Wallet signer not ready');
+    if (!signerReady) throw new Error('Wallet signer not ready — please wait a moment and try again');
     const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
     await api.loginWithWallet(
       wallet.address,
-      async (message: string) => signer.signMessage(message),
+      signMessage,
       ref,
     );
-  }, [wallet.connected, wallet.address, signer]);
+  }, [wallet.connected, wallet.address, signerReady, signMessage]);
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('bp_favorites') || '[]')); } catch { return new Set(); }
@@ -93,9 +95,11 @@ function App() {
     return () => clearInterval(iv);
   }, []);
 
-  // Auth user + load bets when wallet connects, auto-refresh every 15s
+  // Auth user + load bets when wallet connects (and signer is ready), auto-refresh every 15s.
+  // Issue #3 fix: depend on signerReady, NOT just wallet.connected.
+  // The SDK sets walletAddress before signer — signerReady ensures both are available.
   useEffect(() => {
-    if (!wallet.connected || !wallet.address) return;
+    if (!wallet.connected || !wallet.address || !signerReady) return;
     achievements.onWalletConnected();
 
     achievements.syncClaimedRewards(wallet.address);
@@ -103,12 +107,7 @@ function App() {
     const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
     const doAuth = () => api.loginWithWallet(
       wallet.address,
-      async (message: string) => {
-        if (signer && typeof signer.signMessage === 'function') {
-          return await signer.signMessage(message);
-        }
-        throw new Error('Wallet does not support message signing. Please update your wallet.');
-      },
+      signMessage,
       ref,
     ).catch((err) => console.warn('Auth failed:', err.message));
 
@@ -141,7 +140,7 @@ function App() {
     loadBets();
     const iv = setInterval(loadBets, 15000);
     return () => clearInterval(iv);
-  }, [wallet.connected, wallet.address]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wallet.connected, wallet.address, signerReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch on-chain BPUSD balance (real token balance from contract)
   // Retries on initial load because wallet SDK provider may not be ready immediately after reconnect
@@ -252,9 +251,14 @@ function App() {
         if (!mintResult.success) throw new Error(mintResult.error || 'BTC→BPUSD conversion failed');
         txHash = mintResult.txHash;
 
-        // If market is on-chain, popup #2 — buyShares
+        // If market is on-chain, popups #2 + #3 — approve then buyShares
+        // Issue #2 fix: contract calls transferFrom internally, needs prior increaseAllowance.
         if (hasOnchain) {
-          setToast({ message: 'Step 2/2: Placing bet on-chain... Sign in OP_WALLET', type: 'success' });
+          setToast({ message: 'Step 2/3: Approve BPUSD for contract... Sign in OP_WALLET', type: 'success' });
+          const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
+          if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
+
+          setToast({ message: 'Step 3/3: Placing bet on-chain... Sign in OP_WALLET', type: 'success' });
           const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
           if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
           txHash = buyResult.txHash;
@@ -262,8 +266,13 @@ function App() {
       } else {
         // BPUSD bet
         if (hasOnchain) {
-          // On-chain market: buyShares directly (1 popup)
-          setToast({ message: 'Sign contract TX in OP_WALLET...', type: 'success' });
+          // On-chain market: TWO popups — approve BPUSD first, then buyShares.
+          // Issue #2 fix: contract calls transferFrom internally, needs prior increaseAllowance.
+          setToast({ message: 'Step 1/2: Approve BPUSD spending... Sign in OP_WALLET', type: 'success' });
+          const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
+          if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
+
+          setToast({ message: 'Step 2/2: Buying shares on-chain... Sign in OP_WALLET', type: 'success' });
           const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
           if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
           txHash = buyResult.txHash;

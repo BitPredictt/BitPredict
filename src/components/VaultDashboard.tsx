@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, ExternalLink, BarChart3, Zap, Clock, CheckCircle2, Link } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../lib/api';
-import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo } from '../lib/opnet';
+import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo, approveForVault } from '../lib/opnet';
 import type { VaultInfo, VaultUserInfo, VaultRewardEntry, VaultVesting } from '../types';
 import { TopPredictors } from './TopPredictors';
 
@@ -63,12 +63,25 @@ export function VaultDashboard({
     if (!amtNum || amtNum < 100 || amtNum > max || loading) return;
 
     setLoading(true);
-    setTxMsg({ text: 'Sign the transaction in OP_WALLET...', type: 'success' });
 
     try {
-      // Call real StakingVault contract (single wallet popup)
-      const onChainFn = mode === 'stake' ? stakeOnChain : unstakeOnChain;
-      const r = await onChainFn(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
+      let r: { txHash: string; success: boolean; error?: string };
+
+      if (mode === 'stake') {
+        // Issue #2 fix: stake needs TWO popups — approve BPUSD first, then stake.
+        // StakingVault.stake() calls transferFrom internally — needs prior increaseAllowance.
+        setTxMsg({ text: 'Step 1/2: Approve BPUSD for vault... Sign in OP_WALLET', type: 'success' });
+        const approveResult = await approveForVault(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
+        if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
+
+        setTxMsg({ text: 'Step 2/2: Staking on-chain... Sign in OP_WALLET', type: 'success' });
+        r = await stakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
+      } else {
+        // Unstake does NOT need approve — vault sends tokens back to user
+        setTxMsg({ text: 'Sign unstake TX in OP_WALLET...', type: 'success' });
+        r = await unstakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
+      }
+
       if (!r.success) throw new Error(r.error || 'TX failed');
 
       setTxMsg({ text: 'TX signed! Processing...', type: 'success' });
