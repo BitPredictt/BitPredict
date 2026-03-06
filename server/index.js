@@ -1378,9 +1378,19 @@ async function syncPolymarketEvents() {
 
         const prices = JSON.parse(m.outcomePrices || '[]');
         const rawYes2 = prices.length > 0 ? parseFloat(prices[0]) : NaN;
-        const yesPrice = isNaN(rawYes2) ? 0.5 : rawYes2;
         const rawNo2 = prices.length > 1 ? parseFloat(prices[1]) : NaN;
-        const noPrice = isNaN(rawNo2) ? (1 - yesPrice) : rawNo2;
+        // Normalize: yesPrice + noPrice must equal 1.0
+        let yesPrice, noPrice;
+        if (isNaN(rawYes2) && isNaN(rawNo2)) {
+          yesPrice = 0.5; noPrice = 0.5;
+        } else if (isNaN(rawNo2)) {
+          yesPrice = Math.max(0.01, Math.min(0.99, rawYes2));
+          noPrice = 1 - yesPrice;
+        } else {
+          const sum = rawYes2 + rawNo2;
+          yesPrice = sum > 0 ? rawYes2 / sum : 0.5;
+          noPrice = 1 - yesPrice;
+        }
         const vol = Math.round(parseFloat(m.volume || 0));
         const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
         const category = mapPolyCategory(ev.category || m.category || '', m.question || eventTitle);
@@ -1602,12 +1612,16 @@ app.get('/api/markets', (req, res) => {
     let tags = [];
     try { tags = JSON.parse(m.tags || '[]'); } catch(e) { tags = []; }
 
+    // Normalize prices: must sum to 1.0
+    const priceSum = m.yes_price + m.no_price;
+    const normYes = priceSum > 0 ? Math.round((m.yes_price / priceSum) * 10000) / 10000 : 0.5;
+    const normNo = Math.round((1 - normYes) * 10000) / 10000;
     const base = {
       id: m.id,
       question: m.question,
       category: m.category,
-      yesPrice: m.yes_price,
-      noPrice: m.no_price,
+      yesPrice: normYes,
+      noPrice: normNo,
       volume: m.volume,
       liquidity: m.liquidity,
       endDate: new Date(m.end_time * 1000).toISOString().split('T')[0],

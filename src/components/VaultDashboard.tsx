@@ -13,6 +13,7 @@ interface VaultDashboardProps {
   onChainBalance: number;
   onConnect: () => void;
   onBalanceRefresh: () => void;
+  onToast: (msg: string, type: 'success' | 'error' | 'loading', link?: string, linkLabel?: string) => void;
   trackOp: (type: string, txHash?: string, details?: string, marketId?: string) => Promise<number | null>;
   completeOp: (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => Promise<void>;
   walletProvider: unknown;
@@ -22,7 +23,7 @@ interface VaultDashboardProps {
 
 export function VaultDashboard({
   walletConnected, walletAddress, walletBtcBalance, onChainBalance,
-  onConnect, onBalanceRefresh, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj,
+  onConnect, onBalanceRefresh, onToast, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj,
 }: VaultDashboardProps) {
   const [vaultInfo, setVaultInfo] = useState<VaultInfo | null>(null);
   const [userInfo, setUserInfo] = useState<VaultUserInfo | null>(null);
@@ -31,7 +32,6 @@ export function VaultDashboard({
   const [mode, setMode] = useState<'stake' | 'unstake'>('stake');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
-  const [txMsg, setTxMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claiming, setClaiming] = useState(false);
   const [onChainTvl, setOnChainTvl] = useState<string | null>(null);
 
@@ -72,21 +72,20 @@ export function VaultDashboard({
       opId = await trackOp(mode, undefined, `${mode === 'stake' ? 'Stake' : 'Unstake'} ${amtNum.toLocaleString()} BPUSD`);
 
       if (mode === 'stake') {
-        // Check allowance first — skip approve if already sufficient
-        setTxMsg({ text: 'Checking allowance...', type: 'success' });
+        onToast('Checking allowance...', 'loading');
         const approveResult = await approveForVault(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
         if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
         if (!approveResult.skipped) {
-          setTxMsg({ text: 'Waiting for approval confirmation...', type: 'success', txHash: approveResult.txHash });
+          onToast('Waiting for approval confirmation...', 'loading');
           const confirmed = await waitForTxConfirmation(walletProvider, approveResult.txHash);
           if (!confirmed.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
         }
 
-        setTxMsg({ text: `${approveResult.skipped ? '' : 'Approved! '}Staking on-chain... Sign in OP_WALLET`, type: 'success' });
+        onToast(`${approveResult.skipped ? '' : 'Approved! '}Staking on-chain... Sign in OP_WALLET`, 'loading');
         r = await stakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       } else {
-        setTxMsg({ text: 'Unstaking on-chain... Sign in OP_WALLET', type: 'success' });
+        onToast('Unstaking on-chain... Sign in OP_WALLET', 'loading');
         r = await unstakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       }
 
@@ -99,7 +98,7 @@ export function VaultDashboard({
         setUserInfo(prev => prev ? { ...prev, staked: prev.staked - amtNum } : prev);
       }
 
-      setTxMsg({ text: 'TX signed! Processing...', type: 'success', txHash: r.txHash });
+      onToast('TX signed! Processing...', 'loading');
 
       if (mode === 'stake') {
         await api.stakeVault(walletAddress, amtNum, r.txHash);
@@ -108,18 +107,14 @@ export function VaultDashboard({
       }
 
       onBalanceRefresh();
-      setTxMsg({
-        text: `${mode === 'stake' ? 'Staked' : 'Unstaked'} ${amtNum.toLocaleString()} BPUSD on-chain!`,
-        type: 'success',
-        txHash: r.txHash,
-      });
+      const txLink = getExplorerTxUrl(r.txHash);
+      onToast(`${mode === 'stake' ? 'Staked' : 'Unstaked'} ${amtNum.toLocaleString()} BPUSD!`, 'success', txLink, 'View TX');
       setAmount('');
       completeOp(opId, 'confirmed', r.txHash);
       loadData();
     } catch (err) {
-      setTxMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      onToast(err instanceof Error ? err.message : String(err), 'error');
       completeOp(opId, 'failed');
-      // Rollback optimistic update on error
       loadData();
     } finally {
       setLoading(false);
@@ -129,7 +124,7 @@ export function VaultDashboard({
   const handleClaim = async () => {
     if (claiming || !userInfo?.pendingRewards) return;
     setClaiming(true);
-    setTxMsg({ text: 'Claiming rewards... Sign in OP_WALLET', type: 'success' });
+    onToast('Claiming rewards... Sign in OP_WALLET', 'loading');
     let opId: number | null = null;
 
     try {
@@ -138,19 +133,16 @@ export function VaultDashboard({
       const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
       if (!r.success) throw new Error(r.error || 'Claim TX failed');
 
-      setTxMsg({ text: 'Processing...', type: 'success', txHash: r.txHash });
+      onToast('Processing...', 'loading');
 
       const result = await api.claimVaultRewards(walletAddress, r.txHash);
       onBalanceRefresh();
-      setTxMsg({
-        text: `Claimed ${result.claimed.toLocaleString()} BPUSD on-chain!`,
-        type: 'success',
-        txHash: r.txHash,
-      });
+      const txLink = getExplorerTxUrl(r.txHash);
+      onToast(`Claimed ${result.claimed.toLocaleString()} BPUSD!`, 'success', txLink, 'View TX');
       completeOp(opId, 'confirmed', r.txHash);
       loadData();
     } catch (err) {
-      setTxMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      onToast(err instanceof Error ? err.message : String(err), 'error');
       completeOp(opId, 'failed');
     } finally {
       setClaiming(false);
@@ -409,16 +401,6 @@ export function VaultDashboard({
               </div>
             )}
 
-            {txMsg && (
-              <div className={`text-xs mt-3 text-center font-bold ${txMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                <span>{txMsg.text}</span>
-                {txMsg.txHash && (
-                  <a href={getExplorerTxUrl(txMsg.txHash)} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 text-btc hover:underline">
-                    <ExternalLink size={10} /> View TX
-                  </a>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Charts */}

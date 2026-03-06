@@ -97,7 +97,8 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
   const totalCharge = currency === 'btc' ? btcCostSats : amountNum + feeAmount;
   const activeBalance = currency === 'btc' ? wallet.balanceSats : Math.floor(onChainBalance);
   const currLabel = currency === 'btc' ? 'sats' : 'BPUSD';
-  const yesPct = Math.round(market.yesPrice * 100);
+  const rawSum = market.yesPrice + market.noPrice;
+  const yesPct = rawSum > 0 ? Math.round((market.yesPrice / rawSum) * 100) : 50;
   const noPct = 100 - yesPct;
 
   // Real AMM calculation using constant-product formula with actual pool data

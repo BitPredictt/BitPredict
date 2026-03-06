@@ -14,7 +14,8 @@ import { CreateMarketModal } from './components/CreateMarketModal';
 import { Leaderboard } from './components/Leaderboard';
 import { AIChat } from './components/AIChat';
 import { Portfolio } from './components/Portfolio';
-import { Toast } from './components/Toast';
+import { ToastContainer, useToasts } from './components/Toast';
+import type { ToastType } from './components/Toast';
 import { Footer } from './components/Footer';
 import { HowItWorks } from './components/HowItWorks';
 import { Achievements } from './components/Achievements';
@@ -35,7 +36,7 @@ function App() {
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [onChainBalance, setOnChainBalance] = useState(0); // BPUSD from on-chain balanceOf
   const [btcPrice, setBtcPrice] = useState(0); // Real BTC/USD price for rate calculation
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
+  const { toasts, addToast, removeToast } = useToasts();
   const [showCreateMarket, setShowCreateMarket] = useState(false);
   const [opsRefreshKey, setOpsRefreshKey] = useState(0);
   const marketsLoaded = useRef(false);
@@ -253,7 +254,7 @@ function App() {
       market = markets.find((m) => m.outcomes?.some((o) => o.marketId === marketId));
     }
     if (!market || !wallet.connected) {
-      setToast({ message: !wallet.connected ? 'Wallet disconnected' : 'Market not found', type: 'error' });
+      addToast(!wallet.connected ? 'Wallet disconnected' : 'Market not found', 'error');
       throw new Error('Cannot place bet');
     }
 
@@ -277,24 +278,24 @@ function App() {
         // Dynamic rate: 1 BPUSD = $1, so satsPerBpusd = 100M / btcPriceUSD
         const dynamicSatsPerBpusd = btcPrice > 0 ? Math.round(100_000_000 / btcPrice) : SATS_PER_BPUSD;
         const btcCostSats = Math.ceil(amount * dynamicSatsPerBpusd * (1 + BTC_BET_FEE_PCT));
-        setToast({ message: `${hasOnchain ? 'Step 1/2: ' : ''}Mint ${amount} BPUSD + send ${btcCostSats.toLocaleString()} sats... Sign in OP_WALLET`, type: 'success' });
+        addToast(`${hasOnchain ? 'Step 1/2: ' : ''}Mint ${amount} BPUSD + send ${btcCostSats.toLocaleString()} sats... Sign in OP_WALLET`, 'loading');
         const mintResult = await mintBpusdWithBtc(provider, walletNetwork, addressObj, wallet.address, amount, btcCostSats);
         if (!mintResult.success) throw new Error(mintResult.error || 'BTC→BPUSD conversion failed');
         txHash = mintResult.txHash;
 
         // If market is on-chain — approve (if needed) then buyShares
         if (hasOnchain) {
-          setToast({ message: 'Checking allowance...', type: 'success' });
+          addToast('Checking allowance...', 'loading');
           const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
           if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
           if (!approveResult.skipped) {
-            setToast({ message: 'Waiting for approval confirmation...', type: 'success' });
+            addToast('Waiting for approval confirmation...', 'loading');
             const apConf = await waitForTxConfirmation(provider, approveResult.txHash);
             if (!apConf.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
           }
 
-          setToast({ message: `${approveResult.skipped ? '' : 'Approved! '}Placing bet on-chain... Sign in OP_WALLET`, type: 'success' });
+          addToast(`${approveResult.skipped ? '' : 'Approved! '}Placing bet on-chain... Sign in OP_WALLET`, 'loading');
           const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
           if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
           txHash = buyResult.txHash;
@@ -303,30 +304,30 @@ function App() {
         // BPUSD bet
         if (hasOnchain) {
           // On-chain market: check allowance → approve if needed → buyShares
-          setToast({ message: 'Checking allowance...', type: 'success' });
+          addToast('Checking allowance...', 'loading');
           const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
           if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
           if (!approveResult.skipped) {
-            setToast({ message: 'Waiting for approval confirmation...', type: 'success' });
+            addToast('Waiting for approval confirmation...', 'loading');
             const apConf = await waitForTxConfirmation(provider, approveResult.txHash);
             if (!apConf.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
           }
 
-          setToast({ message: `${approveResult.skipped ? '' : 'Approved! '}Buying shares on-chain... Sign in OP_WALLET`, type: 'success' });
+          addToast(`${approveResult.skipped ? '' : 'Approved! '}Buying shares on-chain... Sign in OP_WALLET`, 'loading');
           const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
           if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
           txHash = buyResult.txHash;
         } else {
           // Off-chain market: sign proof TX (1 popup)
-          setToast({ message: 'Sign bet proof in OP_WALLET...', type: 'success' });
+          addToast('Sign bet proof in OP_WALLET...', 'loading');
           const proofResult = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
           if (!proofResult.success) throw new Error(proofResult.error || 'Bet proof signing failed');
           txHash = proofResult.txHash;
         }
       }
 
-      setToast({ message: 'TX signed! Recording bet...', type: 'success' });
+      addToast('TX signed! Recording bet...', 'loading');
 
       // Ensure we have valid auth before server call
       await ensureAuth();
@@ -351,13 +352,13 @@ function App() {
         m.id === marketId ? { ...m, yesPrice: result.newYesPrice, noPrice: result.newNoPrice, volume: m.volume + amount } : m
       ));
       const txLink = `${OPNET_CONFIG.explorerUrl}/transactions/${txHash}?network=${OPNET_CONFIG.network === 'mainnet' ? 'op_mainnet' : 'op_testnet'}`;
-      setToast({ message: 'Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
+      addToast('Bet confirmed on-chain!', 'success', txLink, 'View TX');
       completeOp(opId, 'confirmed', txHash);
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
-      setToast({ message: `Bet failed: ${msg}`, type: 'error' });
+      addToast(`Bet failed: ${msg}`, 'error');
       completeOp(opId, 'failed');
       throw err;
     }
@@ -516,6 +517,7 @@ function App() {
             onChainBalance={onChainBalance}
             onConnect={connectOPWallet}
             onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
+            onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
             trackOp={trackOp}
             completeOp={completeOp}
             walletProvider={provider}
@@ -535,7 +537,7 @@ function App() {
             onConnect={connectOPWallet}
             onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onBetsUpdate={setBets}
-            onToast={(msg, type, link, linkLabel) => setToast({ message: msg, type, link, linkLabel })}
+            onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
             trackOp={trackOp}
             completeOp={completeOp}
             walletProvider={provider}
@@ -614,7 +616,7 @@ function App() {
           onCreated={(marketId, _newBalance) => {
             getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
             setShowCreateMarket(false);
-            setToast({ message: `Market created! ID: ${marketId.slice(0, 20)}...`, type: 'success' });
+            addToast(`Market created! ID: ${marketId.slice(0, 20)}...`, 'success');
             api.getMarkets().then(setMarkets).catch(() => {});
           }}
         />
@@ -642,16 +644,8 @@ function App() {
         <ActiveOperations walletAddress={wallet.address} refreshKey={opsRefreshKey} />
       )}
 
-      {/* Toast */}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          link={toast.link}
-          linkLabel={toast.linkLabel}
-          onClose={() => setToast(null)}
-        />
-      )}
+      {/* Toasts */}
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 }

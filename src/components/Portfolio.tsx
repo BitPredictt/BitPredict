@@ -15,7 +15,7 @@ interface PortfolioProps {
   onConnect: () => void;
   onBalanceRefresh: () => void;
   onBetsUpdate: (bets: Bet[]) => void;
-  onToast: (msg: string, type: 'success' | 'error', link?: string, linkLabel?: string) => void;
+  onToast: (msg: string, type: 'success' | 'error' | 'loading', link?: string, linkLabel?: string) => void;
   trackOp: (type: string, txHash?: string, details?: string, marketId?: string) => Promise<number | null>;
   completeOp: (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => Promise<void>;
   walletProvider: unknown;
@@ -25,9 +25,7 @@ interface PortfolioProps {
 
 export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
-  const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
-  const [claimMsg, setClaimMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [sellingBetId, setSellingBetId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<api.PortfolioMetrics | null>(null);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
@@ -42,22 +40,18 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
   const handleMint = async () => {
     if (minting || !walletAddress) return;
     setMinting(true);
-    setMintMsg(null);
     try {
-      setMintMsg({ text: `Minting ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol}... (sign in OP_WALLET)`, type: 'success' });
+      onToast(`Minting ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol}... Sign in OP_WALLET`, 'loading');
       const result = await mintTokensOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
       if (result.success) {
-        onBalanceRefresh(); // Refresh on-chain BPUSD balance
-        setMintMsg({
-          text: `+${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} minted on-chain!`,
-          type: 'success',
-          txHash: result.txHash,
-        });
+        onBalanceRefresh();
+        const txLink = getExplorerTxUrl(result.txHash);
+        onToast(`+${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} minted!`, 'success', txLink, 'View TX');
       } else {
-        setMintMsg({ text: result.error || 'Mint failed', type: 'error' });
+        onToast(result.error || 'Mint failed', 'error');
       }
     } catch (err) {
-      setMintMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      onToast(err instanceof Error ? err.message : String(err), 'error');
     } finally {
       setMinting(false);
     }
@@ -68,12 +62,11 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     const bet = bets.find(b => b.id === betId);
     if (!bet || !bet.payout) return;
     setClaimingBetId(betId);
-    setClaimMsg(null);
     let opId: number | null = null;
     try {
       const claimCurrLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
       opId = await trackOp('claim', undefined, `Claim ${bet.payout.toLocaleString()} ${claimCurrLabel}`, bet.marketId);
-      setClaimMsg({ text: `Sign claim TX for ${bet.payout.toLocaleString()} ${claimCurrLabel} in OP_WALLET...`, type: 'success' });
+      onToast(`Claiming ${bet.payout.toLocaleString()} ${claimCurrLabel}... Sign in OP_WALLET`, 'loading');
 
       const market = markets.find(m => m.id === bet.marketId);
       const onchainId = market?.onchainId;
@@ -84,10 +77,11 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
       const result = await api.claimPayout(walletAddress, betId, r.txHash);
       onBalanceRefresh();
       const claimLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : OPNET_CONFIG.tokenSymbol;
-      setClaimMsg({ text: `+${result.payout.toLocaleString()} ${claimLabel} claimed on-chain!`, type: 'success', txHash: r.txHash });
+      const txLink = getExplorerTxUrl(r.txHash);
+      onToast(`+${result.payout.toLocaleString()} ${claimLabel} claimed!`, 'success', txLink, 'View TX');
       completeOp(opId, 'confirmed', r.txHash);
     } catch (err) {
-      setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      onToast(err instanceof Error ? err.message : String(err), 'error');
       completeOp(opId, 'failed');
     } finally {
       setClaimingBetId(null);
@@ -101,7 +95,6 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     const sellLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
     if (!window.confirm(`Sell ${bet.shares} shares for ~${sellLabel}? (2% fee) This cannot be undone.`)) return;
     setSellingBetId(betId);
-    setClaimMsg(null);
     let opId: number | null = null;
     try {
       const market = markets.find(m => m.id === bet.marketId);
@@ -111,7 +104,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
       let txHash: string | undefined;
 
       if (isOnChain) {
-        onToast('Selling shares on-chain... Sign in OP_WALLET', 'success');
+        onToast('Selling shares on-chain... Sign in OP_WALLET', 'loading');
         const r = await sellSharesOnChain(
           walletProvider, walletNetwork, walletAddressObj, walletAddress,
           market.onchainId!, bet.side === 'yes', bet.shares || 0,
@@ -119,8 +112,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         if (!r.success) throw new Error(r.error || 'sellShares TX failed');
         txHash = r.txHash;
       } else {
-        // Off-chain market: sign proof TX (1 popup) same as buy flow
-        onToast('Sign sell proof in OP_WALLET...', 'success');
+        onToast('Sign sell proof in OP_WALLET...', 'loading');
         const proofResult = await signSellProof(
           walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.shares || 1,
         );
@@ -128,7 +120,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         txHash = proofResult.txHash;
       }
 
-      onToast('TX signed! Processing sell...', 'success');
+      onToast('TX signed! Processing sell...', 'loading');
       const result = await api.sellShares(walletAddress, betId, undefined, txHash);
       onBalanceRefresh();
       onBetsUpdate(bets.map(b => b.id === betId
@@ -266,32 +258,6 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
           <div className="mt-3 mx-auto max-w-sm p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-400 font-bold text-center">
             Low BTC balance: {satsToBtc(walletBtcBalance)} BTC — need at least {satsToBtc(MIN_BTC_FOR_TX)} BTC for on-chain TXs.
             {OPNET_CONFIG.network === 'testnet' && <a href={OPNET_CONFIG.faucetUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-btc underline">Get testnet BTC</a>}
-          </div>
-        )}
-        {mintMsg && (
-          <div className={`text-xs mt-2 text-center font-bold ${mintMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-            <span>{mintMsg.text}</span>
-            {mintMsg.txHash && (
-              <a
-                href={getExplorerTxUrl(mintMsg.txHash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-2 inline-flex items-center gap-1 text-btc hover:underline"
-              >
-                <ExternalLink size={10} />
-                View TX
-              </a>
-            )}
-          </div>
-        )}
-        {claimMsg && (
-          <div className={`text-xs mt-2 text-center font-bold ${claimMsg.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-            <span>{claimMsg.text}</span>
-            {claimMsg.txHash && (
-              <a href={getExplorerTxUrl(claimMsg.txHash)} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 text-btc hover:underline">
-                <ExternalLink size={10} /> View TX
-              </a>
-            )}
           </div>
         )}
       </div>

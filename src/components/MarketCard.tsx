@@ -6,7 +6,7 @@ import { PriceSparkline } from './PriceSparkline';
 interface MarketCardProps {
   market: Market;
   onSelect: (market: Market) => void;
-  index: number;
+  index?: number;
   isFavorite?: boolean;
   onToggleFavorite?: (marketId: string) => void;
 }
@@ -21,17 +21,19 @@ const categoryColors: Record<string, string> = {
 };
 
 export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavorite }: MarketCardProps) {
-  const yesRaw = market.yesPrice * 100;
-  const noRaw = market.noPrice * 100;
+  // Normalize prices to always sum to 100%
+  const rawSum = market.yesPrice + market.noPrice;
+  const normYes = rawSum > 0 ? (market.yesPrice / rawSum) * 100 : 50;
+  const normNo = 100 - normYes;
   const fmtPct = (v: number) => {
     if (v <= 0) return '0';
     if (v < 1) return v.toFixed(1);
     if (v > 99 && v < 100) return v.toFixed(1);
     return Math.round(v).toString();
   };
-  const yesPct = fmtPct(yesRaw);
-  const noPct = fmtPct(noRaw);
-  const yesWidth = Math.max(0.5, Math.min(99.5, yesRaw));
+  const yesPct = fmtPct(normYes);
+  const noPct = fmtPct(normNo);
+  const yesWidth = Math.max(0.5, Math.min(99.5, normYes));
   const noWidth = 100 - yesWidth;
   const endMs = market.endTime ? market.endTime * 1000 : (new Date(market.endDate).getTime() || Date.now());
 
@@ -70,8 +72,7 @@ export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavori
   return (
     <div
       onClick={() => !isResolved && onSelect(market)}
-      className={`glass-card rounded-2xl p-5 group animate-fade-in ${isResolved ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${isUrgent ? 'market-urgent' : ''}`}
-      style={{ animationDelay: `${index * 60}ms` }}
+      className={`glass-card rounded-2xl p-5 group ${isResolved ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${isUrgent ? 'market-urgent' : ''}`}
     >
       {/* Category badge */}
       <div className="flex items-center justify-between mb-3">
