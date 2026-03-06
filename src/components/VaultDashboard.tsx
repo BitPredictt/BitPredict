@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, ExternalLink, BarChart3, Zap, Clock, CheckCircle2, Link } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../lib/api';
-import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo, approveForVault } from '../lib/opnet';
+import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo, approveForVault, waitForTxConfirmation } from '../lib/opnet';
 import type { VaultInfo, VaultUserInfo, VaultRewardEntry, VaultVesting } from '../types';
 import { TopPredictors } from './TopPredictors';
 
@@ -68,23 +68,36 @@ export function VaultDashboard({
       let r: { txHash: string; success: boolean; error?: string };
 
       if (mode === 'stake') {
-        // Issue #2 fix: stake needs TWO popups — approve BPUSD first, then stake.
-        // StakingVault.stake() calls transferFrom internally — needs prior increaseAllowance.
-        setTxMsg({ text: 'Step 1/2: Approve BPUSD for vault... Sign in OP_WALLET', type: 'success' });
+        // Check allowance first — skip approve if already sufficient
+        setTxMsg({ text: 'Checking allowance...', type: 'success' });
         const approveResult = await approveForVault(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
         if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
-        setTxMsg({ text: 'Step 2/2: Staking on-chain... Sign in OP_WALLET', type: 'success' });
+        if (!approveResult.skipped) {
+          // Approval TX was sent — wait for confirmation
+          setTxMsg({ text: 'Waiting for approval confirmation...', type: 'success', txHash: approveResult.txHash });
+          const confirmed = await waitForTxConfirmation(walletProvider, approveResult.txHash);
+          if (!confirmed.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
+        }
+
+        setTxMsg({ text: `${approveResult.skipped ? '' : 'Approved! '}Staking on-chain... Sign in OP_WALLET`, type: 'success' });
         r = await stakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       } else {
         // Unstake does NOT need approve — vault sends tokens back to user
-        setTxMsg({ text: 'Sign unstake TX in OP_WALLET...', type: 'success' });
+        setTxMsg({ text: 'Unstaking on-chain... Sign in OP_WALLET', type: 'success' });
         r = await unstakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       }
 
       if (!r.success) throw new Error(r.error || 'TX failed');
 
-      setTxMsg({ text: 'TX signed! Processing...', type: 'success' });
+      // Optimistic update immediately after TX signed
+      if (mode === 'stake') {
+        setUserInfo(prev => prev ? { ...prev, staked: prev.staked + amtNum } : prev);
+      } else {
+        setUserInfo(prev => prev ? { ...prev, staked: prev.staked - amtNum } : prev);
+      }
+
+      setTxMsg({ text: mode === 'unstake' ? 'Step 2/2: Processing...' : 'TX signed! Processing...', type: 'success', txHash: r.txHash });
 
       if (mode === 'stake') {
         await api.stakeVault(walletAddress, amtNum, r.txHash);
@@ -102,6 +115,8 @@ export function VaultDashboard({
       loadData();
     } catch (err) {
       setTxMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      // Rollback optimistic update on error
+      loadData();
     } finally {
       setLoading(false);
     }
@@ -110,12 +125,14 @@ export function VaultDashboard({
   const handleClaim = async () => {
     if (claiming || !userInfo?.pendingRewards) return;
     setClaiming(true);
-    setTxMsg({ text: 'Sign claim TX in OP_WALLET...', type: 'success' });
+    setTxMsg({ text: 'Step 1/2: Claiming rewards... Sign in OP_WALLET', type: 'success' });
 
     try {
       // Call real StakingVault.claimRewards() on-chain
       const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
       if (!r.success) throw new Error(r.error || 'Claim TX failed');
+
+      setTxMsg({ text: 'Step 2/2: Processing...', type: 'success', txHash: r.txHash });
 
       const result = await api.claimVaultRewards(walletAddress, r.txHash);
       onBalanceRefresh();

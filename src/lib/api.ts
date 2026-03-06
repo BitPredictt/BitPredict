@@ -352,10 +352,10 @@ export interface SellResult {
   newNoPrice: number;
 }
 
-export async function sellShares(address: string, betId: string, sharesToSell?: number) {
+export async function sellShares(address: string, betId: string, sharesToSell?: number, txHash?: string) {
   return apiFetch<SellResult>('/api/bet/sell', {
     method: 'POST',
-    body: JSON.stringify({ address, betId, sharesToSell }),
+    body: JSON.stringify({ address, betId, sharesToSell, txHash }),
   });
 }
 

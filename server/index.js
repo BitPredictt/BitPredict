@@ -341,6 +341,66 @@ async function resolveMarketOnChain(onchainId, outcomeIsYes) {
   }
 }
 
+// Transfer BPUSD tokens on-chain from deployer to user address
+// Used for quest/achievement reward claims
+async function transferBpusd(toAddress, amount) {
+  if (!deployerWallet || !opnetRpcProvider) {
+    return { success: false, error: 'On-chain not ready' };
+  }
+  if (!PRED_CONTRACT_PUBKEY) {
+    return { success: false, error: 'PRED contract pubkey not resolved' };
+  }
+  if (txLock) return { success: false, error: 'Server busy, try again in a few seconds' };
+  txLock = true;
+  try {
+    const feeRate = await getDynamicFeeRate();
+    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
+    const { Address } = await import('@btc-vision/transaction');
+
+    const token = getContract(PRED_TOKEN, OP_20_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
+
+    // Resolve recipient address (need Address object from their pubkey)
+    const recipientPubkeyRes = await fetch(OPNET_RPC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getPublicKeyInfo', params: [toAddress], id: 1 }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const pubkeyData = await recipientPubkeyRes.json();
+    if (!pubkeyData.result) throw new Error('Cannot resolve recipient public key — user must have at least 1 on-chain TX');
+
+    const hashedKey = pubkeyData.result.hashedMLDSAPublicKey || pubkeyData.result.hashedMLDSA;
+    const tweakedPubKey = pubkeyData.result.tweakedPubKey || pubkeyData.result.tweakedPublicKey || pubkeyData.result.p2trPublicKey;
+    if (!hashedKey || !tweakedPubKey) throw new Error('Incomplete public key info for recipient');
+
+    const recipientAddr = Address.fromString(hashedKey, tweakedPubKey);
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, PRED_DECIMALS);
+
+    // Simulate transfer
+    const sim = await token.transfer(recipientAddr, rawAmount);
+    if (sim.revert) throw new Error('transfer revert: ' + sim.revert);
+
+    // Send real TX (backend: signer required)
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`BPUSD transfer: ${amount} to ${toAddress}, tx=${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    console.error('transferBpusd error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    txLock = false;
+  }
+}
+
 // Deferred on-chain resolve queue (for markets whose endBlock hasn't been reached yet)
 const pendingOnchainResolves = [];
 async function processDeferredResolves() {
@@ -445,69 +505,76 @@ function requireAuth(req, res, next) {
  * Verify a transaction hash on-chain via OPNet RPC.
  * Returns { valid, sender, events } or throws.
  */
-async function verifyTxOnChain(txHash, expectedSender, expectedOperation) {
+// Phase 1: Quick TX check via btc_getTransaction (works for confirmed AND unconfirmed).
+// Bob docs: getTransaction finds TX even if pending; check blockNumber for confirmation.
+async function verifyTxExists(txHash, expectedSender) {
   if (!txHash || typeof txHash !== 'string' || txHash.length < 10) {
     return { valid: false, error: 'Invalid txHash format' };
   }
 
   try {
+    // btc_getTransaction — returns TX whether confirmed or still in mempool
     const res = await fetch(OPNET_RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'btc_getTransactionReceipt',
-        params: [txHash],
-        id: 1,
-      }),
-      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [txHash], id: 1 }),
+      signal: AbortSignal.timeout(10000),
     });
-
     const data = await res.json();
 
-    if (!data.result) {
-      return { valid: false, error: 'Transaction not found or not confirmed' };
-    }
-
-    const receipt = data.result;
-
-    // Check that TX is confirmed (has block number)
-    if (!receipt.blockNumber && !receipt.height) {
-      return { valid: false, error: 'Transaction not yet confirmed' };
-    }
-
-    // Check sender matches expected address
-    if (expectedSender && receipt.from) {
-      const receiptFrom = receipt.from.toLowerCase();
-      const expected = expectedSender.toLowerCase();
-      if (receiptFrom !== expected) {
-        return { valid: false, error: `Sender mismatch: TX from ${receipt.from}, expected ${expectedSender}` };
+    if (data.result) {
+      const tx = data.result;
+      // Sender check
+      if (expectedSender && tx.from) {
+        if (tx.from.toLowerCase() !== expectedSender.toLowerCase()) {
+          return { valid: false, error: `Sender mismatch: ${tx.from} vs ${expectedSender}` };
+        }
       }
+      const confirmed = tx.blockNumber !== undefined && tx.blockNumber !== null;
+      return { valid: true, confirmed, source: confirmed ? 'confirmed' : 'mempool' };
     }
 
-    // Check for expected operation in events (if available)
-    if (expectedOperation && receipt.events && Array.isArray(receipt.events)) {
-      const hasExpectedEvent = receipt.events.some(e =>
-        e.type === expectedOperation || e.eventName === expectedOperation
-      );
-      if (!hasExpectedEvent) {
-        // Not a hard failure — events may not be indexed yet
-        console.log(`Warning: Expected event '${expectedOperation}' not found in TX ${txHash}`);
-      }
-    }
-
-    return {
-      valid: true,
-      sender: receipt.from || null,
-      to: receipt.to || null,
-      events: receipt.events || [],
-      blockNumber: receipt.blockNumber || receipt.height || null,
-    };
+    // TX not found yet — network propagation delay (wallet just broadcast)
+    // Accept on trust; background job will confirm later
+    console.log(`TX ${txHash} not found via getTransaction — accepting (just broadcast)`);
+    return { valid: true, confirmed: false, source: 'trust' };
   } catch (e) {
-    console.error('TX verification error:', e.message);
-    // Non-blocking: if RPC is down, log warning but don't block
-    return { valid: false, error: 'RPC verification failed: ' + e.message, rpcDown: true };
+    console.error('TX check error:', e.message);
+    // RPC down — don't block the bet
+    return { valid: true, confirmed: false, source: 'rpc_down' };
   }
+}
+
+// Phase 2: Background confirmation — called every 30s to confirm pending bets.
+// Bob pattern: getTransaction → check blockNumber for confirmation status.
+async function confirmPendingBets() {
+  try {
+    const pending = db.prepare("SELECT id, tx_hash, user_address FROM bets WHERE tx_confirmed = 0 AND tx_hash != '' AND created_at > unixepoch() - 86400").all();
+    if (!pending.length) return;
+
+    for (const bet of pending) {
+      try {
+        const res = await fetch(OPNET_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [bet.tx_hash], id: 1 }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const data = await res.json();
+        if (data.result && data.result.blockNumber !== undefined && data.result.blockNumber !== null) {
+          db.prepare('UPDATE bets SET tx_confirmed = 1 WHERE id = ?').run(bet.id);
+          console.log(`Bet ${bet.id} TX confirmed in block ${data.result.blockNumber}: ${bet.tx_hash}`);
+        }
+      } catch { /* skip, retry next cycle */ }
+    }
+  } catch (e) {
+    console.error('confirmPendingBets error:', e.message);
+  }
+}
+
+// Legacy wrapper for other endpoints that still use the old signature
+async function verifyTxOnChain(txHash, expectedSender, expectedOperation) {
+  return verifyTxExists(txHash, expectedSender);
 }
 
 // --- Database setup ---
@@ -553,6 +620,7 @@ db.exec(`
     payout INTEGER NOT NULL DEFAULT 0,
     tx_hash TEXT DEFAULT '',
     claim_tx_hash TEXT DEFAULT '',
+    tx_confirmed INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     FOREIGN KEY (user_address) REFERENCES users(address),
     FOREIGN KEY (market_id) REFERENCES markets(id)
@@ -673,6 +741,7 @@ db.exec(`
     reward_id TEXT NOT NULL,
     reward_type TEXT NOT NULL,
     amount INTEGER NOT NULL,
+    tx_hash TEXT DEFAULT '',
     claimed_at INTEGER NOT NULL DEFAULT (unixepoch()),
     UNIQUE(address, reward_id)
   );
@@ -763,6 +832,12 @@ try { db.exec('ALTER TABLE markets ADD COLUMN creator_address TEXT DEFAULT NULL'
 // Dual currency migration: btc_balance for users, currency for bets
 try { db.exec('ALTER TABLE users ADD COLUMN btc_balance INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN currency TEXT NOT NULL DEFAULT \'bpusd\''); } catch(e) { /* already exists */ }
+// Two-phase TX confirmation: 0 = pending, 1 = confirmed on-chain
+try { db.exec('ALTER TABLE bets ADD COLUMN tx_confirmed INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
+// Mark all old bets as confirmed (they pre-date this migration)
+try { db.exec("UPDATE bets SET tx_confirmed = 1 WHERE tx_confirmed = 0 AND created_at < unixepoch() - 3600"); } catch(e) { /* ok */ }
+// Reward claims: add tx_hash column
+try { db.exec("ALTER TABLE reward_claims ADD COLUMN tx_hash TEXT DEFAULT ''"); } catch(e) { /* already exists */ }
 
 // Vault global state (in-memory, synced to DB)
 let VAULT_TOTAL_STAKED = 0;
@@ -1761,14 +1836,14 @@ const REWARD_DEFINITIONS = {
 };
 
 // Claim achievement/quest BPUSD reward (server-validated, hardcoded amounts)
-app.post('/api/reward/claim', requireAuth, (req, res) => {
+app.post('/api/reward/claim', requireAuth, async (req, res) => {
   const { address, rewardId } = req.body;
   if (!address || !rewardId) return res.status(400).json({ error: 'address, rewardId required' });
   if (!address.startsWith(OPNET_ADDRESS_PREFIX) || address.length < 20) return res.status(400).json({ error: 'invalid address' });
 
-  // Rate limit: 1 claim per minute per address
+  // Rate limit: 3 claims per minute per address (allow claiming different rewards in sequence)
   const claimKey = 'reward_claim:' + address;
-  if (rateLimit(claimKey, 1, 60000)) {
+  if (rateLimit(claimKey, 3, 60000)) {
     return res.status(429).json({ error: 'Too many claims. Wait 1 minute.' });
   }
 
@@ -1796,13 +1871,19 @@ app.post('/api/reward/claim', requireAuth, (req, res) => {
 
   const amount = rewardDef.amount;
   try {
+    // Send BPUSD on-chain to user
+    const txResult = await transferBpusd(address, amount);
+    if (!txResult.success) {
+      return res.status(500).json({ error: 'On-chain transfer failed: ' + txResult.error });
+    }
+
     const txn = db.transaction(() => {
-      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount) VALUES (?, ?, ?, ?)').run(address, rewardId, rewardDef.type, amount);
+      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount, tx_hash) VALUES (?, ?, ?, ?, ?)').run(address, rewardId, rewardDef.type, amount, txResult.txHash || '');
       db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amount, address);
     });
     txn();
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
-    res.json({ success: true, amount, newBalance });
+    res.json({ success: true, amount, newBalance, txHash: txResult.txHash });
   } catch (e) {
     console.error('Reward claim error:', e.message);
     res.status(500).json({ error: 'Claim failed: ' + e.message });
@@ -1924,11 +2005,12 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
   if (!Number.isFinite(onchainAmt) || onchainAmt < 100) return res.status(400).json({ error: 'minimum bet is 100' });
 
   try {
-    // Verify TX on-chain before recording
-    const txVerify = await verifyTxOnChain(txHash, address, 'SharesPurchased');
-    if (!txVerify.valid && !txVerify.rpcDown) {
+    // Phase 1: Quick TX existence check (mempool or confirmed) — non-blocking
+    const txVerify = await verifyTxExists(txHash, address);
+    if (!txVerify.valid) {
       return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
     }
+    const txConfirmed = txVerify.confirmed ? 1 : 0;
     const existingTx = db.prepare('SELECT id FROM bets WHERE tx_hash = ? AND length(tx_hash) > 0').get(txHash);
     if (existingTx) return res.status(400).json({ error: 'txHash already used — replay detected' });
 
@@ -1975,8 +2057,8 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
       const price = side === 'yes' ? market.yes_price : market.no_price;
 
       // No server balance deduction — on-chain TX is the payment proof
-      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        betId, address, marketId, side, onchainAmt, price, shares, txHash, currency
+      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash, currency, tx_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        betId, address, marketId, side, onchainAmt, price, shares, txHash, currency, txConfirmed
       );
       const prices = recalcPrices(newYesPool, newNoPool);
       db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
@@ -2029,7 +2111,7 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
 // SELL SHARES — exit position before market resolution
 // ==========================================================================
 app.post('/api/bet/sell', requireAuth, (req, res) => {
-  const { address, betId, sharesToSell } = req.body;
+  const { address, betId, sharesToSell, txHash } = req.body;
   if (!address || !betId) return res.status(400).json({ error: 'address and betId required' });
   if (rateLimit('sell:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many sells. Try again in a minute.' });
 
@@ -2101,9 +2183,11 @@ app.post('/api/bet/sell', requireAuth, (req, res) => {
       );
 
       const currLabel = betCurrency === 'btc' ? 'sats' : 'BPUSD';
+      const sellBody = txHash
+        ? `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} ${currLabel} (on-chain TX: ${txHash.slice(0, 12)}...)`
+        : `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} ${currLabel}`;
       db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
-        address, 'sell', 'Position Sold',
-        `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} ${currLabel}`, bet.market_id
+        address, 'sell', txHash ? 'On-Chain Sell' : 'Position Sold', sellBody, bet.market_id
       );
     });
     txn();
@@ -2123,6 +2207,7 @@ app.post('/api/bet/sell', requireAuth, (req, res) => {
       newBtcBalance: updatedUser.btc_balance || 0,
       newYesPrice: updatedMarket.yes_price,
       newNoPrice: updatedMarket.no_price,
+      txHash: txHash || null,
     });
   } catch (e) {
     console.error('Sell shares error:', e.message);
@@ -3146,6 +3231,9 @@ setInterval(() => resolveExpiredMarkets(), 15000);
 
 // Sync Polymarket events every 5 min
 setInterval(() => syncPolymarketEvents(), 5 * 60 * 1000);
+
+// Phase 2: Confirm pending bet TXes every 30 seconds
+setInterval(() => confirmPendingBets(), 30_000);
 
 // --- Start ---
 const PORT = process.env.PORT || 3456;

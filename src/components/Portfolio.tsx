@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, mintTokensOnChain, claimPayoutOnChain2, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
+import { getExplorerTxUrl, mintTokensOnChain, claimPayoutOnChain2, sellSharesOnChain, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -15,12 +15,13 @@ interface PortfolioProps {
   onConnect: () => void;
   onBalanceRefresh: () => void;
   onBetsUpdate: (bets: Bet[]) => void;
+  onToast: (msg: string, type: 'success' | 'error', link?: string, linkLabel?: string) => void;
   walletProvider: unknown;
   walletNetwork: unknown;
   walletAddressObj: unknown;
 }
 
-export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
@@ -91,21 +92,44 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
   const handleSell = async (betId: string) => {
     if (sellingBetId || !walletAddress) return;
     const bet = bets.find(b => b.id === betId);
-    if (bet && !window.confirm(`Sell ${bet.shares} shares for ~${bet.currency === 'btc' ? 'sats' : 'BPUSD'}? (2% fee) This cannot be undone.`)) return;
+    if (!bet) return;
+    const sellLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
+    if (!window.confirm(`Sell ${bet.shares} shares for ~${sellLabel}? (2% fee) This cannot be undone.`)) return;
     setSellingBetId(betId);
     setClaimMsg(null);
     try {
-      const result = await api.sellShares(walletAddress, betId);
+      const market = markets.find(m => m.id === bet.marketId);
+      const isOnChain = market?.onchainId && market.onchainId > 0;
+
+      let txHash: string | undefined;
+
+      if (isOnChain) {
+        // On-chain sell: call contract sellShares → then record on server
+        onToast('Selling shares on-chain... Sign in OP_WALLET', 'success');
+        const r = await sellSharesOnChain(
+          walletProvider, walletNetwork, walletAddressObj, walletAddress,
+          market.onchainId!, bet.side === 'yes', bet.shares || 0,
+        );
+        if (!r.success) throw new Error(r.error || 'sellShares TX failed');
+        txHash = r.txHash;
+      }
+
+      const result = await api.sellShares(walletAddress, betId, undefined, txHash);
       onBalanceRefresh();
       onBetsUpdate(bets.map(b => b.id === betId
         ? { ...b, status: (result.remainingShares > 0 ? 'active' : 'lost') as Bet['status'], shares: result.remainingShares }
         : b
       ).filter(b => !(b.id === betId && result.remainingShares <= 0)));
-      const soldBet = bets.find(b => b.id === betId);
-      const sellLabel = (soldBet?.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
-      setClaimMsg({ text: `Sold for ${result.payout.toLocaleString()} ${sellLabel} (fee: ${result.fee})`, type: 'success' });
+
+      if (isOnChain && txHash) {
+        const txLink = getExplorerTxUrl(txHash);
+        onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel} on-chain!`, 'success', txLink, 'View TX');
+      } else {
+        onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel} (fee: ${result.fee})`, 'success');
+      }
     } catch (err) {
-      setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      const msg = err instanceof Error ? err.message : String(err);
+      onToast(`Sell failed: ${msg}`, 'error');
     } finally {
       setSellingBetId(null);
     }
@@ -130,7 +154,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
   }
 
   const getMarket = (marketId: string) => markets.find((m) => m.id === marketId);
-  const getMarketQuestion = (marketId: string) => getMarket(marketId)?.question || 'Unknown Market';
+  const getMarketQuestion = (marketId: string, bet?: Bet) => bet?.question || getMarket(marketId)?.question || 'Unknown Market';
 
   const totalInvested = bets.reduce((sum, b) => sum + b.amount, 0);
   const activeBets = bets.filter((b) => b.status === 'active');
@@ -479,7 +503,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-white leading-snug truncate">
-                        {getMarketQuestion(bet.marketId)}
+                        {getMarketQuestion(bet.marketId, bet)}
                       </div>
                       <div className="flex items-center gap-2 mt-2">
                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${

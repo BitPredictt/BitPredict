@@ -260,6 +260,7 @@ export function useAchievements() {
   });
 
   const [newUnlock, setNewUnlock] = useState<Achievement | null>(null);
+  const dismissUnlock = useCallback(() => setNewUnlock(null), []);
 
   // Persist
   useEffect(() => {
@@ -445,6 +446,7 @@ export function useAchievements() {
     level,
     xpToNext,
     newUnlock,
+    dismissUnlock,
     onBetPlaced,
     onWalletConnected,
     onAIUsed,

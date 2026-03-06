@@ -203,6 +203,38 @@ export async function getGasParameters(provider: unknown): Promise<{ feeRate: nu
 // Minimum BTC balance (in sats) required to perform any on-chain action (gas fees)
 export const MIN_BTC_FOR_TX = 10_000; // 10,000 sats = 0.0001 BTC
 
+/**
+ * Wait for a TX to be confirmed on-chain (Bob pattern: poll getTransaction, check blockNumber).
+ * Required between approve + action steps — approval must be confirmed before the next TX
+ * can see the updated allowance state.
+ * Uses wallet's provider.getTransaction() — same RPC the SDK uses.
+ *
+ * @param provider - wallet's JSONRpcProvider
+ * @param txHash - transaction hash to wait for
+ * @param timeoutMs - max wait time (default 5 min)
+ * @param pollMs - poll interval (default 5 sec)
+ */
+export async function waitForTxConfirmation(
+  provider: unknown,
+  txHash: string,
+  timeoutMs = 300_000,
+  pollMs = 5_000,
+): Promise<{ confirmed: boolean; blockNumber?: number }> {
+  if (!txHash || !provider) return { confirmed: false };
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const tx = await (provider as any).getTransaction(txHash);
+      if (tx && tx.blockNumber !== undefined && tx.blockNumber !== null) {
+        return { confirmed: true, blockNumber: Number(tx.blockNumber) };
+      }
+    } catch { /* retry */ }
+    await new Promise(r => setTimeout(r, pollMs));
+  }
+  return { confirmed: false };
+}
+
 // Re-export types for consumers
 export type { AbstractRpcProvider } from 'opnet';
 
@@ -445,6 +477,41 @@ async function resolveContractAddress(
   }
   // Dynamic path: fetch from chain — isContract=true uses mldsaHashedPublicKey
   return (provider as any).getPublicKeyInfo(contractAddress, true);
+}
+
+/**
+ * Read current allowance of BPUSD token for a given spender.
+ * Returns allowance in human units (divided by 1e8).
+ * Used to skip approve step if sufficient allowance already exists.
+ */
+export async function getTokenAllowance(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  spenderAddress: string,
+  spenderPubkey?: string,
+): Promise<number> {
+  if (!provider || !network || !senderAddr) return 0;
+  try {
+    const { getContract, OP_20_ABI } = await import('opnet');
+
+    const token = getContract(
+      OPNET_CONFIG.tokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const spenderAddr = await resolveContractAddress(provider, spenderAddress, spenderPubkey) as any;
+    const result = await (token as any).allowance(senderAddr, spenderAddr);
+    if (!result || result.revert) return 0;
+
+    const raw = result?.properties?.allowance ?? result?.decoded?.[0] ?? 0n;
+    return Number(BigInt(raw)) / 1e8;
+  } catch {
+    return 0;
+  }
 }
 
 /** Retry wrapper for flaky RPC simulations (matches vibe pattern) */
@@ -801,6 +868,57 @@ export async function buySharesOnChain(
 }
 
 /**
+ * Sell shares on-chain via PredictionMarket.sellShares(marketId, isYes, shares, minPayoutOut).
+ * Shares are passed as raw BigInt (same unit as contract's internal accounting).
+ * Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing.
+ */
+export async function sellSharesOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  onchainMarketId: number,
+  isYes: boolean,
+  shares: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract } = await import('opnet');
+    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      PredictionMarketAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const sim = await withRetry(() =>
+      (contract as any).sellShares(BigInt(onchainMarketId), isYes, BigInt(shares), 0n),
+    ) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `sellShares revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
+      signer: null,
+      mldsaSigner: null,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
  * Claim payout on-chain via PredictionMarket.claimPayout(marketId).
  * Non-blocking — called after server records the claim.
  */
@@ -850,11 +968,11 @@ export async function claimPayoutOnChain2(
 
 /**
  * Approve BPUSD allowance for the PredictionMarket contract.
- * MUST be called BEFORE buySharesOnChain — this is wallet popup TX #1.
+ * Checks current allowance first — skips TX if already sufficient.
  * Bob: OPNet uses increaseAllowance (not approve). Contract calls transferFrom internally.
- * Two-step pattern: approveForMarket(TX #1) → buySharesOnChain(TX #2)
  *
  * @param amount - BPUSD amount in human units (e.g. 1000 = 1000 BPUSD)
+ * @returns skipped=true when existing allowance was sufficient (no TX needed)
  */
 export async function approveForMarket(
   provider: unknown,
@@ -862,9 +980,15 @@ export async function approveForMarket(
   senderAddr: unknown,
   walletAddress: string,
   amount: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
+): Promise<{ txHash: string; success: boolean; error?: string; skipped?: boolean }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
+    // Check existing allowance — skip TX if already enough
+    const currentAllowance = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey);
+    if (currentAllowance >= amount) {
+      return { txHash: '', success: true, skipped: true };
+    }
+
     const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
 
     const token = getContract(
@@ -875,8 +999,6 @@ export async function approveForMarket(
       senderAddr as never,
     );
 
-    // CRITICAL: Address.fromString() requires a HEX public key, NOT an opt1/bc1 address string.
-    // resolveContractAddress() uses contractPubkey from env (fast) or fetches via getPublicKeyInfo (RPC).
     const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey) as any;
     const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
 
@@ -902,10 +1024,10 @@ export async function approveForMarket(
 
 /**
  * Approve BPUSD allowance for the StakingVault contract.
- * MUST be called BEFORE stakeOnChain — this is wallet popup TX #1.
- * Two-step pattern: approveForVault(TX #1) → stakeOnChain(TX #2)
+ * Checks current allowance first — skips TX if already sufficient.
  *
  * @param amount - BPUSD amount in human units (e.g. 500 = 500 BPUSD)
+ * @returns skipped=true when existing allowance was sufficient (no TX needed)
  */
 export async function approveForVault(
   provider: unknown,
@@ -913,9 +1035,15 @@ export async function approveForVault(
   senderAddr: unknown,
   walletAddress: string,
   amount: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
+): Promise<{ txHash: string; success: boolean; error?: string; skipped?: boolean }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
+    // Check existing allowance — skip TX if already enough
+    const currentAllowance = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey);
+    if (currentAllowance >= amount) {
+      return { txHash: '', success: true, skipped: true };
+    }
+
     const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
 
     const token = getContract(
@@ -926,8 +1054,6 @@ export async function approveForVault(
       senderAddr as never,
     );
 
-    // CRITICAL: Address.fromString() requires a HEX public key, NOT an opt1/bc1 address string.
-    // resolveContractAddress() uses vaultPubkey from env (fast) or fetches via getPublicKeyInfo (RPC).
     const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey) as any;
     const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
 

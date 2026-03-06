@@ -31,6 +31,7 @@ export interface Market {
 export interface Bet {
   id: string;
   marketId: string;
+  question?: string;
   side: 'yes' | 'no';
   amount: number;
   price: number;

@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Search, Filter, ExternalLink, Github, BarChart3, Lock, Briefcase, Trophy, Bot, Plus } from 'lucide-react';
+import { Search, Filter, ExternalLink, Github, BarChart3, Lock, Briefcase, Trophy, Bot, Plus, X } from 'lucide-react';
 import type { Tab, CategoryFilter, Market, Bet } from './types';
 import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signRewardClaimProof, signBetAmountProof, buySharesOnChain, mintBpusdWithBtc, getOnChainBpusdBalance, approveForMarket, approveForVault, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT, OPNET_CONFIG } from './lib/opnet';
+import { signRewardClaimProof, signBetAmountProof, buySharesOnChain, mintBpusdWithBtc, getOnChainBpusdBalance, approveForMarket, approveForVault, waitForTxConfirmation, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT, OPNET_CONFIG } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -42,7 +42,15 @@ function App() {
   // Issue #3 fix: use signMessage from useWallet (checks walletInstance, not signer).
   // signerReady guards against timing issue where walletAddress is set before signer.
   const ensureAuth = useCallback(async () => {
-    if (api.getAuthToken()) return;
+    // Check if existing token matches current wallet address
+    const existingToken = api.getAuthToken();
+    if (existingToken) {
+      try {
+        const payload = JSON.parse(atob(existingToken.split('.')[1]));
+        if (payload.address === wallet.address) return; // token valid for this wallet
+      } catch { /* invalid token, re-auth */ }
+      api.clearAuthToken(); // token is for a different address — clear it
+    }
     if (!wallet.connected || !wallet.address) throw new Error('Wallet not connected');
     if (!signerReady) throw new Error('Wallet signer not ready — please wait a moment and try again');
     const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
@@ -126,6 +134,7 @@ function App() {
         setBets(serverBets.map((b) => ({
           id: b.id,
           marketId: b.marketId,
+          question: b.question,
           side: b.side,
           amount: b.amount,
           price: b.price,
@@ -251,14 +260,19 @@ function App() {
         if (!mintResult.success) throw new Error(mintResult.error || 'BTC→BPUSD conversion failed');
         txHash = mintResult.txHash;
 
-        // If market is on-chain, popups #2 + #3 — approve then buyShares
-        // Issue #2 fix: contract calls transferFrom internally, needs prior increaseAllowance.
+        // If market is on-chain — approve (if needed) then buyShares
         if (hasOnchain) {
-          setToast({ message: 'Step 2/3: Approve BPUSD for contract... Sign in OP_WALLET', type: 'success' });
+          setToast({ message: 'Checking allowance...', type: 'success' });
           const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
           if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
-          setToast({ message: 'Step 3/3: Placing bet on-chain... Sign in OP_WALLET', type: 'success' });
+          if (!approveResult.skipped) {
+            setToast({ message: 'Waiting for approval confirmation...', type: 'success' });
+            const apConf = await waitForTxConfirmation(provider, approveResult.txHash);
+            if (!apConf.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
+          }
+
+          setToast({ message: `${approveResult.skipped ? '' : 'Approved! '}Placing bet on-chain... Sign in OP_WALLET`, type: 'success' });
           const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
           if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
           txHash = buyResult.txHash;
@@ -266,13 +280,18 @@ function App() {
       } else {
         // BPUSD bet
         if (hasOnchain) {
-          // On-chain market: TWO popups — approve BPUSD first, then buyShares.
-          // Issue #2 fix: contract calls transferFrom internally, needs prior increaseAllowance.
-          setToast({ message: 'Step 1/2: Approve BPUSD spending... Sign in OP_WALLET', type: 'success' });
+          // On-chain market: check allowance → approve if needed → buyShares
+          setToast({ message: 'Checking allowance...', type: 'success' });
           const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
           if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
-          setToast({ message: 'Step 2/2: Buying shares on-chain... Sign in OP_WALLET', type: 'success' });
+          if (!approveResult.skipped) {
+            setToast({ message: 'Waiting for approval confirmation...', type: 'success' });
+            const apConf = await waitForTxConfirmation(provider, approveResult.txHash);
+            if (!apConf.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
+          }
+
+          setToast({ message: `${approveResult.skipped ? '' : 'Approved! '}Buying shares on-chain... Sign in OP_WALLET`, type: 'success' });
           const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
           if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
           txHash = buyResult.txHash;
@@ -490,6 +509,7 @@ function App() {
             onConnect={connectOPWallet}
             onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onBetsUpdate={setBets}
+            onToast={(msg, type, link, linkLabel) => setToast({ message: msg, type, link, linkLabel })}
             walletProvider={provider}
             walletNetwork={walletNetwork}
             walletAddressObj={addressObj}
@@ -575,7 +595,10 @@ function App() {
       {/* Achievement unlock notification — centered on screen */}
       {achievements.newUnlock && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center pointer-events-none">
-          <div className="bg-gradient-to-r from-btc/40 to-purple-600/40 border border-btc/50 rounded-2xl px-8 py-5 backdrop-blur-2xl shadow-2xl flex items-center gap-4 animate-fade-in">
+          <div className="pointer-events-auto relative bg-gradient-to-r from-btc/40 to-purple-600/40 border border-btc/50 rounded-2xl px-8 py-5 backdrop-blur-2xl shadow-2xl flex items-center gap-4 animate-fade-in">
+            <button onClick={achievements.dismissUnlock} className="absolute top-2 right-2 text-gray-400 hover:text-white p-1 transition-colors">
+              <X size={16} />
+            </button>
             <span className="text-4xl">{achievements.newUnlock.icon}</span>
             <div>
               <div className="text-sm font-black text-btc">Achievement Unlocked!</div>
