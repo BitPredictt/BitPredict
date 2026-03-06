@@ -8,6 +8,7 @@ interface BetModalProps {
   market: Market;
   wallet: WalletState;
   onChainBalance: number; // real BPUSD from on-chain balanceOf
+  btcPrice?: number; // real BTC/USD price for dynamic rate
   onClose: () => void;
   onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd') => void;
 }
@@ -16,7 +17,7 @@ interface BetModalProps {
 const signalCache = new Map<string, { signal: string; ts: number }>();
 const SIGNAL_TTL = 300000; // 5 min
 
-export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }: BetModalProps) {
+export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose, onPlaceBet }: BetModalProps) {
   const isMultiOutcome = !!(market.outcomes && market.outcomes.length > 1);
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
@@ -76,8 +77,9 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
   const getSignalType = (text: string | null): 'bullish' | 'bearish' | 'neutral' => {
     if (!text) return 'neutral';
     const lower = text.toLowerCase();
-    if (lower.includes('buy yes') || lower.includes('bullish') || lower.includes('high confidence')) return 'bullish';
+    if (lower.includes('buy yes') || lower.includes('best bet') || lower.includes('high confidence')) return 'bullish';
     if (lower.includes('buy no') || lower.includes('bearish') || lower.includes('sell')) return 'bearish';
+    if (lower.includes('hold') || lower.includes('medium confidence')) return 'neutral';
     return 'neutral';
   };
 
@@ -86,10 +88,12 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
   const signalBg = signalType === 'bullish' ? 'bg-green-500/10 border-green-500/20' : signalType === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
 
   const amountNum = parseInt(amount) || 0;
+  // Dynamic rate: 1 BPUSD = $1, satsPerBpusd = 100M / btcPriceUSD
+  const dynamicSatsPerBpusd = btcPrice > 0 ? Math.round(100_000_000 / btcPrice) : SATS_PER_BPUSD;
   const feePct = currency === 'btc' ? BTC_BET_FEE_PCT : BPUSD_BET_FEE_PCT;
-  // For BTC bets: amount is in BPUSD, total cost is in sats (amount * SATS_PER_BPUSD * (1+fee))
-  const btcCostSats = currency === 'btc' ? Math.ceil(amountNum * SATS_PER_BPUSD * (1 + BTC_BET_FEE_PCT)) : 0;
-  const feeAmount = currency === 'btc' ? Math.ceil(amountNum * SATS_PER_BPUSD * BTC_BET_FEE_PCT) : Math.ceil(amountNum * BPUSD_BET_FEE_PCT);
+  // For BTC bets: amount is in BPUSD, total cost is in sats (amount * satsPerBpusd * (1+fee))
+  const btcCostSats = currency === 'btc' ? Math.ceil(amountNum * dynamicSatsPerBpusd * (1 + BTC_BET_FEE_PCT)) : 0;
+  const feeAmount = currency === 'btc' ? Math.ceil(amountNum * dynamicSatsPerBpusd * BTC_BET_FEE_PCT) : Math.ceil(amountNum * BPUSD_BET_FEE_PCT);
   const totalCharge = currency === 'btc' ? btcCostSats : amountNum + feeAmount;
   const activeBalance = currency === 'btc' ? wallet.balanceSats : Math.floor(onChainBalance);
   const currLabel = currency === 'btc' ? 'sats' : 'BPUSD';
@@ -298,8 +302,8 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
             </div>
             {currency === 'btc' && (
               <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Rate: {SATS_PER_BPUSD.toLocaleString()} sats/BPUSD</span>
-                <span className="text-gray-400 font-medium">{(amountNum * SATS_PER_BPUSD).toLocaleString()} sats</span>
+                <span className="text-gray-500">Rate: {dynamicSatsPerBpusd.toLocaleString()} sats/BPUSD{btcPrice > 0 ? ` ($${btcPrice.toLocaleString()})` : ''}</span>
+                <span className="text-gray-400 font-medium">{(amountNum * dynamicSatsPerBpusd).toLocaleString()} sats</span>
               </div>
             )}
             <div className="flex justify-between text-xs">

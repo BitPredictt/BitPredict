@@ -15,6 +15,11 @@ import { CallResult, OPNetEvent, IOP_NETContract } from 'opnet';
 export type Mint = CallResult<{}, OPNetEvent<never>[]>;
 
 /**
+ * @description Represents the result of the publicMint function call.
+ */
+export type PublicMint = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
  * @description Represents the result of the setMintRate function call.
  */
 export type SetMintRate = CallResult<{}, OPNetEvent<never>[]>;
@@ -49,6 +54,7 @@ export type GetMintRate = CallResult<
 // ------------------------------------------------------------------
 export interface IPredToken extends IOP_NETContract {
     mint(to: Address, amount: bigint): Promise<Mint>;
+    publicMint(amount: bigint): Promise<PublicMint>;
     setMintRate(newRate: bigint): Promise<SetMintRate>;
     setTreasury(newTreasury: Address): Promise<SetTreasury>;
     pause(): Promise<Pause>;

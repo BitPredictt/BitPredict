@@ -33,9 +33,24 @@ function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [onChainBalance, setOnChainBalance] = useState(0); // BPUSD from on-chain balanceOf
+  const [btcPrice, setBtcPrice] = useState(0); // Real BTC/USD price for rate calculation
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
   const [showCreateMarket, setShowCreateMarket] = useState(false);
   const marketsLoaded = useRef(false);
+
+  // Ensure valid JWT before any authenticated API call
+  const ensureAuth = useCallback(async () => {
+    if (api.getAuthToken()) return;
+    if (!wallet.connected || !wallet.address) throw new Error('Wallet not connected');
+    if (!signer || typeof signer.signMessage !== 'function') throw new Error('Wallet signer not ready');
+    const ref = new URLSearchParams(window.location.search).get('ref') || undefined;
+    await api.loginWithWallet(
+      wallet.address,
+      async (message: string) => signer.signMessage(message),
+      ref,
+    );
+  }, [wallet.connected, wallet.address, signer]);
+
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('bp_favorites') || '[]')); } catch { return new Set(); }
   });
@@ -47,6 +62,14 @@ function App() {
       localStorage.setItem('bp_favorites', JSON.stringify([...next]));
       return next;
     });
+  }, []);
+
+  // Fetch real BTC price for BTC→BPUSD rate calculation
+  useEffect(() => {
+    const fetchBtcPrice = () => api.getPrices().then(p => { if (p.btc > 0) setBtcPrice(p.btc); }).catch(() => {});
+    fetchBtcPrice();
+    const iv = setInterval(fetchBtcPrice, 60000); // refresh every 60s
+    return () => clearInterval(iv);
   }, []);
 
   // Load markets from server
@@ -221,7 +244,9 @@ function App() {
 
       if (currency === 'btc') {
         // BTC bet: always popup #1 — mint BPUSD + send BTC to treasury
-        const btcCostSats = Math.ceil(amount * SATS_PER_BPUSD * (1 + BTC_BET_FEE_PCT));
+        // Dynamic rate: 1 BPUSD = $1, so satsPerBpusd = 100M / btcPriceUSD
+        const dynamicSatsPerBpusd = btcPrice > 0 ? Math.round(100_000_000 / btcPrice) : SATS_PER_BPUSD;
+        const btcCostSats = Math.ceil(amount * dynamicSatsPerBpusd * (1 + BTC_BET_FEE_PCT));
         setToast({ message: `${hasOnchain ? 'Step 1/2: ' : ''}Mint ${amount} BPUSD + send ${btcCostSats.toLocaleString()} sats... Sign in OP_WALLET`, type: 'success' });
         const mintResult = await mintBpusdWithBtc(provider, walletNetwork, addressObj, wallet.address, amount, btcCostSats);
         if (!mintResult.success) throw new Error(mintResult.error || 'BTC→BPUSD conversion failed');
@@ -253,6 +278,9 @@ function App() {
 
       setToast({ message: 'TX signed! Recording bet...', type: 'success' });
 
+      // Ensure we have valid auth before server call
+      await ensureAuth();
+
       // Send txHash to server — server records bet + AMM calc
       const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txHash, currency);
 
@@ -281,7 +309,7 @@ function App() {
       setToast({ message: `Bet failed: ${msg}`, type: 'error' });
       throw err;
     }
-  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements, refreshBalance]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements, refreshBalance, ensureAuth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen">
@@ -514,6 +542,7 @@ function App() {
           market={selectedMarket}
           wallet={wallet}
           onChainBalance={onChainBalance}
+          btcPrice={btcPrice}
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
         />

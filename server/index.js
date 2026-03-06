@@ -2630,25 +2630,66 @@ app.get('/api/ai/signal/:marketId', async (req, res) => {
       return res.json({ marketId, signal: cached.signal, source: 'bob (cached)' });
     }
 
+    // Build rich market context — use event_title for multi-outcome markets
+    const marketTitle = m.event_title || m.question;
+    let outcomesContext = '';
+    let isMultiOutcome = false;
+
+    // For multi-outcome markets, fetch all sibling outcomes
+    if (m.event_id) {
+      const siblings = db.prepare(
+        'SELECT outcome_label, yes_price, volume FROM markets WHERE event_id = ? ORDER BY yes_price DESC'
+      ).all(m.event_id);
+      if (siblings.length > 1) {
+        isMultiOutcome = true;
+        const top = siblings.slice(0, 10);
+        outcomesContext = '\nTop candidates/outcomes (by market probability):\n' + top.map((s, i) =>
+          `  ${i + 1}. ${s.outcome_label || 'Unknown'}: ${(s.yes_price * 100).toFixed(1)}%`
+        ).join('\n');
+        if (siblings.length > 10) outcomesContext += `\n  ...and ${siblings.length - 10} more`;
+      }
+    }
+
     // Try Gemini if API key is available
     if (GEMINI_API_KEY) {
       try {
         const prices = { btc: PRICE_CACHE.btc?.price || 0, eth: PRICE_CACHE.eth?.price || 0, sol: PRICE_CACHE.sol?.price || 0 };
         const endDate = m.end_time ? new Date(m.end_time * 1000).toLocaleDateString() : 'TBD';
-        const prompt = `You are Bob, an expert AI analyst for BitPredict — a Bitcoin-native prediction market on OP_NET.
+        const daysLeft = m.end_time ? Math.max(0, Math.ceil((m.end_time - Date.now() / 1000) / 86400)) : '?';
 
-Market: "${m.question}"
+        const prompt = isMultiOutcome
+          ? `You are Bob, an expert prediction market analyst. Analyze ONLY the market below.
+
+EVENT: "${marketTitle}"
+${outcomesContext}
+Category: ${m.category} | Deadline: ${endDate} (${daysLeft} days left)
+Live crypto: BTC $${prices.btc.toLocaleString()} | ETH $${prices.eth.toLocaleString()} | SOL $${prices.sol.toLocaleString()}
+
+INSTRUCTIONS:
+- This is a multi-outcome market. Analyze the top contenders and their probabilities.
+- Consider real-world factors: recent news, polls, historical patterns, current political/sports/cultural landscape.
+- Identify the best value bet — which outcome is underpriced or overpriced relative to real-world likelihood?
+- Be specific — name actual candidates/outcomes and explain WHY.
+
+Reply in this exact format:
+[BEST BET: <outcome name>] ([High/Medium/Low] confidence) — [2-3 sentences analyzing "${marketTitle}" with specific reasoning about top contenders]`
+
+          : `You are Bob, an expert prediction market analyst. Analyze ONLY the market below.
+
+EVENT: "${marketTitle}"
 Current odds: YES ${(m.yes_price * 100).toFixed(1)}% / NO ${(m.no_price * 100).toFixed(1)}%
-Volume: ${m.volume.toLocaleString()} BPUSD | Category: ${m.category} | Deadline: ${endDate}
-Live prices: BTC $${prices.btc.toLocaleString()} | ETH $${prices.eth.toLocaleString()}
+Category: ${m.category} | Volume: ${m.volume.toLocaleString()} BPUSD | Deadline: ${endDate} (${daysLeft} days left)
+Live crypto: BTC $${prices.btc.toLocaleString()} | ETH $${prices.eth.toLocaleString()} | SOL $${prices.sol.toLocaleString()}
 
-Provide a concise 2-3 sentence trading signal. Include:
-1. Direction: BUY YES, BUY NO, or HOLD
-2. Confidence: High, Medium, or Low
-3. Brief reasoning based on market data, current prices, and probability assessment
+INSTRUCTIONS:
+- Analyze the probability and give a trading recommendation for THIS specific event: "${marketTitle}"
+- Consider real-world factors: news, historical data, current trends
+- For crypto price markets, compare current price with the prediction target
+- For politics/sports/culture, assess likelihood based on known facts
+- Be specific — mention the actual event name and key factors in your reasoning
 
-Format your response as: "[DIRECTION] ([Confidence] confidence) — [reasoning]"
-Be specific and analytical. Reference actual data points.`;
+Reply in this exact format:
+[BUY YES / BUY NO / HOLD] ([High/Medium/Low] confidence) — [2-3 sentences of specific analysis about "${marketTitle}"]`;
 
         const geminiRes = await fetch(
           'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + GEMINI_API_KEY,
@@ -2657,7 +2698,7 @@ Be specific and analytical. Reference actual data points.`;
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 500, temperature: 0.5 },
+              generationConfig: { maxOutputTokens: 600, temperature: 0.4 },
             }),
           }
         );

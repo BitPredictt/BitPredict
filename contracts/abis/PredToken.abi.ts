@@ -13,6 +13,12 @@ export const PredTokenAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
+        name: 'publicMint',
+        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
+        outputs: [],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
         name: 'setMintRate',
         inputs: [{ name: 'newRate', type: ABIDataTypes.UINT256 }],
         outputs: [],
