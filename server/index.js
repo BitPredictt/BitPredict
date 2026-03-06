@@ -572,6 +572,34 @@ async function confirmPendingBets() {
   }
 }
 
+// Background confirmation for pending_operations — checks TX confirmation on-chain
+async function confirmPendingOps() {
+  try {
+    const pending = db.prepare(
+      "SELECT id, tx_hash FROM pending_operations WHERE status = 'pending' AND tx_hash != '' AND created_at > unixepoch() - 3600"
+    ).all();
+    if (!pending.length) return;
+
+    for (const op of pending) {
+      try {
+        const res = await fetch(OPNET_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [op.tx_hash], id: 1 }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const data = await res.json();
+        if (data.result && data.result.blockNumber !== undefined && data.result.blockNumber !== null) {
+          db.prepare("UPDATE pending_operations SET status = 'confirmed', updated_at = unixepoch() WHERE id = ?").run(op.id);
+          console.log(`Op ${op.id} TX confirmed: ${op.tx_hash}`);
+        }
+      } catch { /* skip, retry next cycle */ }
+    }
+  } catch (e) {
+    console.error('confirmPendingOps error:', e.message);
+  }
+}
+
 // Legacy wrapper for other endpoints that still use the old signature
 async function verifyTxOnChain(txHash, expectedSender, expectedOperation) {
   return verifyTxExists(txHash, expectedSender);
@@ -1834,17 +1862,38 @@ app.post('/api/claim', requireAuth, async (req, res) => {
 });
 
 // --- Server-side reward definitions (hardcoded, NOT from client) ---
+// IDs must match frontend achievement/quest IDs in useAchievements.ts
 const REWARD_DEFINITIONS = {
-  // Achievements
-  'first_bet':       { type: 'achievement', amount: 50,  verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 1 },
-  'five_bets':       { type: 'achievement', amount: 100, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 5 },
-  'ten_bets':        { type: 'achievement', amount: 200, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 10 },
-  'first_win':       { type: 'achievement', amount: 75,  verify: (addr) => db.prepare("SELECT COUNT(*) as c FROM bets WHERE user_address = ? AND status IN ('won','claimable')").get(addr).c >= 1 },
-  'five_wins':       { type: 'achievement', amount: 200, verify: (addr) => db.prepare("SELECT COUNT(*) as c FROM bets WHERE user_address = ? AND status IN ('won','claimable')").get(addr).c >= 5 },
+  // === Frontend Achievements (matched by id) ===
+  'first_prediction': { type: 'achievement', amount: 100, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 1 },
+  'whale_trader':     { type: 'achievement', amount: 250, verify: (addr) => { const r = db.prepare('SELECT MAX(amount) as m FROM bets WHERE user_address = ?').get(addr); return r && r.m >= 50000; } },
+  'diversified':      { type: 'achievement', amount: 200, verify: (addr) => db.prepare('SELECT COUNT(DISTINCT m.category) as c FROM bets b JOIN markets m ON b.market_id = m.id WHERE b.user_address = ?').get(addr).c >= 3 },
+  'ai_strategist':    { type: 'achievement', amount: 150, verify: () => true },
+  'fortune_builder':  { type: 'achievement', amount: 500, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 10 },
+  'volume_king':      { type: 'achievement', amount: 750, verify: (addr) => db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets WHERE user_address = ?').get(addr).v >= 100000 },
+  'explorer':         { type: 'achievement', amount: 50,  verify: () => true },
+  'early_bird':       { type: 'achievement', amount: 75,  verify: () => true },
+  'bull_bear':        { type: 'achievement', amount: 150, verify: (addr) => {
+    const yes = db.prepare("SELECT COUNT(*) as c FROM bets WHERE user_address = ? AND side = 'yes'").get(addr).c;
+    const no = db.prepare("SELECT COUNT(*) as c FROM bets WHERE user_address = ? AND side = 'no'").get(addr).c;
+    return yes >= 1 && no >= 1;
+  }},
+  'hot_streak':       { type: 'achievement', amount: 300, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 5 },
+  'community_member': { type: 'achievement', amount: 50,  verify: () => true },
+  'bitcoin_maxi':     { type: 'achievement', amount: 300, verify: (addr) => db.prepare("SELECT COUNT(*) as c FROM bets b JOIN markets m ON b.market_id = m.id WHERE b.user_address = ? AND m.category = 'crypto'").get(addr).c >= 5 },
+  // === Frontend Quests (matched by id) ===
+  'connect_wallet':     { type: 'quest', amount: 100, verify: () => true },
+  'first_bet':          { type: 'quest', amount: 150, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ?').get(addr).c >= 1 },
+  'analyze_market':     { type: 'quest', amount: 100, verify: () => true },
+  'trade_3_categories': { type: 'quest', amount: 200, verify: (addr) => db.prepare('SELECT COUNT(DISTINCT m.category) as c FROM bets b JOIN markets m ON b.market_id = m.id WHERE b.user_address = ?').get(addr).c >= 3 },
+  'daily_prediction':   { type: 'quest', amount: 50,  verify: (addr) => { const dayAgo = Math.floor(Date.now()/1000) - 86400; return db.prepare('SELECT COUNT(*) as c FROM bets WHERE user_address = ? AND created_at >= ?').get(addr, dayAgo).c >= 1; } },
+  'weekly_volume':      { type: 'quest', amount: 300, verify: (addr) => { const weekAgo = Math.floor(Date.now()/1000) - 604800; return db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets WHERE user_address = ? AND created_at >= ?').get(addr, weekAgo).v >= 50000; } },
+  'visit_faucet':       { type: 'quest', amount: 75,  verify: () => true },
+  'check_leaderboard':  { type: 'quest', amount: 50,  verify: () => true },
+  // === Legacy server-only IDs (backward compat for already-claimed rewards) ===
   'first_stake':     { type: 'achievement', amount: 100, verify: (addr) => { const s = db.prepare('SELECT staked_amount FROM vault_stakes WHERE address = ?').get(addr); return s && s.staked_amount > 0; } },
   'market_creator':  { type: 'achievement', amount: 150, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM markets WHERE creator_address = ?').get(addr).c >= 1 },
   'first_referral':  { type: 'achievement', amount: 100, verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM users WHERE referrer = ?').get(addr).c >= 1 },
-  // Quests
   'quest_volume_1k': { type: 'quest', amount: 100, verify: (addr) => db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets WHERE user_address = ?').get(addr).v >= 1000 },
   'quest_volume_10k':{ type: 'quest', amount: 300, verify: (addr) => db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets WHERE user_address = ?').get(addr).v >= 10000 },
   'quest_3_markets': { type: 'quest', amount: 75,  verify: (addr) => db.prepare('SELECT COUNT(DISTINCT market_id) as c FROM bets WHERE user_address = ?').get(addr).c >= 3 },
@@ -3251,6 +3300,9 @@ setInterval(() => syncPolymarketEvents(), 5 * 60 * 1000);
 // Phase 2: Confirm pending bet TXes every 30 seconds
 setInterval(() => confirmPendingBets(), 30_000);
 
+// Phase 2b: Confirm pending operations every 30 seconds
+setInterval(() => confirmPendingOps(), 30_000);
+
 // ==========================================================================
 // PENDING OPERATIONS (on-chain TX tracking)
 // ==========================================================================
@@ -3267,11 +3319,15 @@ app.post('/api/operations/pending', requireAuth, (req, res) => {
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
-// Get pending operations for address
+// Get pending operations for address (includes recently confirmed for 5 min)
 app.get('/api/operations/pending/:address', (req, res) => {
+  const fiveMinAgo = Math.floor(Date.now() / 1000) - 300;
   const ops = db.prepare(
-    "SELECT * FROM pending_operations WHERE address = ? AND status IN ('pending', 'confirming') ORDER BY created_at DESC LIMIT 20"
-  ).all(req.params.address);
+    `SELECT * FROM pending_operations WHERE address = ? AND (
+      status IN ('pending', 'confirming')
+      OR (status IN ('confirmed', 'failed') AND updated_at >= ?)
+    ) ORDER BY created_at DESC LIMIT 20`
+  ).all(req.params.address, fiveMinAgo);
   res.json(ops);
 });
 

@@ -413,6 +413,29 @@ export async function signBetAmountProof(
 }
 
 /**
+ * Sign a sell proof TX — creates on-chain proof that user authorized the sell.
+ * Used for off-chain markets where there's no contract sellShares().
+ * @param shares - number of shares to sell (human units)
+ */
+export async function signSellProof(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  shares: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { BitcoinUtils } = await import('opnet');
+    // Use shares as amount proof (expanded to token decimals for consistency)
+    const expandedAmount = BitcoinUtils.expandToDecimals(shares, OPNET_CONFIG.tokenDecimals);
+    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Sign a claim TX — user signs increaseAllowance for the exact claim amount.
  * This creates a REAL on-chain TX with the actual BPUSD payout value.
  * Used when claiming winnings from resolved markets.

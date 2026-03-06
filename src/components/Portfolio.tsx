@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, mintTokensOnChain, claimPayoutOnChain2, sellSharesOnChain, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
+import { getExplorerTxUrl, mintTokensOnChain, claimPayoutOnChain2, sellSharesOnChain, signSellProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -118,8 +118,17 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         );
         if (!r.success) throw new Error(r.error || 'sellShares TX failed');
         txHash = r.txHash;
+      } else {
+        // Off-chain market: sign proof TX (1 popup) same as buy flow
+        onToast('Sign sell proof in OP_WALLET...', 'success');
+        const proofResult = await signSellProof(
+          walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.shares || 1,
+        );
+        if (!proofResult.success) throw new Error(proofResult.error || 'Sell proof signing failed');
+        txHash = proofResult.txHash;
       }
 
+      onToast('TX signed! Processing sell...', 'success');
       const result = await api.sellShares(walletAddress, betId, undefined, txHash);
       onBalanceRefresh();
       onBetsUpdate(bets.map(b => b.id === betId
@@ -127,12 +136,8 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         : b
       ).filter(b => !(b.id === betId && result.remainingShares <= 0)));
 
-      if (isOnChain && txHash) {
-        const txLink = getExplorerTxUrl(txHash);
-        onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel} on-chain!`, 'success', txLink, 'View TX');
-      } else {
-        onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel} (fee: ${result.fee})`, 'success');
-      }
+      const txLink = getExplorerTxUrl(txHash!);
+      onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel}!`, 'success', txLink, 'View TX');
       completeOp(opId, 'confirmed', txHash);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
