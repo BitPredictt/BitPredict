@@ -839,6 +839,22 @@ try { db.exec("UPDATE bets SET tx_confirmed = 1 WHERE tx_confirmed = 0 AND creat
 // Reward claims: add tx_hash column
 try { db.exec("ALTER TABLE reward_claims ADD COLUMN tx_hash TEXT DEFAULT ''"); } catch(e) { /* already exists */ }
 
+// Pending operations table — tracks on-chain TX lifecycle
+try { db.exec(`CREATE TABLE IF NOT EXISTS pending_operations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  address TEXT NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  tx_hash TEXT DEFAULT '',
+  details TEXT DEFAULT '',
+  market_id TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+)`); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_pendops_addr ON pending_operations(address, status)'); } catch(e) {}
+// Auto-expire stale pending ops older than 1 hour
+try { db.exec("UPDATE pending_operations SET status = 'expired' WHERE status = 'pending' AND created_at < unixepoch() - 3600"); } catch(e) {}
+
 // Vault global state (in-memory, synced to DB)
 let VAULT_TOTAL_STAKED = 0;
 let VAULT_REWARDS_PER_SHARE = 0; // scaled by 1e12
@@ -3234,6 +3250,50 @@ setInterval(() => syncPolymarketEvents(), 5 * 60 * 1000);
 
 // Phase 2: Confirm pending bet TXes every 30 seconds
 setInterval(() => confirmPendingBets(), 30_000);
+
+// ==========================================================================
+// PENDING OPERATIONS (on-chain TX tracking)
+// ==========================================================================
+
+// Create a pending operation
+app.post('/api/operations/pending', requireAuth, (req, res) => {
+  const { address, type, txHash, details, marketId } = req.body;
+  if (!address || !type) return res.status(400).json({ error: 'address and type required' });
+
+  const result = db.prepare(
+    'INSERT INTO pending_operations (address, type, tx_hash, details, market_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(address, type, txHash || '', details || '', marketId || null);
+
+  res.json({ success: true, id: result.lastInsertRowid });
+});
+
+// Get pending operations for address
+app.get('/api/operations/pending/:address', (req, res) => {
+  const ops = db.prepare(
+    "SELECT * FROM pending_operations WHERE address = ? AND status IN ('pending', 'confirming') ORDER BY created_at DESC LIMIT 20"
+  ).all(req.params.address);
+  res.json(ops);
+});
+
+// Update operation status
+app.patch('/api/operations/:id', requireAuth, (req, res) => {
+  const { status, txHash } = req.body;
+  const id = Number(req.params.id);
+  if (!status) return res.status(400).json({ error: 'status required' });
+
+  const updates = ['status = ?', 'updated_at = unixepoch()'];
+  const params = [status];
+  if (txHash) { updates.push('tx_hash = ?'); params.push(txHash); }
+  params.push(id);
+
+  db.prepare(`UPDATE pending_operations SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  res.json({ success: true });
+});
+
+// Auto-expire stale ops every 5 min
+setInterval(() => {
+  try { db.exec("UPDATE pending_operations SET status = 'expired' WHERE status = 'pending' AND created_at < unixepoch() - 3600"); } catch(e) {}
+}, 5 * 60 * 1000);
 
 // --- Start ---
 const PORT = process.env.PORT || 3456;

@@ -16,12 +16,14 @@ interface PortfolioProps {
   onBalanceRefresh: () => void;
   onBetsUpdate: (bets: Bet[]) => void;
   onToast: (msg: string, type: 'success' | 'error', link?: string, linkLabel?: string) => void;
+  trackOp: (type: string, txHash?: string, details?: string, marketId?: string) => Promise<number | null>;
+  completeOp: (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => Promise<void>;
   walletProvider: unknown;
   walletNetwork: unknown;
   walletAddressObj: unknown;
 }
 
-export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [minting, setMinting] = useState(false);
   const [mintMsg, setMintMsg] = useState<{ text: string; type: 'success' | 'error'; txHash?: string } | null>(null);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
@@ -67,11 +69,12 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     if (!bet || !bet.payout) return;
     setClaimingBetId(betId);
     setClaimMsg(null);
+    let opId: number | null = null;
     try {
       const claimCurrLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
+      opId = await trackOp('claim', undefined, `Claim ${bet.payout.toLocaleString()} ${claimCurrLabel}`, bet.marketId);
       setClaimMsg({ text: `Sign claim TX for ${bet.payout.toLocaleString()} ${claimCurrLabel} in OP_WALLET...`, type: 'success' });
 
-      // Call real PredictionMarket.claimPayout() on-chain
       const market = markets.find(m => m.id === bet.marketId);
       const onchainId = market?.onchainId;
       if (!onchainId) throw new Error('Market not found on-chain. Cannot claim.');
@@ -79,11 +82,13 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
       if (!r.success) throw new Error(r.error || 'Claim TX failed');
 
       const result = await api.claimPayout(walletAddress, betId, r.txHash);
-      onBalanceRefresh(); // Refresh on-chain BPUSD balance
+      onBalanceRefresh();
       const claimLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : OPNET_CONFIG.tokenSymbol;
       setClaimMsg({ text: `+${result.payout.toLocaleString()} ${claimLabel} claimed on-chain!`, type: 'success', txHash: r.txHash });
+      completeOp(opId, 'confirmed', r.txHash);
     } catch (err) {
       setClaimMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      completeOp(opId, 'failed');
     } finally {
       setClaimingBetId(null);
     }
@@ -97,14 +102,15 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     if (!window.confirm(`Sell ${bet.shares} shares for ~${sellLabel}? (2% fee) This cannot be undone.`)) return;
     setSellingBetId(betId);
     setClaimMsg(null);
+    let opId: number | null = null;
     try {
       const market = markets.find(m => m.id === bet.marketId);
       const isOnChain = market?.onchainId && market.onchainId > 0;
+      opId = await trackOp('sell', undefined, `Sell ${bet.shares} ${bet.side.toUpperCase()} shares`, bet.marketId);
 
       let txHash: string | undefined;
 
       if (isOnChain) {
-        // On-chain sell: call contract sellShares → then record on server
         onToast('Selling shares on-chain... Sign in OP_WALLET', 'success');
         const r = await sellSharesOnChain(
           walletProvider, walletNetwork, walletAddressObj, walletAddress,
@@ -127,9 +133,11 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
       } else {
         onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel} (fee: ${result.fee})`, 'success');
       }
+      completeOp(opId, 'confirmed', txHash);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onToast(`Sell failed: ${msg}`, 'error');
+      completeOp(opId, 'failed');
     } finally {
       setSellingBetId(null);
     }

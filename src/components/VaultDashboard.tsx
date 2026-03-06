@@ -13,6 +13,8 @@ interface VaultDashboardProps {
   onChainBalance: number;
   onConnect: () => void;
   onBalanceRefresh: () => void;
+  trackOp: (type: string, txHash?: string, details?: string, marketId?: string) => Promise<number | null>;
+  completeOp: (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => Promise<void>;
   walletProvider: unknown;
   walletNetwork: unknown;
   walletAddressObj: unknown;
@@ -20,7 +22,7 @@ interface VaultDashboardProps {
 
 export function VaultDashboard({
   walletConnected, walletAddress, walletBtcBalance, onChainBalance,
-  onConnect, onBalanceRefresh, walletProvider, walletNetwork, walletAddressObj,
+  onConnect, onBalanceRefresh, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj,
 }: VaultDashboardProps) {
   const [vaultInfo, setVaultInfo] = useState<VaultInfo | null>(null);
   const [userInfo, setUserInfo] = useState<VaultUserInfo | null>(null);
@@ -63,9 +65,11 @@ export function VaultDashboard({
     if (!amtNum || amtNum < 100 || amtNum > max || loading) return;
 
     setLoading(true);
+    let opId: number | null = null;
 
     try {
       let r: { txHash: string; success: boolean; error?: string };
+      opId = await trackOp(mode, undefined, `${mode === 'stake' ? 'Stake' : 'Unstake'} ${amtNum.toLocaleString()} BPUSD`);
 
       if (mode === 'stake') {
         // Check allowance first — skip approve if already sufficient
@@ -74,7 +78,6 @@ export function VaultDashboard({
         if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
 
         if (!approveResult.skipped) {
-          // Approval TX was sent — wait for confirmation
           setTxMsg({ text: 'Waiting for approval confirmation...', type: 'success', txHash: approveResult.txHash });
           const confirmed = await waitForTxConfirmation(walletProvider, approveResult.txHash);
           if (!confirmed.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
@@ -83,7 +86,6 @@ export function VaultDashboard({
         setTxMsg({ text: `${approveResult.skipped ? '' : 'Approved! '}Staking on-chain... Sign in OP_WALLET`, type: 'success' });
         r = await stakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       } else {
-        // Unstake does NOT need approve — vault sends tokens back to user
         setTxMsg({ text: 'Unstaking on-chain... Sign in OP_WALLET', type: 'success' });
         r = await unstakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       }
@@ -97,7 +99,7 @@ export function VaultDashboard({
         setUserInfo(prev => prev ? { ...prev, staked: prev.staked - amtNum } : prev);
       }
 
-      setTxMsg({ text: mode === 'unstake' ? 'Step 2/2: Processing...' : 'TX signed! Processing...', type: 'success', txHash: r.txHash });
+      setTxMsg({ text: 'TX signed! Processing...', type: 'success', txHash: r.txHash });
 
       if (mode === 'stake') {
         await api.stakeVault(walletAddress, amtNum, r.txHash);
@@ -112,9 +114,11 @@ export function VaultDashboard({
         txHash: r.txHash,
       });
       setAmount('');
+      completeOp(opId, 'confirmed', r.txHash);
       loadData();
     } catch (err) {
       setTxMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      completeOp(opId, 'failed');
       // Rollback optimistic update on error
       loadData();
     } finally {
@@ -125,14 +129,16 @@ export function VaultDashboard({
   const handleClaim = async () => {
     if (claiming || !userInfo?.pendingRewards) return;
     setClaiming(true);
-    setTxMsg({ text: 'Step 1/2: Claiming rewards... Sign in OP_WALLET', type: 'success' });
+    setTxMsg({ text: 'Claiming rewards... Sign in OP_WALLET', type: 'success' });
+    let opId: number | null = null;
 
     try {
-      // Call real StakingVault.claimRewards() on-chain
+      opId = await trackOp('vault_claim', undefined, `Claim ${userInfo.pendingRewards.toLocaleString()} BPUSD rewards`);
+
       const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
       if (!r.success) throw new Error(r.error || 'Claim TX failed');
 
-      setTxMsg({ text: 'Step 2/2: Processing...', type: 'success', txHash: r.txHash });
+      setTxMsg({ text: 'Processing...', type: 'success', txHash: r.txHash });
 
       const result = await api.claimVaultRewards(walletAddress, r.txHash);
       onBalanceRefresh();
@@ -141,9 +147,11 @@ export function VaultDashboard({
         type: 'success',
         txHash: r.txHash,
       });
+      completeOp(opId, 'confirmed', r.txHash);
       loadData();
     } catch (err) {
       setTxMsg({ text: err instanceof Error ? err.message : String(err), type: 'error' });
+      completeOp(opId, 'failed');
     } finally {
       setClaiming(false);
     }

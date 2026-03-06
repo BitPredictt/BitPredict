@@ -473,3 +473,34 @@ export async function markNotificationsRead(address: string, notificationId?: nu
     body: JSON.stringify({ address, notificationId }),
   });
 }
+
+// --- Pending Operations ---
+export interface PendingOperation {
+  id: number;
+  address: string;
+  type: string;
+  status: 'pending' | 'confirming' | 'confirmed' | 'failed' | 'expired';
+  tx_hash: string;
+  details: string;
+  market_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function createPendingOp(address: string, type: string, txHash?: string, details?: string, marketId?: string) {
+  return apiFetch<{ success: boolean; id: number }>('/api/operations/pending', {
+    method: 'POST',
+    body: JSON.stringify({ address, type, txHash, details, marketId }),
+  });
+}
+
+export async function getPendingOps(address: string) {
+  return apiFetch<PendingOperation[]>(`/api/operations/pending/${address}`);
+}
+
+export async function updatePendingOp(id: number, status: string, txHash?: string) {
+  return apiFetch<{ success: boolean }>(`/api/operations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status, txHash }),
+  });
+}

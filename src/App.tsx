@@ -20,6 +20,7 @@ import { HowItWorks } from './components/HowItWorks';
 import { Achievements } from './components/Achievements';
 import { VaultDashboard } from './components/VaultDashboard';
 import { ProtocolStats } from './components/ProtocolStats';
+import { ActiveOperations } from './components/ActiveOperations';
 
 function App() {
   const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj, signer, signerReady, signMessage } = useWallet();
@@ -36,7 +37,26 @@ function App() {
   const [btcPrice, setBtcPrice] = useState(0); // Real BTC/USD price for rate calculation
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string; linkLabel?: string } | null>(null);
   const [showCreateMarket, setShowCreateMarket] = useState(false);
+  const [opsRefreshKey, setOpsRefreshKey] = useState(0);
   const marketsLoaded = useRef(false);
+
+  /** Track an operation on the server + bump refresh key */
+  const trackOp = useCallback(async (type: string, txHash?: string, details?: string, marketId?: string) => {
+    if (!wallet.address) return null;
+    try {
+      const r = await api.createPendingOp(wallet.address, type, txHash, details, marketId);
+      setOpsRefreshKey(k => k + 1);
+      return r.id;
+    } catch { return null; }
+  }, [wallet.address]);
+
+  const completeOp = useCallback(async (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => {
+    if (!opId) return;
+    try {
+      await api.updatePendingOp(opId, status, txHash);
+      setOpsRefreshKey(k => k + 1);
+    } catch { /* silent */ }
+  }, []);
 
   // Ensure valid JWT before any authenticated API call.
   // Issue #3 fix: use signMessage from useWallet (checks walletInstance, not signer).
@@ -246,9 +266,11 @@ function App() {
     };
     setBets((prev) => [pendingBet, ...prev]);
 
+    let opId: number | null = null;
     try {
       let txHash = '';
       const hasOnchain = market.onchainId && market.onchainId > 0;
+      opId = await trackOp('buy', undefined, `${side.toUpperCase()} ${amount} ${currency === 'btc' ? 'sats' : 'BPUSD'}`, marketId);
 
       if (currency === 'btc') {
         // BTC bet: always popup #1 — mint BPUSD + send BTC to treasury
@@ -330,11 +352,13 @@ function App() {
       ));
       const txLink = `${OPNET_CONFIG.explorerUrl}/transactions/${txHash}?network=${OPNET_CONFIG.network === 'mainnet' ? 'op_mainnet' : 'op_testnet'}`;
       setToast({ message: 'Bet confirmed on-chain!', type: 'success', link: txLink, linkLabel: 'View TX' });
+      completeOp(opId, 'confirmed', txHash);
       achievements.onBetPlaced(confirmedBet, bets, market.category);
     } catch (err) {
       setBets((prev) => prev.filter((b) => b.id !== pendingId));
       const msg = err instanceof Error ? err.message : String(err);
       setToast({ message: `Bet failed: ${msg}`, type: 'error' });
+      completeOp(opId, 'failed');
       throw err;
     }
   }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, achievements, refreshBalance, ensureAuth]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -492,6 +516,8 @@ function App() {
             onChainBalance={onChainBalance}
             onConnect={connectOPWallet}
             onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
+            trackOp={trackOp}
+            completeOp={completeOp}
             walletProvider={provider}
             walletNetwork={walletNetwork}
             walletAddressObj={addressObj}
@@ -510,6 +536,8 @@ function App() {
             onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onBetsUpdate={setBets}
             onToast={(msg, type, link, linkLabel) => setToast({ message: msg, type, link, linkLabel })}
+            trackOp={trackOp}
+            completeOp={completeOp}
             walletProvider={provider}
             walletNetwork={walletNetwork}
             walletAddressObj={addressObj}
@@ -607,6 +635,11 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Active operations tracker */}
+      {wallet.connected && (
+        <ActiveOperations walletAddress={wallet.address} refreshKey={opsRefreshKey} />
       )}
 
       {/* Toast */}
