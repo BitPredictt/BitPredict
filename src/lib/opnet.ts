@@ -36,6 +36,10 @@ export const OPNET_CONFIG = {
   vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqrqvhz2l8gqvpu7p4047axjx2nxftaukvydtrmur',
   tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqp3dx5nkmvd7yawlzy8jj6ja32glz54c7qepq35c',
   tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0xc36f58f9460955607d687c1d3acec2ee032153b9ca882865b435cdaa6df2fa25',
+  // Contract public keys (hex, SHA256 of MLDSA public key) — required for Address.fromString()
+  // Use `await provider.getPublicKeyInfo(contractAddress, true)` to fetch dynamically if not set.
+  contractPubkey: import.meta.env.VITE_CONTRACT_PUBKEY || '',
+  vaultPubkey: import.meta.env.VITE_VAULT_PUBKEY || '',
   tokenDecimals: 8,
   tokenSymbol: 'BPUSD',
   mintAmount: 1000,
@@ -321,7 +325,6 @@ export async function signBetProof(
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
     const { getContract, OP_20_ABI } = await import('opnet');
-    const { Address } = await import('@btc-vision/transaction');
     const token = getContract(
       OPNET_CONFIG.tokenAddress,
       OP_20_ABI,
@@ -330,8 +333,9 @@ export async function signBetProof(
       senderAddr as never,
     );
 
-    // Approve BPUSD contract itself to spend — creates verifiable on-chain proof
-    const spenderAddr = Address.fromString(OPNET_CONFIG.tokenPubkey) as any;
+    // Approve BPUSD token itself to spend — creates verifiable on-chain proof
+    // tokenPubkey is a hex key (0x...) — Address.fromString() accepts hex only, NOT opt1/bc1 strings
+    const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.tokenAddress, OPNET_CONFIG.tokenPubkey) as any;
     const sim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, amount)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `Approve revert: ${sim.revert}` };
 
@@ -412,6 +416,35 @@ export async function signRewardClaimProof(
   rewardAmount: number,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   return signClaimProof(provider, network, senderAddr, walletAddress, rewardAmount);
+}
+
+/**
+ * Resolve a contract's Address object for use as a parameter in contract calls
+ * (e.g. increaseAllowance spender argument).
+ *
+ * Address.fromString() requires a HEX public key — NOT an opt1/bc1 address string.
+ * For contracts, the correct key is mldsaHashedPublicKey (SHA256 of MLDSA key).
+ *
+ * Strategy:
+ *   1. If pubkeyHex is provided in config — use it directly (fast, no RPC).
+ *   2. Otherwise — fetch dynamically via provider.getPublicKeyInfo(address, true).
+ *
+ * @param provider  - wallet's AbstractRpcProvider from useWalletConnect()
+ * @param contractAddress - opt1/bc1 address string of the contract
+ * @param pubkeyHex - optional pre-configured hex public key (from env var)
+ */
+async function resolveContractAddress(
+  provider: unknown,
+  contractAddress: string,
+  pubkeyHex?: string,
+): Promise<unknown> {
+  const { Address } = await import('@btc-vision/transaction');
+  if (pubkeyHex) {
+    // Fast path: pubkey pre-configured, no RPC needed
+    return Address.fromString(pubkeyHex);
+  }
+  // Dynamic path: fetch from chain — isContract=true uses mldsaHashedPublicKey
+  return (provider as any).getPublicKeyInfo(contractAddress, true);
 }
 
 /** Retry wrapper for flaky RPC simulations (matches vibe pattern) */
@@ -833,7 +866,6 @@ export async function approveForMarket(
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
     const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
-    const { Address } = await import('@btc-vision/transaction');
 
     const token = getContract(
       OPNET_CONFIG.tokenAddress,
@@ -843,7 +875,9 @@ export async function approveForMarket(
       senderAddr as never,
     );
 
-    const spenderAddr = Address.fromString(OPNET_CONFIG.contractAddress) as any;
+    // CRITICAL: Address.fromString() requires a HEX public key, NOT an opt1/bc1 address string.
+    // resolveContractAddress() uses contractPubkey from env (fast) or fetches via getPublicKeyInfo (RPC).
+    const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey) as any;
     const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
 
     const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;
@@ -883,7 +917,6 @@ export async function approveForVault(
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
     const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
-    const { Address } = await import('@btc-vision/transaction');
 
     const token = getContract(
       OPNET_CONFIG.tokenAddress,
@@ -893,7 +926,9 @@ export async function approveForVault(
       senderAddr as never,
     );
 
-    const spenderAddr = Address.fromString(OPNET_CONFIG.vaultAddress) as any;
+    // CRITICAL: Address.fromString() requires a HEX public key, NOT an opt1/bc1 address string.
+    // resolveContractAddress() uses vaultPubkey from env (fast) or fetches via getPublicKeyInfo (RPC).
+    const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey) as any;
     const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
 
     const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;

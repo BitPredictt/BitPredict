@@ -1909,7 +1909,9 @@ app.get('/api/health', (req, res) => {
 app.post('/api/bet/onchain', requireAuth, async (req, res) => {
   const { address, marketId, side, amount, txHash, currency: rawCurrency } = req.body;
   const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
-  if (address && !rateLimit('bet:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
+  // Use separate key 'bet-onchain:' to avoid sharing quota with /api/bet (off-chain).
+  // On-chain flow: approve TX + bet TX = 2 wallet popups per bet → keep limit at 10/min per address.
+  if (address && !rateLimit('bet-onchain:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
 
   if (!address || !marketId || !side || !amount || !txHash) {
     return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
