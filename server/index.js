@@ -1567,7 +1567,7 @@ app.get('/api/markets/:id', (req, res) => {
 app.post('/api/bet', requireAuth, async (req, res) => {
   const { address, marketId, side, amount, currency: rawCurrency } = req.body;
   const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
-  if (address && !rateLimit('bet:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
+  if (address && rateLimit('bet:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
 
   if (!address || !marketId || !side || !amount) {
     return res.status(400).json({ error: 'address, marketId, side, amount required' });
@@ -1708,7 +1708,7 @@ app.get('/api/bets/:address', (req, res) => {
 app.post('/api/claim', requireAuth, async (req, res) => {
   const { address, betId, txHash } = req.body;
   if (!address || !betId || !txHash) return res.status(400).json({ error: 'address, betId, txHash required' });
-  if (!rateLimit('claim:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many claims. Try again in a minute.' });
+  if (rateLimit('claim:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many claims. Try again in a minute.' });
 
   // Verify TX on-chain
   const txVerify = await verifyTxOnChain(txHash, address, 'PayoutClaimed');
@@ -1911,7 +1911,7 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
   const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
   // Use separate key 'bet-onchain:' to avoid sharing quota with /api/bet (off-chain).
   // On-chain flow: approve TX + bet TX = 2 wallet popups per bet → keep limit at 10/min per address.
-  if (address && !rateLimit('bet-onchain:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
+  if (address && rateLimit('bet-onchain:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
 
   if (!address || !marketId || !side || !amount || !txHash) {
     return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
@@ -2031,7 +2031,7 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
 app.post('/api/bet/sell', requireAuth, (req, res) => {
   const { address, betId, sharesToSell } = req.body;
   if (!address || !betId) return res.status(400).json({ error: 'address and betId required' });
-  if (!rateLimit('sell:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many sells. Try again in a minute.' });
+  if (rateLimit('sell:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many sells. Try again in a minute.' });
 
   try {
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
@@ -2855,7 +2855,7 @@ app.post('/api/vault/stake', requireAuth, async (req, res) => {
   const { address, amount, txHash } = req.body;
   if (!address || !amount || !txHash) return res.status(400).json({ error: 'address, amount, txHash required' });
   if (!address.startsWith(OPNET_ADDRESS_PREFIX)) return res.status(400).json({ error: 'invalid address' });
-  if (!rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
+  if (rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
   const amountInt = Math.floor(Number(amount));
   if (amountInt < 100) return res.status(400).json({ error: 'minimum stake is 100 BPUSD' });
 
@@ -2922,7 +2922,7 @@ app.post('/api/vault/unstake', requireAuth, async (req, res) => {
   const { address, amount, txHash } = req.body;
   if (!address || !amount || !txHash) return res.status(400).json({ error: 'address, amount, txHash required' });
   if (!address.startsWith(OPNET_ADDRESS_PREFIX)) return res.status(400).json({ error: 'invalid address' });
-  if (!rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
+  if (rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
   const amountInt = Math.floor(Number(amount));
   if (amountInt <= 0) return res.status(400).json({ error: 'invalid amount' });
 
@@ -2965,7 +2965,7 @@ app.post('/api/vault/unstake', requireAuth, async (req, res) => {
 app.post('/api/vault/claim', requireAuth, async (req, res) => {
   const { address, txHash } = req.body;
   if (!address || !txHash) return res.status(400).json({ error: 'address, txHash required' });
-  if (!rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
+  if (rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
 
   // Verify TX on-chain
   const txVerify = await verifyTxOnChain(txHash, address, 'RewardsClaimed');
