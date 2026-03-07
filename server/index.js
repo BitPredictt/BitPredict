@@ -2060,19 +2060,14 @@ app.post('/api/reward/claim', requireAuth, async (req, res) => {
 
   const amount = rewardDef.amount;
   try {
-    // Send BPUSD on-chain to user
-    const txResult = await transferBpusd(address, amount);
-    if (!txResult.success) {
-      return res.status(500).json({ error: 'On-chain transfer failed: ' + txResult.error });
-    }
-
+    // Credit balance in SQLite (user can withdraw via Treasury later)
     const txn = db.transaction(() => {
-      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount, tx_hash) VALUES (?, ?, ?, ?, ?)').run(address, rewardId, rewardDef.type, amount, txResult.txHash || '');
+      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount, tx_hash) VALUES (?, ?, ?, ?, ?)').run(address, rewardId, rewardDef.type, amount, '');
       db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amount, address);
     });
     txn();
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
-    res.json({ success: true, amount, newBalance, txHash: txResult.txHash });
+    res.json({ success: true, amount, newBalance });
   } catch (e) {
     console.error('Reward claim error:', e.message);
     res.status(500).json({ error: 'Claim failed: ' + e.message });
