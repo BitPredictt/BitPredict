@@ -2170,6 +2170,48 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // Health check
+// ==========================================================================
+// ADMIN: Reset server state after contract redeploy
+// ==========================================================================
+app.post('/api/admin/reset-after-redeploy', (req, res) => {
+  const { secret } = req.body;
+  if (secret !== JWT_SECRET) return res.status(403).json({ error: 'forbidden' });
+
+  const txn = db.transaction(() => {
+    // Reset vault state
+    db.exec('DELETE FROM vault_stakes');
+    db.exec('DELETE FROM vault_rewards');
+    db.exec('DELETE FROM vault_vesting');
+    VAULT_TOTAL_STAKED = 0;
+    VAULT_REWARDS_PER_SHARE = 0;
+    VAULT_TOTAL_DISTRIBUTED = 0;
+
+    // Reset all user balances to 0
+    db.exec('UPDATE users SET balance = 0, btc_balance = 0, backed_balance = 0');
+
+    // Reset pending treasury operations
+    db.exec("UPDATE treasury_deposits SET status = 'expired' WHERE status = 'pending'");
+    db.exec("UPDATE withdrawal_requests SET status = 'expired' WHERE status = 'pending'");
+
+    // Reset protocol revenue
+    ACCUMULATED_PROTOCOL_REVENUE = 0;
+
+    // Cancel all active bets (markets continue but bets are void)
+    db.exec("UPDATE bets SET status = 'cancelled' WHERE status = 'active'");
+
+    const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+    return { usersReset: userCount };
+  });
+
+  try {
+    const result = txn();
+    console.log(`ADMIN RESET: ${result.usersReset} users reset, vault cleared`);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   const pendingDeposits = db.prepare("SELECT COUNT(*) as c FROM treasury_deposits WHERE status = 'pending'").get()?.c || 0;
   const pendingWithdrawals = db.prepare("SELECT COUNT(*) as c FROM withdrawal_requests WHERE status = 'pending'").get()?.c || 0;
@@ -3264,15 +3306,13 @@ app.post('/api/vault/unstake', requireAuth, async (req, res) => {
 // Claim vault rewards
 app.post('/api/vault/claim', requireAuth, async (req, res) => {
   const { address, txHash } = req.body;
-  if (!address) return res.status(400).json({ error: 'address required' });
+  if (!address || !txHash) return res.status(400).json({ error: 'address, txHash required' });
   if (rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
 
-  // Verify TX on-chain if provided (optional — server-side claim also supported)
-  if (txHash) {
-    const txVerify = await verifyTxOnChain(txHash, address, 'RewardsClaimed');
-    if (!txVerify.valid && !txVerify.rpcDown) {
-      console.warn('Vault claim TX verify failed, proceeding with server-side claim:', txVerify.error);
-    }
+  // Verify TX on-chain
+  const txVerify = await verifyTxOnChain(txHash, address, 'RewardsClaimed');
+  if (!txVerify.valid && !txVerify.rpcDown) {
+    return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
   }
 
   const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);

@@ -289,10 +289,10 @@ export async function unstakeVault(address: string, amount: number, txHash: stri
   });
 }
 
-export async function claimVaultRewards(address: string, txHash?: string) {
+export async function claimVaultRewards(address: string, txHash: string) {
   return apiFetch<{ success: boolean; claimed: number; newBalance: number }>('/api/vault/claim', {
     method: 'POST',
-    body: JSON.stringify({ address, ...(txHash ? { txHash } : {}) }),
+    body: JSON.stringify({ address, txHash }),
   });
 }
 
