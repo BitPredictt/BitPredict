@@ -359,21 +359,21 @@ async function transferBpusd(toAddress, amount) {
 
     const token = getContract(PRED_TOKEN, OP_20_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
 
-    // Resolve recipient address (need Address object from their pubkey)
-    const recipientPubkeyRes = await fetch(OPNET_RPC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getPublicKeyInfo', params: [toAddress], id: 1 }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const pubkeyData = await recipientPubkeyRes.json();
-    if (!pubkeyData.result) throw new Error('Cannot resolve recipient public key — user must have at least 1 on-chain TX');
+    // Resolve recipient Address object via provider.getPublicKeyInfo()
+    // getPublicKeyInfo requires a P2TR address (opt1p...), not P2OP (opt1sq...)
+    let lookupAddress = toAddress;
+    if (toAddress.startsWith(OPNET_ADDRESS_PREFIX + '1sq')) {
+      // P2OP address — look up the user's P2TR address from DB
+      const userRow = db.prepare('SELECT p2tr_address FROM users WHERE address = ?').get(toAddress);
+      if (userRow?.p2tr_address) {
+        lookupAddress = userRow.p2tr_address;
+      } else {
+        throw new Error('User P2TR address not stored — user must re-login to register their P2TR address');
+      }
+    }
 
-    const hashedKey = pubkeyData.result.hashedMLDSAPublicKey || pubkeyData.result.hashedMLDSA;
-    const tweakedPubKey = pubkeyData.result.tweakedPubKey || pubkeyData.result.tweakedPublicKey || pubkeyData.result.p2trPublicKey;
-    if (!hashedKey || !tweakedPubKey) throw new Error('Incomplete public key info for recipient');
-
-    const recipientAddr = Address.fromString(hashedKey, tweakedPubKey);
+    const recipientAddr = await opnetRpcProvider.getPublicKeyInfo(lookupAddress, false);
+    if (!recipientAddr) throw new Error('Cannot resolve recipient public key from ' + lookupAddress);
     const rawAmount = BitcoinUtils.expandToDecimals(amount, PRED_DECIMALS);
 
     // Simulate transfer
@@ -860,6 +860,8 @@ try { db.exec('ALTER TABLE markets ADD COLUMN creator_address TEXT DEFAULT NULL'
 // Creator rewards: track initial liquidity and creator earnings
 try { db.exec('ALTER TABLE markets ADD COLUMN initial_liquidity INTEGER NOT NULL DEFAULT 0'); } catch(e) {}
 try { db.exec('ALTER TABLE users ADD COLUMN creator_earnings INTEGER NOT NULL DEFAULT 0'); } catch(e) {}
+// Store p2tr address for on-chain transfers (getPublicKeyInfo needs p2tr, not p2op/opt1sq)
+try { db.exec('ALTER TABLE users ADD COLUMN p2tr_address TEXT DEFAULT NULL'); } catch(e) {}
 // Dual currency migration: btc_balance for users, currency for bets
 try { db.exec('ALTER TABLE users ADD COLUMN btc_balance INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN currency TEXT NOT NULL DEFAULT \'bpusd\''); } catch(e) { /* already exists */ }
@@ -1621,7 +1623,7 @@ app.post('/api/auth/challenge', (req, res) => {
 
 // Step 2: Verify signature and issue JWT (+ register/login user)
 app.post('/api/auth', async (req, res) => {
-  const { address, referrer, signature, challenge: clientChallenge } = req.body;
+  const { address, referrer, signature, challenge: clientChallenge, p2trAddress } = req.body;
   if (!address) return res.status(400).json({ error: 'address required' });
 
   if (typeof address !== 'string' || !address.startsWith(OPNET_ADDRESS_PREFIX) || address.length > 120) {
@@ -1660,13 +1662,16 @@ app.post('/api/auth', async (req, res) => {
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
     const ref = (referrer && referrer !== address && db.prepare('SELECT address FROM users WHERE address = ?').get(referrer)) ? referrer : null;
-    db.prepare('INSERT INTO users (address, balance, btc_balance, referrer) VALUES (?, 1000, 5000, ?)').run(address, ref);
+    db.prepare('INSERT INTO users (address, balance, btc_balance, referrer, p2tr_address) VALUES (?, 1000, 5000, ?, ?)').run(address, ref, p2trAddress || null);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (ref) {
       db.prepare('INSERT INTO notifications (address, type, title, body) VALUES (?, ?, ?, ?)').run(
         ref, 'referral', 'New Referral!', `${address.slice(0, 16)}... joined via your link`
       );
     }
+  } else if (p2trAddress && !user.p2tr_address) {
+    // Update p2tr address if not yet stored
+    db.prepare('UPDATE users SET p2tr_address = ? WHERE address = ?').run(p2trAddress, address);
   }
 
   // Issue JWT
@@ -2060,14 +2065,19 @@ app.post('/api/reward/claim', requireAuth, async (req, res) => {
 
   const amount = rewardDef.amount;
   try {
-    // Credit balance in SQLite (user can withdraw via Treasury later)
+    // Send BPUSD on-chain to user
+    const txResult = await transferBpusd(address, amount);
+    if (!txResult.success) {
+      return res.status(500).json({ error: 'On-chain transfer failed: ' + txResult.error });
+    }
+
     const txn = db.transaction(() => {
-      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount, tx_hash) VALUES (?, ?, ?, ?, ?)').run(address, rewardId, rewardDef.type, amount, '');
+      db.prepare('INSERT INTO reward_claims (address, reward_id, reward_type, amount, tx_hash) VALUES (?, ?, ?, ?, ?)').run(address, rewardId, rewardDef.type, amount, txResult.txHash || '');
       db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amount, address);
     });
     txn();
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
-    res.json({ success: true, amount, newBalance });
+    res.json({ success: true, amount, newBalance, txHash: txResult.txHash });
   } catch (e) {
     console.error('Reward claim error:', e.message);
     res.status(500).json({ error: 'Claim failed: ' + e.message });

@@ -82,8 +82,9 @@ function App() {
       wallet.address,
       signMessage,
       ref,
+      addressObj,
     );
-  }, [wallet.connected, wallet.address, signerReady, signMessage]);
+  }, [wallet.connected, wallet.address, signerReady, signMessage, addressObj]);
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('bp_favorites') || '[]')); } catch { return new Set(); }
@@ -141,6 +142,7 @@ function App() {
       wallet.address,
       signMessage,
       ref,
+      addressObj,
     ).catch((err) => console.warn('Auth failed:', err.message));
 
     if (!api.getAuthToken()) {

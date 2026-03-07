@@ -50,10 +50,10 @@ export async function getAuthChallenge(address: string) {
   });
 }
 
-export async function authUser(address: string, signature: string, challenge: string, referrer?: string) {
+export async function authUser(address: string, signature: string, challenge: string, referrer?: string, p2trAddress?: string) {
   const result = await apiFetch<{ address: string; balance: number; btcBalance: number; referrer: string | null; token?: string }>('/api/auth', {
     method: 'POST',
-    body: JSON.stringify({ address, signature, challenge, referrer }),
+    body: JSON.stringify({ address, signature, challenge, referrer, p2trAddress }),
   });
   if (result.token) {
     setAuthToken(result.token);
@@ -64,16 +64,28 @@ export async function authUser(address: string, signature: string, challenge: st
 /**
  * Full login flow: get challenge → sign with wallet → authenticate.
  * signMessage: wallet-provided function that signs a string and returns hex signature.
+ * addressObj: wallet Address object — used to extract p2tr address for on-chain transfers.
  */
 export async function loginWithWallet(
   address: string,
   signMessage: (message: string) => Promise<string>,
   referrer?: string,
+  addressObj?: unknown,
 ) {
   const { challenge } = await getAuthChallenge(address);
   const message = `Sign this challenge to authenticate with BitPredict: ${challenge}`;
   const signature = await signMessage(message);
-  return authUser(address, signature, challenge, referrer);
+  // Extract p2tr address from wallet Address object for on-chain transfers
+  let p2trAddress: string | undefined;
+  if (addressObj && typeof (addressObj as any).p2tr === 'function') {
+    try {
+      const { networks } = await import('@btc-vision/bitcoin');
+      const networkName = import.meta.env.VITE_OPNET_NETWORK || 'testnet';
+      const net = networkName === 'mainnet' ? networks.bitcoin : networks.opnetTestnet;
+      p2trAddress = (addressObj as any).p2tr(net);
+    } catch { /* fallback: no p2tr */ }
+  }
+  return authUser(address, signature, challenge, referrer, p2trAddress);
 }
 
 export async function getBalance(address: string) {
