@@ -34,14 +34,14 @@ export interface Bet {
   question?: string;
   side: 'yes' | 'no';
   amount: number;
+  netAmount?: number;
   price: number;
   timestamp: number;
   status: 'pending' | 'won' | 'lost' | 'active' | 'claimable';
   txHash?: string;
   blockHeight?: number;
   payout?: number;
-  shares?: number;
-  currency?: 'btc' | 'bpusd';
+  potentialPayout?: number;
 }
 
 export interface Achievement {

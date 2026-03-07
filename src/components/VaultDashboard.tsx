@@ -62,19 +62,19 @@ export function VaultDashboard({
   const handleStakeUnstake = async () => {
     const amtNum = Number(amount);
     const max = mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0);
-    if (!amtNum || amtNum < 100 || amtNum > max || loading) return;
+    if (!amtNum || amtNum < 10000 || amtNum > max || loading) return;
 
     setLoading(true);
     let opId: number | null = null;
 
     try {
       let r: { txHash: string; success: boolean; error?: string };
-      opId = await trackOp(mode, undefined, `${mode === 'stake' ? 'Stake' : 'Unstake'} ${amtNum.toLocaleString()} BPUSD`);
+      opId = await trackOp(mode, undefined, `${mode === 'stake' ? 'Stake' : 'Unstake'} ${amtNum.toLocaleString()} sats WBTC`);
 
       if (mode === 'stake') {
         onToast('Checking allowance...', 'loading');
         const approveResult = await approveForVault(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
-        if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
+        if (!approveResult.success) throw new Error(approveResult.error || 'WBTC approval failed');
 
         if (!approveResult.skipped) {
           onToast('Waiting for approval confirmation...', 'loading');
@@ -108,7 +108,7 @@ export function VaultDashboard({
 
       onBalanceRefresh();
       const txLink = getExplorerTxUrl(r.txHash);
-      onToast(`${mode === 'stake' ? 'Staked' : 'Unstaked'} ${amtNum.toLocaleString()} BPUSD!`, 'success', txLink, 'View TX');
+      onToast(`${mode === 'stake' ? 'Staked' : 'Unstaked'} ${amtNum.toLocaleString()} sats!`, 'success', txLink, 'View TX');
       setAmount('');
       completeOp(opId, 'confirmed', r.txHash);
       loadData();
@@ -128,7 +128,7 @@ export function VaultDashboard({
     let opId: number | null = null;
 
     try {
-      opId = await trackOp('vault_claim', undefined, `Claim ${userInfo.pendingRewards.toLocaleString()} BPUSD rewards`);
+      opId = await trackOp('vault_claim', undefined, `Claim ${userInfo.pendingRewards.toLocaleString()} sats rewards`);
 
       const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
       if (!r.success) throw new Error(r.error || 'Claim TX failed');
@@ -138,7 +138,7 @@ export function VaultDashboard({
       const result = await api.claimVaultRewards(walletAddress, r.txHash);
       onBalanceRefresh();
       const txLink = getExplorerTxUrl(r.txHash);
-      onToast(`Claimed ${result.claimed.toLocaleString()} BPUSD!`, 'success', txLink, 'View TX');
+      onToast(`Claimed ${result.claimed.toLocaleString()} sats!`, 'success', txLink, 'View TX');
       completeOp(opId, 'confirmed', r.txHash);
       loadData();
     } catch (err) {
@@ -187,7 +187,7 @@ export function VaultDashboard({
         </div>
         <h3 className="text-lg font-bold text-white mb-2">Predict & Earn Vault</h3>
         <p className="text-xs text-gray-500 mb-6 text-center max-w-sm">
-          Stake BPUSD and earn passive income from trading fees. Connect your wallet to get started.
+          Stake WBTC and earn passive income from betting fees. Connect your wallet to get started.
         </p>
         <button onClick={onConnect} className="btc-btn cta-glow flex items-center gap-2">
           <Wallet size={16} />
@@ -247,13 +247,13 @@ export function VaultDashboard({
             <Lock size={18} className="text-purple-400" />
             <h2 className="text-xl font-extrabold text-white">Predict & Earn Vault</h2>
           </div>
-          <p className="text-xs text-gray-400 mb-5">Stake BPUSD, earn from every trade on the platform</p>
+          <p className="text-xs text-gray-400 mb-5">Stake WBTC, earn from every bet on the platform</p>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">TVL</div>
               <div className="text-lg font-black text-white">{formatNum(vaultInfo?.totalStaked || 0)}</div>
-              <div className="text-[9px] text-gray-500">BPUSD</div>
+              <div className="text-[9px] text-gray-500">sats</div>
               {onChainTvl && (
                 <div className="flex items-center gap-0.5 mt-1 text-[8px] text-sky-400">
                   <Link size={7} /> On-chain: {onChainTvl}
@@ -268,7 +268,7 @@ export function VaultDashboard({
             <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Your Rewards</div>
               <div className="text-lg font-black text-btc">{formatNum(userInfo?.pendingRewards || 0)}</div>
-              <div className="text-[9px] text-gray-500">BPUSD pending</div>
+              <div className="text-[9px] text-gray-500">sats pending</div>
             </div>
             <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Stakers</div>
@@ -286,7 +286,7 @@ export function VaultDashboard({
           <div className="vault-card rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <BarChart3 size={16} className="text-purple-400" />
-              <h3 className="text-sm font-bold text-white">Stake BPUSD</h3>
+              <h3 className="text-sm font-bold text-white">Stake WBTC</h3>
               <button onClick={loadData} className="ml-auto p-1.5 rounded-lg bg-surface-3 text-gray-500 hover:text-white transition-all">
                 <RefreshCw size={12} />
               </button>
@@ -297,11 +297,11 @@ export function VaultDashboard({
               <div className="bg-purple-600/10 border border-purple-500/20 rounded-xl p-3 mb-4">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-gray-400 font-bold uppercase">Your Stake</span>
-                  <span className="text-sm font-black text-white">{formatNum(userInfo!.staked)} BPUSD</span>
+                  <span className="text-sm font-black text-white">{formatNum(userInfo!.staked)} sats</span>
                 </div>
                 <div className="flex items-center justify-between mt-1">
                   <span className="text-[10px] text-gray-400 font-bold uppercase">Pending Rewards</span>
-                  <span className="text-sm font-black text-btc">{formatNum(userInfo!.pendingRewards)} BPUSD</span>
+                  <span className="text-sm font-black text-btc">{formatNum(userInfo!.pendingRewards)} sats</span>
                 </div>
               </div>
             )}
@@ -332,8 +332,8 @@ export function VaultDashboard({
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder={`Amount (min 100 BPUSD)`}
-                min={100}
+                placeholder={`Amount (min 10,000 sats)`}
+                min={10000}
                 max={maxAmount}
                 className="w-full bg-surface-2 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none transition-colors"
               />
@@ -346,7 +346,7 @@ export function VaultDashboard({
             </div>
 
             <div className="flex items-center justify-between mb-4 text-[10px] text-gray-500">
-              <span>Available: {formatNum(mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0))} BPUSD</span>
+              <span>Available: {formatNum(mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0))} sats</span>
               <span>Fee: 0%</span>
             </div>
 
@@ -371,7 +371,7 @@ export function VaultDashboard({
             <div className="flex gap-2">
               <button
                 onClick={handleStakeUnstake}
-                disabled={loading || !Number(amount) || Number(amount) < 100}
+                disabled={loading || !Number(amount) || Number(amount) < 10000}
                 className="flex-1 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 bg-gradient-to-r from-purple-600/30 to-btc/30 border border-purple-500/30 text-white hover:border-purple-400/50"
               >
                 {loading ? (
@@ -379,7 +379,7 @@ export function VaultDashboard({
                     <Loader2 size={14} className="animate-spin" /> Processing...
                   </span>
                 ) : (
-                  <span>{mode === 'stake' ? 'Stake' : 'Unstake'} BPUSD</span>
+                  <span>{mode === 'stake' ? 'Stake' : 'Unstake'} WBTC</span>
                 )}
               </button>
 
@@ -422,7 +422,7 @@ export function VaultDashboard({
                       <Tooltip
                         contentStyle={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '11px' }}
                         labelStyle={{ color: '#9ca3af' }}
-                        formatter={(v) => [`${Number(v).toLocaleString()} BPUSD`, 'TVL']}
+                        formatter={(v) => [`${Number(v).toLocaleString()} sats`, 'TVL']}
                       />
                       <Area type="monotone" dataKey="tvl" stroke="#9333ea" fill="url(#tvlGrad)" strokeWidth={2} />
                     </AreaChart>
@@ -440,7 +440,7 @@ export function VaultDashboard({
                       <Tooltip
                         contentStyle={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '11px' }}
                         labelStyle={{ color: '#9ca3af' }}
-                        formatter={(v) => [`${Number(v).toLocaleString()} BPUSD`, 'Reward']}
+                        formatter={(v) => [`${Number(v).toLocaleString()} sats`, 'Reward']}
                       />
                       <Bar dataKey="reward" fill="#f7931a" radius={[4, 4, 0, 0]} />
                     </BarChart>
@@ -463,7 +463,7 @@ export function VaultDashboard({
                   return (
                     <div key={v.id} className="bg-surface-2/50 rounded-xl p-3 border border-white/5">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-white">{v.totalAmount.toLocaleString()} BPUSD</span>
+                        <span className="text-xs font-bold text-white">{v.totalAmount.toLocaleString()} sats</span>
                         <span className={`text-[10px] font-bold flex items-center gap-1 ${isComplete ? 'text-green-400' : 'text-purple-400'}`}>
                           {isComplete ? <><CheckCircle2 size={10} /> Vested</> : `${v.progress}%`}
                         </span>
@@ -502,8 +502,8 @@ export function VaultDashboard({
             <h3 className="text-sm font-bold text-white mb-3">How Vault Works</h3>
             <div className="space-y-3">
               {[
-                { icon: <Lock size={14} className="text-purple-400" />, title: 'Stake BPUSD', desc: 'Lock your tokens in the vault' },
-                { icon: <TrendingUp size={14} className="text-green-400" />, title: 'Earn Fees', desc: '50% of 2% trading fee distributed to stakers' },
+                { icon: <Lock size={14} className="text-purple-400" />, title: 'Stake WBTC', desc: 'Lock your WBTC in the vault' },
+                { icon: <TrendingUp size={14} className="text-green-400" />, title: 'Earn Fees', desc: '60% of 3% betting fee distributed to stakers' },
                 { icon: <Zap size={14} className="text-yellow-400" />, title: 'Auto-Compound', desc: 'Rewards automatically reinvested' },
               ].map((step, i) => (
                 <div key={i} className="flex items-start gap-3">
@@ -523,7 +523,7 @@ export function VaultDashboard({
           <div className="vault-card rounded-2xl p-5">
             <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Total Distributed</div>
             <div className="text-2xl font-black text-btc">{formatNum(vaultInfo?.totalRewards || 0)}</div>
-            <div className="text-[10px] text-gray-500">BPUSD from trading fees</div>
+            <div className="text-[10px] text-gray-500">sats from trading fees</div>
           </div>
 
           {/* Top Predictors */}

@@ -113,6 +113,7 @@ export interface ServerMarket {
   eventId?: string;
   outcomes?: { marketId: string; label: string; price: number; volume: number }[];
   onchainId?: number | null;
+  totalPool: number;
 }
 
 export async function getMarkets() {
@@ -131,23 +132,24 @@ export interface ServerBet {
   category: string;
   side: 'yes' | 'no';
   amount: number;
+  netAmount: number;
   price: number;
-  shares: number;
   status: 'active' | 'won' | 'lost' | 'cancelled' | 'claimable';
   payout: number;
+  potentialPayout: number;
   timestamp: number;
   currentYesPrice: number;
   currentNoPrice: number;
   marketResolved: boolean;
   marketOutcome: string | null;
-  currency?: 'btc' | 'bpusd';
+  currency: 'wbtc';
 }
 
 export interface PlaceBetResult {
   success: boolean;
   betId: string;
-  shares: number;
   fee: number;
+  netAmount: number;
   newBalance: number;
   newBtcBalance: number;
   newYesPrice: number;
@@ -155,10 +157,10 @@ export interface PlaceBetResult {
   txHash?: string;
 }
 
-export async function placeBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd' = 'bpusd') {
+export async function placeBet(address: string, marketId: string, side: 'yes' | 'no', amount: number) {
   return apiFetch<PlaceBetResult>('/api/bet', {
     method: 'POST',
-    body: JSON.stringify({ address, marketId, side, amount, currency }),
+    body: JSON.stringify({ address, marketId, side, amount }),
   });
 }
 
@@ -211,8 +213,8 @@ export async function claimPayout(address: string, betId: string, txHash: string
 export interface OnChainBetResult {
   success: boolean;
   betId: string;
-  shares: number;
   fee: number;
+  netAmount: number;
   txHash: string;
   newBalance: number;
   newBtcBalance: number;
@@ -220,14 +222,14 @@ export interface OnChainBetResult {
   newNoPrice: number;
 }
 
-export async function placeOnChainBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string, currency: 'btc' | 'bpusd' = 'bpusd') {
+export async function placeOnChainBet(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string) {
   return apiFetch<OnChainBetResult>('/api/bet/onchain', {
     method: 'POST',
-    body: JSON.stringify({ address, marketId, side, amount, txHash, currency }),
+    body: JSON.stringify({ address, marketId, side, amount, txHash }),
   });
 }
 
-// --- Reward claims (achievement/quest BPUSD) ---
+// --- Reward claims (achievement/quest WBTC) ---
 export interface RewardClaim {
   reward_id: string;
   reward_type: string;
@@ -351,33 +353,13 @@ export async function getPortfolioPnl(address: string) {
   return apiFetch<PnlData>(`/api/portfolio/pnl/${address}`);
 }
 
-// --- Sell Shares ---
-export interface SellResult {
-  success: boolean;
-  payout: number;
-  fee: number;
-  sharesSold: number;
-  remainingShares: number;
-  newBalance: number;
-  newBtcBalance: number;
-  newYesPrice: number;
-  newNoPrice: number;
-}
+// Sell endpoint removed — parimutuel bets are locked until resolution
 
-export async function sellShares(address: string, betId: string, sharesToSell?: number, txHash?: string) {
-  return apiFetch<SellResult>('/api/bet/sell', {
-    method: 'POST',
-    body: JSON.stringify({ address, betId, sharesToSell, txHash }),
-  });
-}
-
-// BTC faucet and exchange removed — use real wallet BTC + on-chain BPUSD mint
-
-// --- User Market Creation ---
-export async function createMarket(address: string, question: string, endTime: number, category?: string, initialLiquidity?: number, tags?: string[]) {
+// --- User Market Creation (free, no initial liquidity) ---
+export async function createMarket(address: string, question: string, endTime: number, category?: string, tags?: string[]) {
   return apiFetch<{ success: boolean; marketId: string; newBalance: number }>('/api/markets/create', {
     method: 'POST',
-    body: JSON.stringify({ address, question, category, endTime, initialLiquidity, tags }),
+    body: JSON.stringify({ address, question, category, endTime, tags }),
   });
 }
 
@@ -409,7 +391,7 @@ export interface ActivityItem {
   timestamp: number;
   side?: string;
   amount?: number;
-  shares?: number;
+  net_amount?: number;
   text?: string;
 }
 

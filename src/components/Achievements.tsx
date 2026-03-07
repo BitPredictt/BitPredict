@@ -14,12 +14,12 @@ interface AchievementsProps {
   onClaimReward?: (rewardId: string, rewardType: 'achievement' | 'quest') => Promise<void>;
 }
 
-function BPUSDBadge({ amount, claimed }: { amount: number; claimed?: boolean }) {
+function RewardBadge({ amount, claimed }: { amount: number; claimed?: boolean }) {
   return (
     <span className={`inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded-full border ${
       claimed ? 'text-gray-500 bg-gray-500/10 border-gray-500/20' : 'text-btc bg-btc/10 border-btc/20'
     }`}>
-      <Coins size={8} />+{amount} BPUSD
+      <Coins size={8} />+{amount} sats
     </span>
   );
 }
@@ -76,7 +76,7 @@ function AchievementCard({ achievement, onClaim, claiming }: { achievement: Achi
               className="mt-2 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-yellow-600/30 to-btc/30 border border-yellow-500/40 text-[10px] font-bold text-yellow-300 hover:border-yellow-400/60 transition-all disabled:opacity-50"
             >
               {claiming ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
-              {claiming ? 'Claiming...' : `Claim +${achievement.xpReward} BPUSD`}
+              {claiming ? 'Claiming...' : `Claim +${achievement.xpReward} sats`}
             </button>
           )}
           {achievement.rewardClaimed && (
@@ -85,7 +85,7 @@ function AchievementCard({ achievement, onClaim, claiming }: { achievement: Achi
             </span>
           )}
         </div>
-        <BPUSDBadge amount={achievement.xpReward} claimed={achievement.rewardClaimed} />
+        <RewardBadge amount={achievement.xpReward} claimed={achievement.rewardClaimed} />
       </div>
       {unlocked && achievement.unlockedAt && (
         <div className="text-[9px] text-gray-600 mt-2 text-right">
@@ -147,7 +147,7 @@ function QuestCard({ quest, onAction, onClaim, claiming }: { quest: Quest; onAct
               className="mt-2 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-yellow-600/30 to-btc/30 border border-yellow-500/40 text-[10px] font-bold text-yellow-300 hover:border-yellow-400/60 transition-all disabled:opacity-50"
             >
               {claiming ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
-              {claiming ? 'Claiming...' : `Claim +${quest.xpReward} BPUSD`}
+              {claiming ? 'Claiming...' : `Claim +${quest.xpReward} sats`}
             </button>
           )}
           {quest.rewardClaimed && (
@@ -157,7 +157,7 @@ function QuestCard({ quest, onAction, onClaim, claiming }: { quest: Quest; onAct
           )}
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <BPUSDBadge amount={quest.xpReward} claimed={quest.rewardClaimed} />
+          <RewardBadge amount={quest.xpReward} claimed={quest.rewardClaimed} />
           {!quest.completed && quest.action && (
             <button
               onClick={() => onAction(quest)}
@@ -189,7 +189,7 @@ export function Achievements({
   const [claimError, setClaimError] = useState<string | null>(null);
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
   const completedQuests = quests.filter((q) => q.completed).length;
-  const totalBPUSD = achievements.filter(a => a.rewardClaimed).reduce((s, a) => s + a.xpReward, 0)
+  const totalsats = achievements.filter(a => a.rewardClaimed).reduce((s, a) => s + a.xpReward, 0)
     + quests.filter(q => q.rewardClaimed).reduce((s, q) => s + q.xpReward, 0);
   const xpPct = ((500 - xpToNext) / 500) * 100;
 
@@ -244,7 +244,7 @@ export function Achievements({
         </div>
         <h2 className="text-2xl font-extrabold text-white">Achievements & Quests</h2>
         <p className="text-xs text-gray-500 mt-1">
-          Complete challenges, earn BPUSD tokens on OP_NET
+          Complete challenges, earn sats tokens on OP_NET
         </p>
         <p className="text-[10px] text-gray-600 mt-1">Claiming requires an on-chain TX — make sure you have BTC for gas</p>
         {claimError && (
@@ -263,11 +263,11 @@ export function Achievements({
             </div>
             <div>
               <div className="text-xs font-bold text-white">Level {level}</div>
-              <div className="text-[10px] text-gray-500">{totalBPUSD} BPUSD earned</div>
+              <div className="text-[10px] text-gray-500">{totalsats} sats earned</div>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] text-gray-500">{xpToNext} BPUSD to next level</div>
+            <div className="text-[10px] text-gray-500">{xpToNext} sats to next level</div>
             <div className="flex items-center gap-2 mt-1">
               <Star size={12} className="text-btc" />
               <span className="text-xs font-bold text-btc">{unlockedCount}/{achievements.length} achievements</span>
@@ -292,8 +292,8 @@ export function Achievements({
             <div className="text-[9px] text-gray-500 font-bold">Quests Done</div>
           </div>
           <div className="text-center">
-            <div className="text-lg font-black text-btc">{totalBPUSD}</div>
-            <div className="text-[9px] text-gray-500 font-bold">BPUSD Earned</div>
+            <div className="text-lg font-black text-btc">{totalsats}</div>
+            <div className="text-[9px] text-gray-500 font-bold">sats Earned</div>
           </div>
         </div>
       </div>

@@ -22,20 +22,13 @@ let opnetFactory = null;
 let opnetNetwork = null;
 let opnetRpcProvider = null; // JSONRpcProvider for getContract() calls
 
-const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqr422yjat08rq4z4v0efq2s89cqku6h4lc5976nk';
-const PRED_DECIMALS = 8;
+const WBTC_TOKEN = process.env.WBTC_TOKEN || '';
+const WBTC_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
-
-// PredictionMarket contract address (env var for mainnet/testnet switch)
-const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqp93trumaphqht3crax7twldz3nummlngufyznlc';
-// Selectors: SHA256 first 4 bytes of function signature (OPNet standard)
-const CREATE_MARKET_SELECTOR = 0x89eb2691;   // createMarket(uint256)
-const RESOLVE_MARKET_SELECTOR = 0xaa5b3340;  // resolveMarket(uint256,bool)
+const MIN_BET_SATS = 10000; // 10,000 sats minimum bet
 
 // Contract pubkey hex (32 bytes) — resolved via getCode RPC on startup
-let PRED_CONTRACT_PUBKEY = '';
-let MARKET_CONTRACT_PUBKEY = '';
-let nextOnchainMarketId = 0;
+let WBTC_CONTRACT_PUBKEY = '';
 
 let txLock = false;
 
@@ -89,43 +82,25 @@ async function initDeployerWallet() {
     const totalSats = utxos.reduce((a, u) => a + u.value, 0n);
     console.log('Deployer BTC balance:', totalSats.toString(), 'sats', `(${utxos.length} UTXOs)`);
 
-    // Resolve PRED token contract pubkey (32-byte hex) via getCode RPC
-    try {
-      const codeRes = await fetch(OPNET_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getCode', params: [PRED_TOKEN, false], id: 1 }),
-        signal: AbortSignal.timeout(12000),
-      });
-      const codeData = await codeRes.json();
-      if (codeData.result && codeData.result.contractPublicKey) {
-        // contractPublicKey is base64 — decode to hex
-        PRED_CONTRACT_PUBKEY = Buffer.from(codeData.result.contractPublicKey, 'base64').toString('hex');
-        console.log('PRED contract pubkey resolved:', PRED_CONTRACT_PUBKEY);
-      } else {
-        console.log('Could not resolve PRED contract pubkey:', JSON.stringify(codeData.error || {}));
+    // Resolve WBTC token contract pubkey (32-byte hex) via getCode RPC
+    if (WBTC_TOKEN) {
+      try {
+        const codeRes = await fetch(OPNET_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getCode', params: [WBTC_TOKEN, false], id: 1 }),
+          signal: AbortSignal.timeout(12000),
+        });
+        const codeData = await codeRes.json();
+        if (codeData.result && codeData.result.contractPublicKey) {
+          WBTC_CONTRACT_PUBKEY = Buffer.from(codeData.result.contractPublicKey, 'base64').toString('hex');
+          console.log('WBTC contract pubkey resolved:', WBTC_CONTRACT_PUBKEY);
+        } else {
+          console.log('Could not resolve WBTC contract pubkey:', JSON.stringify(codeData.error || {}));
+        }
+      } catch (e2) {
+        console.log('WBTC pubkey resolution failed:', e2.message);
       }
-    } catch (e2) {
-      console.log('PRED pubkey resolution failed:', e2.message);
-    }
-
-    // Resolve PredictionMarket contract pubkey (for createMarket/resolveMarket on-chain calls)
-    try {
-      const mktRes = await fetch(OPNET_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getCode', params: [PREDICTION_MARKET_ADDRESS, false], id: 2 }),
-        signal: AbortSignal.timeout(12000),
-      });
-      const mktData = await mktRes.json();
-      if (mktData.result && mktData.result.contractPublicKey) {
-        MARKET_CONTRACT_PUBKEY = Buffer.from(mktData.result.contractPublicKey, 'base64').toString('hex');
-        console.log('PredictionMarket contract pubkey resolved:', MARKET_CONTRACT_PUBKEY);
-      } else {
-        console.log('Could not resolve PredictionMarket pubkey:', JSON.stringify(mktData.error || {}));
-      }
-    } catch (e3) {
-      console.log('PredictionMarket pubkey resolution failed:', e3.message);
     }
   } catch (e) {
     console.error('Failed to init deployer wallet:', e.message);
@@ -181,7 +156,7 @@ async function createOnChainProof(amount, memo) {
   if (!deployerWallet || !opnetProvider || !opnetFactory) {
     return { success: false, error: 'Deployer wallet not initialized' };
   }
-  if (!PRED_CONTRACT_PUBKEY) {
+  if (!WBTC_CONTRACT_PUBKEY) {
     return { success: false, error: 'PRED contract pubkey not resolved' };
   }
   if (txLock) {
@@ -192,7 +167,7 @@ async function createOnChainProof(amount, memo) {
     const dynamicFeeRate = await getDynamicFeeRate();
     const { BinaryWriter } = await import('@btc-vision/transaction');
 
-    const rawAmount = BigInt(amount) * (10n ** BigInt(PRED_DECIMALS));
+    const rawAmount = BigInt(amount) * (10n ** BigInt(WBTC_DECIMALS));
     // Use wallet's Address object for writeAddress
     const spenderAddr = deployerWallet.address;
 
@@ -216,8 +191,8 @@ async function createOnChainProof(amount, memo) {
       network: opnetNetwork,
       utxos,
       from: deployerWallet.p2tr,
-      to: PRED_TOKEN,
-      contract: PRED_CONTRACT_PUBKEY, // 32-byte hex pubkey (NOT bech32)
+      to: WBTC_TOKEN,
+      contract: WBTC_CONTRACT_PUBKEY, // 32-byte hex pubkey (NOT bech32)
       calldata: writer.getBuffer(),
       feeRate: dynamicFeeRate,
       priorityFee: 1000n,
@@ -245,142 +220,39 @@ async function createOnChainProof(amount, memo) {
 }
 
 // PredictionMarket ABI for getContract() server-side calls
-const MARKET_ABI = [
-  { name: 'createMarket', inputs: [{ name: 'endBlock', type: 'UINT256' }], outputs: [{ name: 'marketId', type: 'UINT256' }], type: 'function' },
-  { name: 'resolveMarket', inputs: [{ name: 'marketId', type: 'UINT256' }, { name: 'outcome', type: 'BOOL' }], outputs: [], type: 'function' },
-];
-
-// Create a market on-chain via getContract() + simulate + sendTransaction (Bob pattern)
-// Returns { success, onchainId, txHash } or { success: false, error }
-async function createMarketOnChain(endTimeUnix) {
+// Transfer WBTC tokens on-chain from deployer to user address
+async function transferWbtc(toAddress, amount) {
   if (!deployerWallet || !opnetRpcProvider) {
     return { success: false, error: 'On-chain not ready' };
   }
-  if (txLock) return { success: false, error: 'TX lock busy' };
-  txLock = true;
-  try {
-    const feeRate = await getDynamicFeeRate();
-    const { getContract } = await import('opnet');
-
-    // Estimate endBlock: current block + blocks left (min 2 to ensure future)
-    const currentBlock = await getBlockHeightFromRPC();
-    if (!currentBlock) throw new Error('Cannot fetch block height');
-    const secsLeft = Math.max(300, endTimeUnix - Math.floor(Date.now() / 1000));
-    const blocksLeft = Math.max(2, Math.ceil(secsLeft / 600));
-    const endBlock = currentBlock + blocksLeft;
-
-    const contract = getContract(PREDICTION_MARKET_ADDRESS, MARKET_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
-
-    // Simulate
-    const sim = await contract.createMarket(BigInt(endBlock));
-    if (sim.revert) throw new Error('createMarket revert: ' + sim.revert);
-
-    // Use local counter for marketId (simulation returns same ID for concurrent calls)
-    const onchainId = nextOnchainMarketId++;
-
-    // Send real TX (server-side: signer + mldsaSigner required)
-    const receipt = await sim.sendTransaction({
-      signer: deployerWallet.keypair,
-      mldsaSigner: deployerWallet.mldsaKeypair,
-      refundTo: deployerWallet.p2tr,
-      maximumAllowedSatToSpend: 50000n,
-      feeRate,
-      network: opnetNetwork,
-    });
-
-    const txHash = receipt?.transactionId || receipt?.txid || '';
-    console.log(`On-chain market created: id=${onchainId}, endBlock=${endBlock}, tx=${txHash}`);
-    return { success: true, onchainId, txHash };
-  } catch (e) {
-    console.error('createMarketOnChain error:', e.message);
-    return { success: false, error: e.message };
-  } finally {
-    txLock = false;
-  }
-}
-
-// Resolve a market on-chain via getContract() + simulate + sendTransaction
-async function resolveMarketOnChain(onchainId, outcomeIsYes) {
-  if (!deployerWallet || !opnetRpcProvider) {
-    return { success: false, error: 'On-chain not ready' };
-  }
-  if (txLock) return { success: false, error: 'TX lock busy' };
-  txLock = true;
-  try {
-    const feeRate = await getDynamicFeeRate();
-    const { getContract } = await import('opnet');
-
-    const contract = getContract(PREDICTION_MARKET_ADDRESS, MARKET_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
-
-    const sim = await contract.resolveMarket(BigInt(onchainId), outcomeIsYes);
-    if (sim.revert) throw new Error('resolveMarket revert: ' + sim.revert);
-
-    const receipt = await sim.sendTransaction({
-      signer: deployerWallet.keypair,
-      mldsaSigner: deployerWallet.mldsaKeypair,
-      refundTo: deployerWallet.p2tr,
-      maximumAllowedSatToSpend: 50000n,
-      feeRate,
-      network: opnetNetwork,
-    });
-
-    const txHash = receipt?.transactionId || receipt?.txid || '';
-    console.log(`On-chain market resolved: id=${onchainId}, outcome=${outcomeIsYes ? 'YES' : 'NO'}, tx=${txHash}`);
-    return { success: true, txHash };
-  } catch (e) {
-    const msg = e.message || '';
-    // "Market has not ended yet" → queue for deferred retry (endBlock not yet reached)
-    if (msg.includes('has not ended yet')) {
-      pendingOnchainResolves.push({ onchainId, outcomeIsYes, retries: 0 });
-      return { success: false, error: 'deferred: endBlock not reached yet' };
-    }
-    console.error('resolveMarketOnChain error:', msg);
-    return { success: false, error: msg };
-  } finally {
-    txLock = false;
-  }
-}
-
-// Transfer BPUSD tokens on-chain from deployer to user address
-// Used for quest/achievement reward claims
-async function transferBpusd(toAddress, amount) {
-  if (!deployerWallet || !opnetRpcProvider) {
-    return { success: false, error: 'On-chain not ready' };
-  }
-  if (!PRED_CONTRACT_PUBKEY) {
-    return { success: false, error: 'PRED contract pubkey not resolved' };
+  if (!WBTC_CONTRACT_PUBKEY) {
+    return { success: false, error: 'WBTC contract pubkey not resolved' };
   }
   if (txLock) return { success: false, error: 'Server busy, try again in a few seconds' };
   txLock = true;
   try {
     const feeRate = await getDynamicFeeRate();
     const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
-    const { Address } = await import('@btc-vision/transaction');
 
-    const token = getContract(PRED_TOKEN, OP_20_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
+    const token = getContract(WBTC_TOKEN, OP_20_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
 
-    // Resolve recipient Address object via provider.getPublicKeyInfo()
-    // getPublicKeyInfo requires a P2TR address (opt1p...), not P2OP (opt1sq...)
     let lookupAddress = toAddress;
     if (toAddress.startsWith(OPNET_ADDRESS_PREFIX + '1sq')) {
-      // P2OP address — look up the user's P2TR address from DB
       const userRow = db.prepare('SELECT p2tr_address FROM users WHERE address = ?').get(toAddress);
       if (userRow?.p2tr_address) {
         lookupAddress = userRow.p2tr_address;
       } else {
-        throw new Error('User P2TR address not stored — user must re-login to register their P2TR address');
+        throw new Error('User P2TR address not stored — user must re-login');
       }
     }
 
     const recipientAddr = await opnetRpcProvider.getPublicKeyInfo(lookupAddress, false);
     if (!recipientAddr) throw new Error('Cannot resolve recipient public key from ' + lookupAddress);
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, PRED_DECIMALS);
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, WBTC_DECIMALS);
 
-    // Simulate transfer
     const sim = await token.transfer(recipientAddr, rawAmount);
     if (sim.revert) throw new Error('transfer revert: ' + sim.revert);
 
-    // Send real TX (backend: signer required)
     const receipt = await sim.sendTransaction({
       signer: deployerWallet.keypair,
       mldsaSigner: deployerWallet.mldsaKeypair,
@@ -391,33 +263,15 @@ async function transferBpusd(toAddress, amount) {
     });
 
     const txHash = receipt?.transactionId || receipt?.txid || '';
-    console.log(`BPUSD transfer: ${amount} to ${toAddress}, tx=${txHash}`);
+    console.log(`WBTC transfer: ${amount} to ${toAddress}, tx=${txHash}`);
     return { success: true, txHash };
   } catch (e) {
-    console.error('transferBpusd error:', e.message);
+    console.error('transferWbtc error:', e.message);
     return { success: false, error: e.message };
   } finally {
     txLock = false;
   }
 }
-
-// Deferred on-chain resolve queue (for markets whose endBlock hasn't been reached yet)
-const pendingOnchainResolves = [];
-async function processDeferredResolves() {
-  if (pendingOnchainResolves.length === 0 || txLock) return;
-  const batch = pendingOnchainResolves.splice(0, pendingOnchainResolves.length);
-  for (const item of batch) {
-    const res = await resolveMarketOnChain(item.onchainId, item.outcomeIsYes);
-    if (!res.success && res.error === 'deferred: endBlock not reached yet') {
-      item.retries++;
-      if (item.retries < 10) pendingOnchainResolves.push(item); // re-queue (max 10 retries)
-      else console.log(`On-chain resolve gave up after 10 retries: onchainId=${item.onchainId}`);
-    } else if (res.success) {
-      console.log(`Deferred on-chain resolve succeeded: onchainId=${item.onchainId}`);
-    }
-  }
-}
-setInterval(processDeferredResolves, 300_000); // retry every 5 minutes
 
 // Init deployer wallet on startup
 initDeployerWallet();
@@ -612,7 +466,7 @@ db.pragma('journal_mode = WAL');
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     address TEXT PRIMARY KEY,
-    balance INTEGER NOT NULL DEFAULT 100000,
+    balance INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
@@ -622,10 +476,10 @@ db.exec(`
     category TEXT NOT NULL,
     yes_price REAL NOT NULL DEFAULT 0.5,
     no_price REAL NOT NULL DEFAULT 0.5,
-    yes_pool INTEGER NOT NULL DEFAULT 500000,
-    no_pool INTEGER NOT NULL DEFAULT 500000,
+    yes_pool INTEGER NOT NULL DEFAULT 0,
+    no_pool INTEGER NOT NULL DEFAULT 0,
     volume INTEGER NOT NULL DEFAULT 0,
-    liquidity INTEGER NOT NULL DEFAULT 1000000,
+    liquidity INTEGER NOT NULL DEFAULT 0,
     end_time INTEGER NOT NULL,
     resolved INTEGER NOT NULL DEFAULT 0,
     outcome TEXT,
@@ -761,7 +615,7 @@ db.exec(`
 
 // tx_hash column handled in CREATE TABLE + migrations above
 
-// Reward claims table for achievement/quest BPUSD rewards
+// Reward claims table for achievement/quest WBTC rewards
 db.exec(`
   CREATE TABLE IF NOT EXISTS reward_claims (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -862,9 +716,11 @@ try { db.exec('ALTER TABLE markets ADD COLUMN initial_liquidity INTEGER NOT NULL
 try { db.exec('ALTER TABLE users ADD COLUMN creator_earnings INTEGER NOT NULL DEFAULT 0'); } catch(e) {}
 // Store p2tr address for on-chain transfers (getPublicKeyInfo needs p2tr, not p2op/opt1sq)
 try { db.exec('ALTER TABLE users ADD COLUMN p2tr_address TEXT DEFAULT NULL'); } catch(e) {}
-// Dual currency migration: btc_balance for users, currency for bets
+// Legacy btc_balance column (kept for schema compat, always 0 in WBTC model)
 try { db.exec('ALTER TABLE users ADD COLUMN btc_balance INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN currency TEXT NOT NULL DEFAULT \'bpusd\''); } catch(e) { /* already exists */ }
+// Net amount column for parimutuel (amount after fee deduction, what goes into pool)
+try { db.exec('ALTER TABLE bets ADD COLUMN net_amount INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
 // Two-phase TX confirmation: 0 = pending, 1 = confirmed on-chain
 try { db.exec('ALTER TABLE bets ADD COLUMN tx_confirmed INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
 // Mark all old bets as confirmed (they pre-date this migration)
@@ -962,7 +818,7 @@ const PROTOCOL_FLUSH_THRESHOLD = parseInt(process.env.PROTOCOL_FLUSH_THRESHOLD |
 try {
   const rev = db.prepare("SELECT SUM(amount) as total FROM protocol_revenue WHERE accumulated = 1").get();
   ACCUMULATED_PROTOCOL_REVENUE = rev?.total || 0;
-  console.log(`Protocol revenue loaded: ${ACCUMULATED_PROTOCOL_REVENUE} BPUSD accumulated`);
+  console.log(`Protocol revenue loaded: ${ACCUMULATED_PROTOCOL_REVENUE} sats accumulated`);
 } catch(e) { /* first run */ }
 
 // Migration: convert auto-credited 'won' bets (no claim_tx_hash) back to 'claimable'
@@ -1115,7 +971,7 @@ function seedMarkets() {
 
   const ins = db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price,
     yes_pool, no_pool, volume, liquidity, end_time, tags, market_type) VALUES
-    (@id, @question, @category, @yes_price, @no_price, 500000, 500000, @volume, @liquidity, @end_time, @tags, @market_type)`);
+    (@id, @question, @category, @yes_price, @no_price, 0, 0, @volume, @liquidity, @end_time, @tags, @market_type)`);
   const txn = db.transaction(() => { for (const m of markets) ins.run(m); });
   txn();
   console.log(`Seeded ${markets.length} markets`);
@@ -1162,7 +1018,7 @@ function ensureCategoryMarkets() {
 
   const ins = db.prepare(`INSERT OR IGNORE INTO markets (id, question, category, yes_price, no_price,
     yes_pool, no_pool, volume, liquidity, end_time, tags, market_type) VALUES
-    (@id, @question, @category, @yes_price, @no_price, 500000, 500000, @volume, @liquidity, @end_time, @tags, @market_type)`);
+    (@id, @question, @category, @yes_price, @no_price, 0, 0, @volume, @liquidity, @end_time, @tags, @market_type)`);
   let added = 0;
   for (const m of extraMarkets) {
     try { ins.run(m); added++; } catch(e) { /* duplicate */ }
@@ -1175,44 +1031,44 @@ ensureCategoryMarkets();
 // Minimum market duration: 6 blocks (~1 hour)
 const MIN_MARKET_DURATION_SECS = 3600; // 1 hour in seconds
 
-// --- Settle bets helper ---
+// --- Settle bets helper (Parimutuel) ---
 function settleBets(marketId, outcome) {
+  const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+  if (!market) return;
+
+  const totalPool = (market.yes_pool || 0) + (market.no_pool || 0);
+  if (totalPool <= 0) return;
+
+  const winningPool = outcome === 'yes' ? (market.yes_pool || 0) : (market.no_pool || 0);
+  const losingPool = outcome === 'yes' ? (market.no_pool || 0) : (market.yes_pool || 0);
+
+  // If bets only on one side → refund all (no contest)
+  if (winningPool <= 0 || losingPool <= 0) {
+    refundBets(marketId);
+    return;
+  }
+
   const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
   for (const b of bets) {
     if (b.side === outcome) {
-      // Payout = shares (1 share = 1 BPUSD on win), capped at 100x investment
-      const payout = Math.min(b.shares, b.amount * 100);
-      // Set to 'claimable' — user must explicitly claim via /api/claim
+      // Parimutuel payout: (net_amount / winningPool) * totalPool
+      const netAmt = b.net_amount || b.amount; // fallback for old bets
+      const payout = winningPool > 0 ? Math.floor((netAmt / winningPool) * totalPool) : 0;
       db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
     } else {
-      db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
-    }
-  }
-
-  // Return remaining liquidity to community market creator
-  const market = db.prepare('SELECT creator_address, market_type, yes_pool, no_pool, initial_liquidity FROM markets WHERE id = ?').get(marketId);
-  if (market && market.creator_address && market.market_type === 'community' && market.initial_liquidity > 0) {
-    // Creator gets back the lesser of: initial_liquidity or remaining pool value
-    const remainingPool = (market.yes_pool || 0) + (market.no_pool || 0);
-    const refund = Math.min(market.initial_liquidity, remainingPool);
-    if (refund > 0) {
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refund, market.creator_address);
-      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
-        market.creator_address, 'creator_refund', 'Liquidity Returned',
-        `Your market resolved! ${refund} BPUSD liquidity returned.`, marketId
-      );
+      db.prepare('UPDATE bets SET status = ?, payout = 0 WHERE id = ?').run('lost', b.id);
     }
   }
 }
 
 // --- Refund bets helper (for cancelled/unresolvable markets) ---
+// Refunds net_amount (fee is non-refundable, already distributed)
 function refundBets(marketId) {
   const bets = db.prepare('SELECT * FROM bets WHERE market_id = ? AND status = ?').all(marketId, 'active');
   for (const b of bets) {
-    const betCurrency = b.currency || 'bpusd';
-    const balCol = betCurrency === 'btc' ? 'btc_balance' : 'balance';
-    db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('cancelled', b.id);
-    db.prepare(`UPDATE users SET ${balCol} = ${balCol} + ? WHERE address = ?`).run(b.amount, b.user_address);
+    const refundAmt = b.net_amount || b.amount; // net_amount = what went into pool
+    db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('cancelled', refundAmt, b.id);
+    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refundAmt, b.user_address);
   }
   return bets.length;
 }
@@ -1221,13 +1077,11 @@ function refundBets(marketId) {
 async function resolveExpiredMarkets() {
   const now = Math.floor(Date.now() / 1000);
   const expired = db.prepare('SELECT * FROM markets WHERE resolved = 0 AND end_time <= ?').all(now);
-  const onchainResolves = []; // Queue on-chain resolves for sequential execution
 
   for (const m of expired) {
     // 1. Polymarket markets: try to fetch resolution from Gamma API
     if (m.market_type === 'polymarket') {
       try {
-        // Extract conditionId from market id (poly-0x{conditionId})
         const condId = m.id.replace('poly-', '');
         const res = await fetch(`${GAMMA_HOST}/markets?conditionIds=${condId}&limit=1`, {
           signal: AbortSignal.timeout(8000),
@@ -1238,46 +1092,30 @@ async function resolveExpiredMarkets() {
         if (!pm) continue;
 
         if (pm.resolved === true || pm.closed === true) {
-          // Determine outcome from resolved prices
           const prices = JSON.parse(pm.outcomePrices || '[]');
           const yesResolved = parseFloat(prices[0]) || 0;
           const outcome = yesResolved >= 0.9 ? 'yes' : (yesResolved <= 0.1 ? 'no' : null);
-          if (!outcome) continue; // ambiguous, skip
+          if (!outcome) continue;
 
           db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run(outcome, m.id);
           settleBets(m.id, outcome);
           console.log(`Resolved polymarket ${m.id}: ${outcome}`);
-          if (m.onchain_id != null) {
-            onchainResolves.push({ id: m.id, onchainId: m.onchain_id, isYes: outcome === 'yes' });
-          }
         }
       } catch (e) { /* API error, try next time */ }
       continue;
     }
 
-    // 3. Manual markets that expired >7 days ago with active bets: refund
+    // 2. Markets expired >7 days ago without resolution → void + refund
     const sevenDaysAgo = now - 7 * 86400;
-    if (m.market_type === 'manual' && m.end_time < sevenDaysAgo) {
+    if (m.end_time < sevenDaysAgo) {
       const refunded = refundBets(m.id);
       if (refunded > 0) {
-        db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run('cancelled', m.id);
-        console.log(`Cancelled manual market ${m.id}, refunded ${refunded} bets`);
+        db.prepare('UPDATE markets SET resolved = 1, outcome = ? WHERE id = ?').run('void', m.id);
+        console.log(`Voided stale market ${m.id}, refunded ${refunded} bets`);
       } else {
-        // No active bets, just mark resolved
         db.prepare('UPDATE markets SET resolved = 1 WHERE id = ?').run(m.id);
       }
     }
-  }
-
-  // Fire-and-forget: resolve on-chain SEQUENTIALLY (txLock allows only 1 at a time)
-  if (onchainResolves.length > 0) {
-    (async () => {
-      for (const r of onchainResolves) {
-        const res = await resolveMarketOnChain(r.onchainId, r.isYes);
-        if (res.success) console.log(`On-chain resolved ${r.id}: onchainId=${r.onchainId}, tx=${res.txHash}`);
-        else console.log(`On-chain resolve skipped for ${r.id}: ${res.error}`);
-      }
-    })().catch(e => console.error('On-chain batch resolve failed:', e.message));
   }
 }
 
@@ -1477,7 +1315,7 @@ async function syncPolymarketEvents() {
         const rawTags = (ev.tags || []).slice(0, 3).map(t => typeof t === 'string' ? t : (t.label || t.slug || '')).filter(Boolean);
         const tags = JSON.stringify([category.toLowerCase(), 'polymarket', ...rawTags]);
 
-        // Scale volume/liquidity to BPUSD (1 BPUSD ≈ $1, but scale up for drama)
+        // Scale volume/liquidity to sats
         const scaledVol = Math.max(vol, 10000);
         const scaledLiq = Math.max(liq, 50000);
         const yesPool = Math.round(scaledLiq * noPrice);
@@ -1506,67 +1344,56 @@ async function syncPolymarketEvents() {
   }
 }
 
-// --- AMM helpers (BigInt arithmetic for financial precision) ---
-function recalcPrices(yesPool, noPool) {
-  const yP = BigInt(yesPool);
-  const nP = BigInt(noPool);
-  const total = yP + nP;
-  if (total === 0n) return { yes_price: 0.5, no_price: 0.5 };
-  // yes_price = noPool / total (in BPS then convert to decimal)
-  const yesBps = (nP * 10000n) / total;
-  const yes_price = Number(yesBps) / 10000;
+// --- Parimutuel helpers ---
+// Implied odds from pool sizes
+function calcParimutuelPrices(yesPool, noPool) {
+  const total = yesPool + noPool;
+  if (total === 0) return { yes_price: 0.5, no_price: 0.5 };
+  const yes_price = Math.round((yesPool / total) * 10000) / 10000;
   return { yes_price, no_price: Math.round((1 - yes_price) * 10000) / 10000 };
 }
 
-// BigInt-safe helpers for financial math
+// BigInt-safe helpers for financial math (used by vault)
 function safeBigMul(a, b) { return BigInt(a) * BigInt(b); }
 function safeBigDiv(a, b) { if (BigInt(b) === 0n) return 0n; return BigInt(a) / BigInt(b); }
 
-// --- Dual-currency fee config ---
-const FEE_CONFIG = {
-  btc:   { totalPct: 0.05, vaultPct: 0.60, protocolPct: 0.40 }, // 5% total: 3% vault, 2% protocol
-  bpusd: { totalPct: 0.02, vaultPct: 0.50, protocolPct: 0.50 }, // 2% total: 1% vault, 1% protocol
-};
+// --- Parimutuel fee config ---
+const FEE_PCT = 0.03;            // 3% of bet amount
+const FEE_VAULT_PCT = 0.60;      // 60% of fees → vault stakers
+const FEE_PROTOCOL_PCT = 0.20;   // 20% of fees → protocol
+const FEE_CREATOR_PCT = 0.20;    // 20% of fees → market creator
 
-function calculateFeeOnTop(amount, currency) {
-  const cfg = FEE_CONFIG[currency] || FEE_CONFIG.bpusd;
-  const fee = Math.ceil(amount * cfg.totalPct);
-  const totalCharge = amount + fee;
-  const vaultShare = Math.floor(fee * cfg.vaultPct);
-  const protocolShare = fee - vaultShare;
-  return { fee, totalCharge, vaultShare, protocolShare, netAmount: amount };
+function calculateParimutuelFee(betAmount) {
+  const fee = Math.ceil(betAmount * FEE_PCT);
+  const netBet = betAmount - fee;
+  const vaultShare = Math.floor(fee * FEE_VAULT_PCT);
+  const protocolShare = Math.floor(fee * FEE_PROTOCOL_PCT);
+  const creatorShare = fee - vaultShare - protocolShare;
+  return { fee, netBet, vaultShare, protocolShare, creatorShare };
 }
 
-// --- Revenue distribution helper (fixes protocolShare bug) ---
-// Distributes BOTH vaultShare (to stakers) AND protocolShare (to protocol treasury)
+// --- Revenue distribution helper ---
 function distributeRevenue(feeInfo, sourceMarketId) {
   distributeToVault(feeInfo.vaultShare, sourceMarketId);
 
-  if (feeInfo.protocolShare > 0) {
-    let creatorShare = 0;
-    let protocolNet = feeInfo.protocolShare;
-
-    // Community markets: 50% of protocolShare goes to creator
-    if (sourceMarketId) {
-      const market = db.prepare('SELECT creator_address, market_type FROM markets WHERE id = ?').get(sourceMarketId);
-      if (market && market.creator_address && market.market_type === 'community') {
-        creatorShare = Math.floor(feeInfo.protocolShare * 0.5);
-        protocolNet = feeInfo.protocolShare - creatorShare;
-        if (creatorShare > 0) {
-          db.prepare('UPDATE users SET balance = balance + ?, creator_earnings = creator_earnings + ? WHERE address = ?')
-            .run(creatorShare, creatorShare, market.creator_address);
-        }
-      }
+  // Creator share
+  if (feeInfo.creatorShare > 0 && sourceMarketId) {
+    const market = db.prepare('SELECT creator_address FROM markets WHERE id = ?').get(sourceMarketId);
+    if (market && market.creator_address) {
+      db.prepare('UPDATE users SET balance = balance + ?, creator_earnings = creator_earnings + ? WHERE address = ?')
+        .run(feeInfo.creatorShare, feeInfo.creatorShare, market.creator_address);
     }
+  }
 
+  if (feeInfo.protocolShare > 0) {
     db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)')
-      .run('fee', sourceMarketId || '', protocolNet);
-    ACCUMULATED_PROTOCOL_REVENUE += protocolNet;
+      .run('fee', sourceMarketId || '', feeInfo.protocolShare);
+    ACCUMULATED_PROTOCOL_REVENUE += feeInfo.protocolShare;
   }
 }
 
 // --- Vault fee distribution helper ---
-// vaultShare = pre-calculated amount to distribute (from calculateFeeOnTop)
+// vaultShare = pre-calculated amount to distribute (from calculateParimutuelFee)
 function distributeToVault(vaultShare, sourceMarketId) {
   if (VAULT_TOTAL_STAKED <= 0 || vaultShare <= 0) return;
 
@@ -1662,7 +1489,7 @@ app.post('/api/auth', async (req, res) => {
   let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) {
     const ref = (referrer && referrer !== address && db.prepare('SELECT address FROM users WHERE address = ?').get(referrer)) ? referrer : null;
-    db.prepare('INSERT INTO users (address, balance, btc_balance, referrer, p2tr_address) VALUES (?, 1000, 5000, ?, ?)').run(address, ref, p2trAddress || null);
+    db.prepare('INSERT INTO users (address, balance, btc_balance, referrer, p2tr_address) VALUES (?, 0, 0, ?, ?)').run(address, ref, p2trAddress || null);
     user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (ref) {
       db.prepare('INSERT INTO notifications (address, type, title, body) VALUES (?, ?, ?, ?)').run(
@@ -1748,6 +1575,7 @@ app.get('/api/markets', (req, res) => {
       imageUrl: m.image_url || null,
       oracleResolved: !!m.resolved && (m.market_type === 'price_5min' || m.market_type === 'polymarket'),
       onchainId: m.onchain_id || null,
+      totalPool: (m.yes_pool || 0) + (m.no_pool || 0),
     };
 
     // Multi-outcome: group sibling markets into outcomes array
@@ -1811,10 +1639,9 @@ app.get('/api/markets/:id', (req, res) => {
   });
 });
 
-// Place a bet (with on-chain BPUSD transfer as proof)
+// Place a bet (Parimutuel — WBTC only)
 app.post('/api/bet', requireAuth, async (req, res) => {
-  const { address, marketId, side, amount, currency: rawCurrency } = req.body;
-  const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
+  const { address, marketId, side, amount } = req.body;
   if (address && rateLimit('bet:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
 
   if (!address || !marketId || !side || !amount) {
@@ -1827,19 +1654,17 @@ app.post('/api/bet', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'side must be yes or no' });
   }
   const amountInt = Math.floor(Number(amount));
-  if (!Number.isFinite(amountInt) || amountInt < 100) {
-    return res.status(400).json({ error: 'minimum bet is 100' });
+  if (!Number.isFinite(amountInt) || amountInt < MIN_BET_SATS) {
+    return res.status(400).json({ error: `Minimum bet is ${MIN_BET_SATS} sats` });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
   if (!user) return res.status(404).json({ error: 'user not found' });
 
-  // Fee on top: user pays amount + fee
-  const feeInfo = calculateFeeOnTop(amountInt, currency);
-  const balCol = currency === 'btc' ? 'btc_balance' : 'balance';
-  const userBal = currency === 'btc' ? (user.btc_balance || 0) : user.balance;
-  if (userBal < feeInfo.totalCharge) {
-    return res.status(400).json({ error: `Insufficient ${currency.toUpperCase()} balance: ${userBal} (need ${feeInfo.totalCharge})` });
+  // Parimutuel: fee deducted FROM bet amount
+  const feeInfo = calculateParimutuelFee(amountInt);
+  if (user.balance < amountInt) {
+    return res.status(400).json({ error: `Insufficient balance: ${user.balance} sats (need ${amountInt})` });
   }
 
   const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1853,63 +1678,42 @@ app.post('/api/bet', requireAuth, async (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     if (market.end_time <= now) throw new Error('market has ended');
 
-    // AMM: constant product (BigInt precision) — full bet amount goes to pool (fee is ON TOP)
-    const yP = BigInt(market.yes_pool);
-    const nP = BigInt(market.no_pool);
-    if (yP <= 0n || nP <= 0n) throw new Error('market pool empty');
-    const k = yP * nP;
-    const amt = BigInt(amountInt);
+    // Parimutuel: net amount goes into the pool
+    const newYesPool = side === 'yes' ? (market.yes_pool || 0) + feeInfo.netBet : (market.yes_pool || 0);
+    const newNoPool = side === 'no' ? (market.no_pool || 0) + feeInfo.netBet : (market.no_pool || 0);
+    const totalPool = newYesPool + newNoPool;
 
-    let shares, newYesPool, newNoPool;
-    if (side === 'yes') {
-      const nnP = nP + amt;
-      const nyP = k / nnP;
-      shares = Number(yP - nyP);
-      newYesPool = Number(nyP);
-      newNoPool = Number(nnP);
-    } else {
-      const nyP = yP + amt;
-      const nnP = k / nyP;
-      shares = Number(nP - nnP);
-      newYesPool = Number(nyP);
-      newNoPool = Number(nnP);
-    }
+    const prices = calcParimutuelPrices(newYesPool, newNoPool);
 
-    if (shares <= 0) throw new Error('trade too small');
-
-    const price = shares > 0 ? Math.round((amountInt / shares) * 10000) / 10000 : (side === 'yes' ? market.yes_price : market.no_price);
-
-    db.prepare(`UPDATE users SET ${balCol} = ${balCol} - ? WHERE address = ?`).run(feeInfo.totalCharge, address);
-    db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      betId, address, marketId, side, amountInt, price, shares, txHash, currency
+    // Deduct full amount from user
+    db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amountInt, address);
+    db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, net_amount, price, shares, tx_hash, currency) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)').run(
+      betId, address, marketId, side, amountInt, feeInfo.netBet, prices.yes_price, txHash, 'wbtc'
     );
-    const prices = recalcPrices(newYesPool, newNoPool);
     db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
-      newYesPool, newNoPool, prices.yes_price, prices.no_price, amountInt, newYesPool + newNoPool, marketId
+      newYesPool, newNoPool, prices.yes_price, prices.no_price, amountInt, totalPool, marketId
     );
     db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
       marketId, prices.yes_price, prices.no_price, amountInt
     );
-    return { shares, price };
+    return { newYesPool, newNoPool, prices };
   });
 
   try {
     const txnResult = txn();
     distributeRevenue(feeInfo, marketId);
-    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
-    const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+    const updatedUser = db.prepare('SELECT balance FROM users WHERE address = ?').get(address);
 
     res.json({
       success: true,
       betId,
-      shares: txnResult.shares,
       fee: feeInfo.fee,
+      netAmount: feeInfo.netBet,
       newBalance: updatedUser.balance,
-      newBtcBalance: updatedUser.btc_balance || 0,
+      newBtcBalance: 0,
       txHash,
-      onChain: !!txHash,
-      newYesPrice: updatedMarket.yes_price,
-      newNoPrice: updatedMarket.no_price,
+      newYesPrice: txnResult.prices.yes_price,
+      newNoPrice: txnResult.prices.no_price,
     });
   } catch (e) {
     console.error('Bet error:', e.message);
@@ -1925,31 +1729,44 @@ app.get('/api/bets/:address', (req, res) => {
   }
   const bets = db.prepare(`
     SELECT b.*, m.question, m.category, m.resolved as market_resolved, m.outcome as market_outcome,
-           m.yes_price as current_yes_price, m.no_price as current_no_price
+           m.yes_price as current_yes_price, m.no_price as current_no_price,
+           m.yes_pool, m.no_pool
     FROM bets b JOIN markets m ON b.market_id = m.id
     WHERE b.user_address = ?
     ORDER BY b.created_at DESC
     LIMIT 200
   `).all(addr);
 
-  res.json(bets.map(b => ({
-    id: b.id,
-    marketId: b.market_id,
-    question: b.question,
-    category: b.category,
-    side: b.side,
-    amount: b.amount,
-    price: b.price,
-    shares: b.shares,
-    status: b.status,
-    payout: b.payout,
-    timestamp: b.created_at * 1000,
-    currentYesPrice: b.current_yes_price,
-    currentNoPrice: b.current_no_price,
-    marketResolved: !!b.market_resolved,
-    marketOutcome: b.market_outcome,
-    currency: b.currency || 'bpusd',
-  })));
+  res.json(bets.map(b => {
+    // Parimutuel potential payout calculation
+    const netAmt = b.net_amount || b.amount;
+    const yesPool = b.yes_pool || 0;
+    const noPool = b.no_pool || 0;
+    const totalPool = yesPool + noPool;
+    const sidePool = b.side === 'yes' ? yesPool : noPool;
+    const potentialPayout = (b.status === 'active' && sidePool > 0)
+      ? Math.floor((netAmt / sidePool) * totalPool) : 0;
+
+    return {
+      id: b.id,
+      marketId: b.market_id,
+      question: b.question,
+      category: b.category,
+      side: b.side,
+      amount: b.amount,
+      netAmount: netAmt,
+      price: b.price,
+      status: b.status,
+      payout: b.payout,
+      potentialPayout,
+      timestamp: b.created_at * 1000,
+      currentYesPrice: b.current_yes_price,
+      currentNoPrice: b.current_no_price,
+      marketResolved: !!b.market_resolved,
+      marketOutcome: b.market_outcome,
+      currency: 'wbtc',
+    };
+  }));
 });
 
 // Claim payout for resolved bet — requires user-signed TX proof
@@ -1973,17 +1790,14 @@ app.post('/api/claim', requireAuth, async (req, res) => {
   const existingClaim = db.prepare("SELECT id FROM bets WHERE claim_tx_hash = ? AND claim_tx_hash IS NOT NULL AND length(claim_tx_hash) > 0").get(txHash);
   if (existingClaim) return res.status(400).json({ error: 'This transaction hash has already been used for a claim' });
 
-  const betCurrency = bet.currency || 'bpusd';
-  const balCol = betCurrency === 'btc' ? 'btc_balance' : 'balance';
-
   try {
     const txn = db.transaction(() => {
       db.prepare('UPDATE bets SET status = ?, claim_tx_hash = ? WHERE id = ?').run('won', txHash, bet.id);
-      db.prepare(`UPDATE users SET ${balCol} = ${balCol} + ? WHERE address = ?`).run(bet.payout, address);
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(bet.payout, address);
     });
     txn();
-    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
-    res.json({ success: true, payout: bet.payout, newBalance: updatedUser.balance, newBtcBalance: updatedUser.btc_balance || 0, txHash });
+    const updatedUser = db.prepare('SELECT balance FROM users WHERE address = ?').get(address);
+    res.json({ success: true, payout: bet.payout, newBalance: updatedUser.balance, newBtcBalance: 0, txHash });
   } catch (e) {
     console.error('Claim error:', e.message);
     res.status(500).json({ error: 'Claim failed: ' + e.message });
@@ -2029,7 +1843,7 @@ const REWARD_DEFINITIONS = {
   'quest_comment':   { type: 'quest', amount: 25,  verify: (addr) => db.prepare('SELECT COUNT(*) as c FROM comments WHERE address = ?').get(addr).c >= 1 },
 };
 
-// Claim achievement/quest BPUSD reward (server-validated, hardcoded amounts)
+// Claim achievement/quest WBTC reward (server-validated, hardcoded amounts)
 app.post('/api/reward/claim', requireAuth, async (req, res) => {
   const { address, rewardId } = req.body;
   if (!address || !rewardId) return res.status(400).json({ error: 'address, rewardId required' });
@@ -2065,8 +1879,8 @@ app.post('/api/reward/claim', requireAuth, async (req, res) => {
 
   const amount = rewardDef.amount;
   try {
-    // Send BPUSD on-chain to user
-    const txResult = await transferBpusd(address, amount);
+    // Send WBTC on-chain to user
+    const txResult = await transferWbtc(address, amount);
     if (!txResult.success) {
       return res.status(500).json({ error: 'On-chain transfer failed: ' + txResult.error });
     }
@@ -2230,13 +2044,9 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// On-chain bet: frontend sends txHash FIRST, then server records the bet
-// Bet is NOT valid without a txHash from the on-chain transaction
+// On-chain bet (parimutuel): frontend sends txHash FIRST, then server records the bet
 app.post('/api/bet/onchain', requireAuth, async (req, res) => {
-  const { address, marketId, side, amount, txHash, currency: rawCurrency } = req.body;
-  const currency = (rawCurrency === 'btc') ? 'btc' : 'bpusd';
-  // Use separate key 'bet-onchain:' to avoid sharing quota with /api/bet (off-chain).
-  // On-chain flow: approve TX + bet TX = 2 wallet popups per bet → keep limit at 10/min per address.
+  const { address, marketId, side, amount, txHash } = req.body;
   if (address && rateLimit('bet-onchain:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
 
   if (!address || !marketId || !side || !amount || !txHash) {
@@ -2247,10 +2057,10 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
   }
   if (side !== 'yes' && side !== 'no') return res.status(400).json({ error: 'side must be yes or no' });
   const onchainAmt = Math.floor(Number(amount));
-  if (!Number.isFinite(onchainAmt) || onchainAmt < 100) return res.status(400).json({ error: 'minimum bet is 100' });
+  if (!Number.isFinite(onchainAmt) || onchainAmt < MIN_BET_SATS) return res.status(400).json({ error: `minimum bet is ${MIN_BET_SATS} sats` });
 
   try {
-    // Phase 1: Quick TX existence check (mempool or confirmed) — non-blocking
+    // TX existence check (mempool or confirmed)
     const txVerify = await verifyTxExists(txHash, address);
     if (!txVerify.valid) {
       return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
@@ -2262,10 +2072,7 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (!user) return res.status(404).json({ error: 'user not found' });
 
-    const feeInfo = calculateFeeOnTop(onchainAmt, currency);
-    // On-chain bet: txHash IS the proof of payment — skip server balance check
-    // Server balance is internal accounting only
-
+    const feeInfo = calculateParimutuelFee(onchainAmt);
     const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const txn = db.transaction(() => {
@@ -2276,73 +2083,52 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
       const now = Math.floor(Date.now() / 1000);
       if (market.end_time <= now) throw new Error('market has ended');
 
-      // AMM: constant product (BigInt precision) — full amount goes to pool (fee is ON TOP)
-      const yP = BigInt(market.yes_pool);
-      const nP = BigInt(market.no_pool);
-      if (yP <= 0n || nP <= 0n) throw new Error('market pool empty');
-      const k = yP * nP;
-      const amt = BigInt(onchainAmt);
+      // Parimutuel: netBet goes to the side pool
+      const newYesPool = side === 'yes' ? (market.yes_pool || 0) + feeInfo.netBet : (market.yes_pool || 0);
+      const newNoPool = side === 'no' ? (market.no_pool || 0) + feeInfo.netBet : (market.no_pool || 0);
+      const prices = calcParimutuelPrices(newYesPool, newNoPool);
 
-      let shares, newYesPool, newNoPool;
-      if (side === 'yes') {
-        const nnP = nP + amt;
-        const nyP = k / nnP;
-        shares = Number(yP - nyP);
-        newYesPool = Number(nyP);
-        newNoPool = Number(nnP);
-      } else {
-        const nyP = yP + amt;
-        const nnP = k / nyP;
-        shares = Number(nP - nnP);
-        newYesPool = Number(nyP);
-        newNoPool = Number(nnP);
-      }
-      if (shares <= 0) throw new Error('trade too small');
-
-      const price = side === 'yes' ? market.yes_price : market.no_price;
-
-      // No server balance deduction — on-chain TX is the payment proof
-      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, price, shares, tx_hash, currency, tx_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        betId, address, marketId, side, onchainAmt, price, shares, txHash, currency, txConfirmed
+      // On-chain bet: txHash IS the proof of payment — no server balance deduction
+      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, net_amount, price, shares, tx_hash, currency, tx_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)').run(
+        betId, address, marketId, side, onchainAmt, feeInfo.netBet, prices.yes_price, txHash, 'wbtc', txConfirmed
       );
-      const prices = recalcPrices(newYesPool, newNoPool);
       db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
         newYesPool, newNoPool, prices.yes_price, prices.no_price, onchainAmt, newYesPool + newNoPool, marketId
       );
       db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
         marketId, prices.yes_price, prices.no_price, onchainAmt
       );
-      // Notification for user
       db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
-        address, 'bet', 'Bet Placed', `${side.toUpperCase()} ${onchainAmt} ${currency === 'btc' ? 'sats' : 'BPUSD'} — ${shares} shares`, marketId
+        address, 'bet', 'Bet Placed', `${side.toUpperCase()} ${onchainAmt} sats (on-chain)`, marketId
       );
-      return { shares };
+      return { prices };
     });
     const txnResult = txn();
     distributeRevenue(feeInfo, marketId);
-    // Referral bonus: 50% of vault share to referrer (in BPUSD always)
+
+    // Referral bonus
     try {
       const u = db.prepare('SELECT referrer FROM users WHERE address = ?').get(address);
       if (u?.referrer) {
         const refBonus = Math.max(1, Math.floor(feeInfo.fee * 0.5));
         db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refBonus, u.referrer);
         db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
-          u.referrer, 'referral_bonus', 'Referral Bonus', `+${refBonus} BPUSD from ${address.slice(0, 12)}... bet`, marketId
+          u.referrer, 'referral_bonus', 'Referral Bonus', `+${refBonus} sats from ${address.slice(0, 12)}... bet`, marketId
         );
       }
     } catch(e) { /* non-critical */ }
 
-    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
+    const updatedUser = db.prepare('SELECT balance FROM users WHERE address = ?').get(address);
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
 
     res.json({
       success: true,
       betId,
-      shares: txnResult.shares,
       fee: feeInfo.fee,
+      netAmount: feeInfo.netBet,
       txHash,
       newBalance: updatedUser.balance,
-      newBtcBalance: updatedUser.btc_balance || 0,
+      newBtcBalance: 0,
       newYesPrice: updatedMarket.yes_price,
       newNoPrice: updatedMarket.no_price,
     });
@@ -2353,118 +2139,10 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
 });
 
 // ==========================================================================
-// SELL SHARES — exit position before market resolution
-// ==========================================================================
-app.post('/api/bet/sell', requireAuth, (req, res) => {
-  const { address, betId, sharesToSell, txHash } = req.body;
-  if (!address || !betId) return res.status(400).json({ error: 'address and betId required' });
-  if (rateLimit('sell:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many sells. Try again in a minute.' });
-
-  try {
-    const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
-    if (!user) return res.status(404).json({ error: 'user not found' });
-
-    const bet = db.prepare('SELECT * FROM bets WHERE id = ? AND user_address = ?').get(betId, address);
-    if (!bet) return res.status(404).json({ error: 'bet not found' });
-    if (bet.status !== 'active') return res.status(400).json({ error: 'can only sell active positions' });
-
-    const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
-    if (!market) return res.status(404).json({ error: 'market not found' });
-    if (market.resolved) return res.status(400).json({ error: 'market already resolved' });
-
-    const sellShares = Math.floor(Number(sharesToSell) || bet.shares);
-    if (sellShares <= 0 || sellShares > bet.shares) {
-      return res.status(400).json({ error: `Invalid shares: you have ${bet.shares}` });
-    }
-
-    // AMM reverse (BigInt precision): selling shares back to the pool
-    const yP = BigInt(market.yes_pool);
-    const nP = BigInt(market.no_pool);
-    const k = yP * nP;
-    const ss = BigInt(sellShares);
-
-    let payout, newYesPool, newNoPool;
-    if (bet.side === 'yes') {
-      const nyP = yP + ss;
-      const nnP = k / nyP;
-      payout = Number(nP - nnP);
-      newYesPool = Number(nyP);
-      newNoPool = Number(nnP);
-    } else {
-      const nnP = nP + ss;
-      const nyP = k / nnP;
-      payout = Number(yP - nyP);
-      newYesPool = Number(nyP);
-      newNoPool = Number(nnP);
-    }
-
-    if (payout <= 0) return res.status(400).json({ error: 'trade too small — no payout' });
-
-    // Fee on top of sell proceeds (same currency as original bet)
-    const betCurrency = bet.currency || 'bpusd';
-    const sellFeeInfo = calculateFeeOnTop(payout, betCurrency);
-    // For sell: fee is deducted from proceeds, not added on top
-    const fee = sellFeeInfo.fee;
-    const netPayout = payout - fee;
-    const balCol = betCurrency === 'btc' ? 'btc_balance' : 'balance';
-
-    const txn = db.transaction(() => {
-      db.prepare(`UPDATE users SET ${balCol} = ${balCol} + ? WHERE address = ?`).run(netPayout, address);
-
-      const remainingShares = bet.shares - sellShares;
-      if (remainingShares <= 0) {
-        db.prepare("UPDATE bets SET status = 'cancelled', shares = 0, payout = ? WHERE id = ?").run(netPayout, betId);
-      } else {
-        db.prepare('UPDATE bets SET shares = ? WHERE id = ?').run(remainingShares, betId);
-      }
-
-      const prices = recalcPrices(newYesPool, newNoPool);
-      db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
-        newYesPool, newNoPool, prices.yes_price, prices.no_price, netPayout, newYesPool + newNoPool, bet.market_id
-      );
-
-      db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
-        bet.market_id, prices.yes_price, prices.no_price, netPayout
-      );
-
-      const currLabel = betCurrency === 'btc' ? 'sats' : 'BPUSD';
-      const sellBody = txHash
-        ? `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} ${currLabel} (on-chain TX: ${txHash.slice(0, 12)}...)`
-        : `Sold ${sellShares} ${bet.side.toUpperCase()} shares for ${netPayout} ${currLabel}`;
-      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
-        address, 'sell', txHash ? 'On-Chain Sell' : 'Position Sold', sellBody, bet.market_id
-      );
-    });
-    txn();
-
-    distributeRevenue(sellFeeInfo, bet.market_id);
-
-    const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
-    const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
-
-    res.json({
-      success: true,
-      payout: netPayout,
-      fee,
-      sharesSold: sellShares,
-      remainingShares: bet.shares - sellShares,
-      newBalance: updatedUser.balance,
-      newBtcBalance: updatedUser.btc_balance || 0,
-      newYesPrice: updatedMarket.yes_price,
-      newNoPrice: updatedMarket.no_price,
-      txHash: txHash || null,
-    });
-  } catch (e) {
-    console.error('Sell shares error:', e.message);
-    res.status(500).json({ error: 'Sell error: ' + e.message });
-  }
-});
-
-// ==========================================================================
 // USER MARKET CREATION
 // ==========================================================================
 app.post('/api/markets/create', requireAuth, (req, res) => {
-  const { address, question, category, endTime, initialLiquidity, tags } = req.body;
+  const { address, question, category, endTime, tags } = req.body;
   if (!address || !question || !endTime) {
     return res.status(400).json({ error: 'address, question, endTime required' });
   }
@@ -2480,36 +2158,22 @@ app.post('/api/markets/create', requireAuth, (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     if (endTs <= now + MIN_MARKET_DURATION_SECS) return res.status(400).json({ error: 'Market must end at least 1 hour from now (6 blocks on L1)' });
 
-    const liq = Math.floor(Number(initialLiquidity) || 1000);
-    if (liq < 500) return res.status(400).json({ error: 'Minimum initial liquidity is 500 BPUSD' });
-    if (user.balance < liq) return res.status(400).json({ error: `Insufficient balance: ${user.balance} BPUSD` });
-
     const cat = category || 'Community';
     const marketId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const pool = Math.floor(liq / 2); // 50/50 split for initial pools
     const marketTags = tags ? JSON.stringify(tags) : JSON.stringify(['community', cat.toLowerCase()]);
 
+    // Parimutuel: free market creation, pools start at 0
     const txn = db.transaction(() => {
-      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(liq, address);
       db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price, yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, creator_address, initial_liquidity)
-        VALUES (?, ?, ?, 0.5, 0.5, ?, ?, 0, ?, ?, ?, 'community', ?, ?)`).run(
-        marketId, question, cat, pool, pool, liq, endTs, marketTags, address, liq
+        VALUES (?, ?, ?, 0.5, 0.5, 0, 0, 0, 0, ?, ?, 'community', ?, 0)`).run(
+        marketId, question, cat, endTs, marketTags, address
       );
-      // Notification
       db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
         address, 'market_created', 'Market Created',
         `Your market "${question.slice(0, 50)}..." is now live!`, marketId
       );
     });
     txn();
-
-    // Fire-and-forget: create market on-chain (non-blocking)
-    createMarketOnChain(endTs).then(ocRes => {
-      if (ocRes.success) {
-        db.prepare('UPDATE markets SET onchain_id = ? WHERE id = ?').run(ocRes.onchainId, marketId);
-        console.log(`On-chain user market created: ${marketId} → onchainId=${ocRes.onchainId}`);
-      }
-    }).catch(() => {});
 
     const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
     res.json({ success: true, marketId, newBalance });
@@ -2565,7 +2229,7 @@ app.post('/api/comments', requireAuth, (req, res) => {
 app.get('/api/markets/:id/activity', (req, res) => {
   try {
     const marketId = req.params.id;
-    const bets = db.prepare(`SELECT id, user_address as address, side, amount, shares, created_at as timestamp, 'bet' as type FROM bets WHERE market_id = ? ORDER BY created_at DESC LIMIT 20`).all(marketId);
+    const bets = db.prepare(`SELECT id, user_address as address, side, amount, net_amount, created_at as timestamp, 'bet' as type FROM bets WHERE market_id = ? ORDER BY created_at DESC LIMIT 20`).all(marketId);
     const comments = db.prepare(`SELECT id, address, text, created_at as timestamp, 'comment' as type FROM comments WHERE market_id = ? ORDER BY created_at DESC LIMIT 20`).all(marketId);
     const activity = [...bets, ...comments].sort((a, b) => b.timestamp - a.timestamp).slice(0, 30);
     res.json(activity);
@@ -2760,24 +2424,24 @@ OP_NET is a Bitcoin Layer 1 smart contract platform. NOT a sidechain, NOT a roll
 ${OPNET_NETWORK_NAME === 'testnet' ? '- Faucet: https://faucet.opnet.org for testnet BTC' : ''}
 
 ## BitPredict Architecture
-- BPUSD token: OP-20 MintableToken at ${PRED_TOKEN} (publicMint enabled)
-- PredictionMarket contract: ${PREDICTION_MARKET_ADDRESS}
-- StakingVault: ${process.env.STAKING_VAULT_ADDRESS || ''}
+- Currency: WBTC (Wrapped Bitcoin, OP-20) at ${WBTC_TOKEN}
+- Model: Parimutuel betting (no AMM, no liquidity pools, no shares)
+- StakingVault: ${process.env.STAKING_VAULT_ADDRESS || ''} — stake WBTC to earn fees
 - PriceOracle: ${process.env.PRICE_ORACLE_ADDRESS || ''}
-- AMM: constant-product (x·y=k), 2% protocol fee (200 bps), fee rounds UP to favor protocol
-- Markets: binary YES/NO outcomes, shares priced 0–1 BPUSD
-- Resolution: oracle/creator resolves, winning shares redeem 1:1 from pool
-- On-chain flow: approve BPUSD → buyShares(marketId, isYes, amount) → claimPayout(marketId)
+- Fee: 3% from each bet (60% vault stakers, 20% protocol, 20% market creator)
+- Markets: binary YES/NO outcomes, bets go into pools
+- Resolution: oracle/creator resolves, winners split total pool proportionally
+- Payout: (user_net_bet / winning_pool) * total_pool
+- No sell/exit: bets locked until market resolution
 - SDK pattern: getContract() → simulate() → sendTransaction() — wallet handles signing on frontend
 - Security: reentrancy guards, tx.sender (not tx.origin), checked u256 math
 
 ## Trading Concepts
-- Slippage: larger trades vs pool = more price impact
-- Implied probability: YES price = market's probability estimate
-- Value bet: when you think true probability > market price
-- Liquidity: deeper pools = less slippage, better execution
+- Implied probability: YES% = YES pool / Total pool
+- Value bet: when you think true probability > implied probability
+- Parimutuel odds: change with every new bet, final payout known only at resolution
 - Kelly criterion: optimal bet sizing = (p*b - q) / b where p=probability, b=odds, q=1-p
-- Contrarian plays: markets often overweight recent news, creating value on the other side
+- First mover advantage: early bets get better odds if more bets come on the other side
 
 ## OPNet Ecosystem
 - MotoSwap: DEX (like Uniswap) on OP_NET for token swaps
@@ -2824,7 +2488,7 @@ app.post('/api/ai/chat', async (req, res) => {
         const betsCount = db.prepare('SELECT COUNT(*) as c FROM bets WHERE market_id = ?').get(m.id).c;
         const k = m.yes_pool * m.no_pool;
         marketContext = `\n## Focus Market: "${m.question}"
-YES: ${(m.yes_price * 100).toFixed(1)}% | NO: ${(m.no_price * 100).toFixed(1)}% | Volume: ${m.volume} BPUSD | Liquidity: ${m.liquidity} BPUSD
+YES: ${(m.yes_price * 100).toFixed(1)}% | NO: ${(m.no_price * 100).toFixed(1)}% | Volume: ${m.volume} sats | Pool: ${m.liquidity} sats
 YES pool: ${m.yes_pool} | NO pool: ${m.no_pool} | k=${k} | Bets placed: ${betsCount}
 Ends: ${new Date(m.end_time * 1000).toISOString().split('T')[0]} | Category: ${m.category}
 ${m.resolved ? `RESOLVED: ${m.outcome}` : 'ACTIVE'}`;
@@ -2837,7 +2501,7 @@ ${m.resolved ? `RESOLVED: ${m.outcome}` : 'ACTIVE'}`;
       const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
       const userBets = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status=\'won\' THEN 1 ELSE 0 END) as wins, SUM(amount) as volume FROM bets WHERE user_address = ?').get(address);
       if (user) {
-        userContext = `\nUser balance: ${user.balance} BPUSD | Bets: ${userBets?.total || 0} | Wins: ${userBets?.wins || 0} | Volume: ${userBets?.volume || 0} BPUSD`;
+        userContext = `\nUser balance: ${user.balance} sats | Bets: ${userBets?.total || 0} | Wins: ${userBets?.wins || 0} | Volume: ${userBets?.volume || 0} sats`;
       }
     }
 
@@ -2858,7 +2522,7 @@ ${BOB_OPNET_KNOWLEDGE}
 BTC: $${prices.btc.toLocaleString()} | ETH: $${prices.eth.toLocaleString()} | SOL: $${prices.sol.toLocaleString()}
 
 Active markets:
-${activeMarkets.map(m => `• "${m.question}" → YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}% | Vol: ${m.volume} BPUSD | Liq: ${m.liquidity}`).join('\n')}
+${activeMarkets.map(m => `• "${m.question}" → YES ${(m.yes_price * 100).toFixed(0)}% / NO ${(m.no_price * 100).toFixed(0)}% | Vol: ${m.volume} sats | Pool: ${m.liquidity}`).join('\n')}
 
 ${recentResolved.length > 0 ? `Recently resolved:\n${recentResolved.map(m => `• "${m.question}" → ${m.outcome?.toUpperCase()}`).join('\n')}` : ''}
 ${marketContext}${userContext}
@@ -2867,13 +2531,13 @@ ${marketContext}${userContext}
 - You ARE Bob, the OP_NET AI. Refer to yourself as Bob. Show expertise and confidence.
 - When discussing OP_NET, cite specific technical details (Tapscript calldata, WASM execution, u256 math, etc.)
 - For market analysis: reference actual odds, calculate expected value, suggest position sizing
-- For trading advice: mention slippage, liquidity depth, and AMM mechanics
+- For trading advice: explain parimutuel odds, pool dynamics, and first-mover advantage
 - Use **bold** for key terms, use bullet points for structured answers
 - If asked "who are you" — explain you're Bob, OP_NET's AI agent, powered by deep protocol knowledge + Gemini LLM
 - Be opinionated on markets — give clear YES/NO recommendations with reasoning
 - Always calculate expected value: EV = (probability × payout) - cost
 - Warn about risks but don't be overly cautious — traders want actionable signals
-- If someone asks how to use the platform, walk them through: connect OP_WALLET → ${OPNET_NETWORK_NAME === 'testnet' ? 'get testnet BTC from faucet.opnet.org → ' : ''}mint BPUSD tokens → pick a market → place a bet
+- If someone asks how to use the platform, walk them through: connect OP_WALLET → ${OPNET_NETWORK_NAME === 'testnet' ? 'get testnet BTC from faucet.opnet.org → ' : ''}get WBTC on MotoSwap → pick a market → place a bet (minimum ${MIN_BET_SATS} sats)
 - The entire BitPredict platform is English-only. Never respond in any other language.
 - ALWAYS respond in English regardless of the user's language
 - Keep answers focused: 3-6 sentences for simple questions, longer for deep analysis
@@ -3027,7 +2691,7 @@ Reply in this exact format:
 
 EVENT: "${marketTitle}"
 Current odds: YES ${(m.yes_price * 100).toFixed(1)}% / NO ${(m.no_price * 100).toFixed(1)}%
-Category: ${m.category} | Volume: ${m.volume.toLocaleString()} BPUSD | Deadline: ${endDate} (${daysLeft} days left)
+Category: ${m.category} | Volume: ${m.volume.toLocaleString()} sats | Deadline: ${endDate} (${daysLeft} days left)
 Live crypto: BTC $${prices.btc.toLocaleString()} | ETH $${prices.eth.toLocaleString()} | SOL $${prices.sol.toLocaleString()}
 
 INSTRUCTIONS:
@@ -3077,7 +2741,7 @@ Reply in this exact format:
   }
 });
 
-// Exchange endpoint removed — BTC→BPUSD conversion is now on-chain via mintBpusdWithBtc()
+// Exchange endpoint removed — use MotoSwap for WBTC
 
 // BTC faucet removed — users get real testnet BTC from https://faucet.opnet.org
 
@@ -3197,14 +2861,14 @@ app.get('/api/vault/user/:addr', (req, res) => {
   });
 });
 
-// Stake BPUSD into vault
+// Stake WBTC into vault
 app.post('/api/vault/stake', requireAuth, async (req, res) => {
   const { address, amount, txHash } = req.body;
   if (!address || !amount || !txHash) return res.status(400).json({ error: 'address, amount, txHash required' });
   if (!address.startsWith(OPNET_ADDRESS_PREFIX)) return res.status(400).json({ error: 'invalid address' });
   if (rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
   const amountInt = Math.floor(Number(amount));
-  if (amountInt < 100) return res.status(400).json({ error: 'minimum stake is 100 BPUSD' });
+  if (amountInt < 10000) return res.status(400).json({ error: 'minimum stake is 10,000 sats' });
 
   // Verify TX on-chain
   const txVerify = await verifyTxOnChain(txHash, address, 'Staked');
@@ -3264,7 +2928,7 @@ app.post('/api/vault/stake', requireAuth, async (req, res) => {
   }
 });
 
-// Unstake BPUSD from vault
+// Unstake WBTC from vault
 app.post('/api/vault/unstake', requireAuth, async (req, res) => {
   const { address, amount, txHash } = req.body;
   if (!address || !amount || !txHash) return res.status(400).json({ error: 'address, amount, txHash required' });
@@ -3552,13 +3216,13 @@ setInterval(() => {
 // DEPOSIT / WITHDRAW (Treasury hybrid model)
 // ==========================================================================
 
-// POST /api/deposit — user sends BPUSD tx, server verifies and credits backed_balance
+// POST /api/deposit — user sends WBTC tx, server verifies and credits backed_balance
 app.post('/api/deposit', requireAuth, async (req, res) => {
   const { address, txHash, amount } = req.body;
   if (!address || !txHash || !amount) return res.status(400).json({ error: 'address, txHash, and amount required' });
 
   const amountInt = parseInt(amount, 10);
-  if (isNaN(amountInt) || amountInt < 100) return res.status(400).json({ error: 'Minimum deposit: 100 BPUSD' });
+  if (isNaN(amountInt) || amountInt < 10000) return res.status(400).json({ error: 'Minimum deposit: 10,000 sats' });
 
   // Rate limit: 3 deposits / 5 min per address
   if (rateLimit('deposit:' + address, 3, 300000)) return res.status(429).json({ error: 'Too many deposits. Try again later.' });
@@ -3603,7 +3267,7 @@ app.post('/api/withdraw', requireAuth, async (req, res) => {
   if (!address || !amount) return res.status(400).json({ error: 'address and amount required' });
 
   const amountInt = parseInt(amount, 10);
-  if (isNaN(amountInt) || amountInt < 100) return res.status(400).json({ error: 'Minimum withdrawal: 100 BPUSD' });
+  if (isNaN(amountInt) || amountInt < 10000) return res.status(400).json({ error: 'Minimum withdrawal: 10,000 sats' });
 
   // Rate limit: 3 withdrawals / 5 min
   if (rateLimit('withdraw:' + address, 3, 300000)) return res.status(429).json({ error: 'Too many withdrawals. Try again later.' });
@@ -3639,7 +3303,7 @@ app.post('/api/withdraw', requireAuth, async (req, res) => {
 
   // Execute transfer on-chain
   try {
-    const txResult = await transferBpusd(address, netAmount);
+    const txResult = await transferWbtc(address, netAmount);
     if (txResult.success) {
       db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE nonce = ?").run(
         txResult.txHash || '', nonce
@@ -3702,7 +3366,7 @@ async function confirmPendingDeposits() {
           db.prepare("UPDATE treasury_deposits SET status = 'confirmed', confirmed_at = unixepoch() WHERE id = ?").run(dep.id);
           // Credit backed_balance + balance
           db.prepare('UPDATE users SET backed_balance = backed_balance + ?, balance = balance + ? WHERE address = ?').run(dep.amount_bpusd, dep.amount_bpusd, dep.address);
-          console.log(`Deposit ${dep.id} confirmed: +${dep.amount_bpusd} BPUSD to ${dep.address}`);
+          console.log(`Deposit ${dep.id} confirmed: +${dep.amount_bpusd} sats to ${dep.address}`);
         }
       } catch { /* skip, retry next cycle */ }
     }
@@ -3725,7 +3389,7 @@ function expireStaleWithdrawals() {
         ACCUMULATED_PROTOCOL_REVENUE -= wr.fee_bpusd;
         db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('withdrawal_fee_reversal', '', -wr.fee_bpusd);
       }
-      console.log(`Withdrawal ${wr.id} expired — returned ${wr.amount_bpusd} BPUSD to ${wr.address}`);
+      console.log(`Withdrawal ${wr.id} expired — returned ${wr.amount_bpusd} sats to ${wr.address}`);
     }
   } catch (e) {
     console.error('expireStaleWithdrawals error:', e.message);
@@ -3754,15 +3418,15 @@ async function flushProtocolRevenue() {
   if (!PROTOCOL_TREASURY_ADDRESS || ACCUMULATED_PROTOCOL_REVENUE < PROTOCOL_FLUSH_THRESHOLD) return;
 
   const flushAmount = ACCUMULATED_PROTOCOL_REVENUE;
-  console.log(`Flushing ${flushAmount} BPUSD protocol revenue to ${PROTOCOL_TREASURY_ADDRESS}`);
+  console.log(`Flushing ${flushAmount} sats protocol revenue to ${PROTOCOL_TREASURY_ADDRESS}`);
 
   try {
-    const txResult = await transferBpusd(PROTOCOL_TREASURY_ADDRESS, flushAmount);
+    const txResult = await transferWbtc(PROTOCOL_TREASURY_ADDRESS, flushAmount);
     if (txResult.success) {
       // Mark all accumulated entries as flushed
       db.prepare("UPDATE protocol_revenue SET accumulated = 0 WHERE accumulated = 1").run();
       ACCUMULATED_PROTOCOL_REVENUE = 0;
-      console.log(`Protocol revenue flushed: ${flushAmount} BPUSD, TX: ${txResult.txHash}`);
+      console.log(`Protocol revenue flushed: ${flushAmount} sats, TX: ${txResult.txHash}`);
     }
   } catch (e) {
     console.error('flushProtocolRevenue error:', e.message);

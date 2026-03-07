@@ -9,14 +9,12 @@ interface ActiveOperationsProps {
 }
 
 const OP_LABELS: Record<string, string> = {
-  buy: 'Buy Shares',
-  sell: 'Sell Shares',
-  stake: 'Stake BPUSD',
-  unstake: 'Unstake BPUSD',
+  bet: 'Place Bet',
+  stake: 'Stake WBTC',
+  unstake: 'Unstake WBTC',
   claim: 'Claim Payout',
   vault_claim: 'Claim Rewards',
-  approve: 'Approve BPUSD',
-  mint: 'Mint BPUSD',
+  approve: 'Approve WBTC',
 };
 
 export function ActiveOperations({ walletAddress, refreshKey }: ActiveOperationsProps) {

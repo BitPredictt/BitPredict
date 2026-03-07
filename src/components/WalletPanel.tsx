@@ -48,15 +48,15 @@ export function WalletPanel({
 
   const handleDeposit = async () => {
     const amt = parseInt(amount, 10);
-    if (isNaN(amt) || amt < 100) {
-      onToast('Minimum deposit: 100 BPUSD', 'error');
+    if (isNaN(amt) || amt < 10000) {
+      onToast('Minimum deposit: 10,000 sats', 'error');
       return;
     }
 
     setLoading(true);
     try {
       // Step 1: On-chain deposit via Treasury contract
-      onToast('Approving BPUSD for Treasury...', 'loading');
+      onToast('Approving WBTC for Treasury...', 'loading');
       const txResult = await depositToTreasury(walletProvider, walletNetwork, walletAddressObj, walletAddress, amt);
 
       if (!txResult.success) {
@@ -67,7 +67,7 @@ export function WalletPanel({
       // Step 2: Notify server about the deposit
       const result = await api.depositConfirm(walletAddress, txResult.txHash, amt);
       if (result.success) {
-        onToast(`Deposit ${result.status === 'confirmed' ? 'confirmed' : 'pending'}: +${amt} BPUSD`, 'success',
+        onToast(`Deposit ${result.status === 'confirmed' ? 'confirmed' : 'pending'}: +${amt.toLocaleString()} sats`, 'success',
           getExplorerTxUrl(txResult.txHash), 'View TX');
         setAmount('');
         onBalanceRefresh();
@@ -82,12 +82,12 @@ export function WalletPanel({
 
   const handleWithdraw = async () => {
     const amt = parseInt(amount, 10);
-    if (isNaN(amt) || amt < 100) {
-      onToast('Minimum withdrawal: 100 BPUSD', 'error');
+    if (isNaN(amt) || amt < 10000) {
+      onToast('Minimum withdrawal: 10,000 sats', 'error');
       return;
     }
     if (amt > backedBalance) {
-      onToast(`Insufficient backed balance: ${backedBalance} BPUSD`, 'error');
+      onToast(`Insufficient backed balance: ${backedBalance.toLocaleString()} sats`, 'error');
       return;
     }
 
@@ -96,8 +96,8 @@ export function WalletPanel({
       const result = await api.withdrawRequest(walletAddress, amt);
       if (result.success) {
         const msg = result.status === 'completed'
-          ? `Withdrawn ${result.netAmount} BPUSD (fee: ${result.fee})`
-          : `Withdrawal queued: ${result.netAmount} BPUSD`;
+          ? `Withdrawn ${result.netAmount.toLocaleString()} sats (fee: ${result.fee.toLocaleString()})`
+          : `Withdrawal queued: ${result.netAmount.toLocaleString()} sats`;
         onToast(msg, 'success', result.txHash ? getExplorerTxUrl(result.txHash) : undefined, result.txHash ? 'View TX' : undefined);
         setAmount('');
         onBalanceRefresh();
@@ -146,7 +146,7 @@ export function WalletPanel({
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-gray-400">Total</div>
           <div className="text-lg font-bold text-white">{balance.toLocaleString()}</div>
-          <div className="text-xs text-gray-500">BPUSD</div>
+          <div className="text-xs text-gray-500">sats</div>
         </div>
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-green-400">Backed</div>
@@ -188,7 +188,7 @@ export function WalletPanel({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={mode === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'}
-            min={100}
+            min={10000}
             max={mode === 'withdraw' ? backedBalance : undefined}
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
           />
@@ -200,21 +200,21 @@ export function WalletPanel({
         </div>
         {mode === 'withdraw' && amount && (
           <div className="text-xs text-gray-400 mt-1">
-            Fee: {Math.ceil(parseInt(amount || '0', 10) * 0.005)} BPUSD (0.5%) | Net: {Math.floor(parseInt(amount || '0', 10) * 0.995)} BPUSD
+            Fee: {Math.ceil(parseInt(amount || '0', 10) * 0.005).toLocaleString()} sats (0.5%) | Net: {Math.floor(parseInt(amount || '0', 10) * 0.995).toLocaleString()} sats
           </div>
         )}
       </div>
 
       <button
         onClick={mode === 'deposit' ? handleDeposit : handleWithdraw}
-        disabled={loading || !amount || parseInt(amount, 10) < 100}
+        disabled={loading || !amount || parseInt(amount, 10) < 10000}
         className={`w-full py-3 rounded-xl font-medium transition flex items-center justify-center gap-2 ${
           loading ? 'bg-gray-700 cursor-wait' :
           mode === 'deposit' ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'
         } disabled:opacity-50`}
       >
         {loading ? <><Loader2 size={16} className="animate-spin" /> Processing...</> :
-          mode === 'deposit' ? 'Deposit BPUSD' : 'Withdraw BPUSD'}
+          mode === 'deposit' ? 'Deposit WBTC' : 'Withdraw WBTC'}
       </button>
 
       {/* Transaction history */}

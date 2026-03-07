@@ -123,7 +123,7 @@ export function Leaderboard({ userAddress }: LeaderboardProps) {
                 <div className="text-xs font-bold text-white truncate">{e.nickname}</div>
                 <div className="text-[10px] text-gray-500 mt-0.5">Lv.{e.level}</div>
                 <div className="text-[10px] text-green-400 mt-0.5">{e.winRate}% win</div>
-                <div className="text-xs font-bold text-btc mt-1">{formatVolume(e.volume)} BPUSD</div>
+                <div className="text-xs font-bold text-btc mt-1">{formatVolume(e.volume)} sats</div>
                 {e.streak >= 3 && (
                   <div className="flex items-center justify-center gap-0.5 mt-1">
                     <Flame size={10} className="text-orange-400" />
@@ -168,7 +168,7 @@ export function Leaderboard({ userAddress }: LeaderboardProps) {
               </div>
             </div>
             <div className="text-right shrink-0">
-              <div className="text-xs font-bold text-white">{formatVolume(e.volume)} BPUSD</div>
+              <div className="text-xs font-bold text-white">{formatVolume(e.volume)} sats</div>
               <div className="flex items-center gap-1 justify-end text-[10px]">
                 {e.pnl >= 0 ? (
                   <><TrendingUp size={10} className="text-green-400" /><span className="text-green-400 font-bold">+{formatVolume(e.pnl)}</span></>

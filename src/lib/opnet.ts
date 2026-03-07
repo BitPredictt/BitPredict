@@ -43,9 +43,7 @@ export const OPNET_CONFIG = {
   treasuryAddress: import.meta.env.VITE_TREASURY_ADDRESS || '',
   treasuryPubkey: import.meta.env.VITE_TREASURY_PUBKEY || '',
   tokenDecimals: 8,
-  tokenSymbol: 'BPUSD',
-  mintAmount: 1000,
-  maxMintPerTx: 10_000_000,
+  tokenSymbol: 'WBTC',
 };
 
 /**
@@ -81,65 +79,12 @@ export function formatVolume(sats: number): string {
 }
 
 /**
- * Calculate AMM price from reserves (constant product)
- * YES price = noReserve / (yesReserve + noReserve)
+ * Format sats for display
  */
-export function calculatePrice(yesReserve: bigint, noReserve: bigint): { yes: number; no: number } {
-  const total = yesReserve + noReserve;
-  if (total === 0n) return { yes: 0.5, no: 0.5 };
-  const yesPrice = Number(noReserve * 10000n / total) / 10000;
-  const noPrice = 1 - yesPrice;
-  return { yes: yesPrice, no: noPrice };
-}
-
-/**
- * Calculate shares received for a given amount (constant product AMM)
- */
-export function calculateShares(
-  amount: bigint,
-  isYes: boolean,
-  yesReserve: bigint,
-  noReserve: bigint,
-  feeBps = 200n,
-): { shares: bigint; newYesPrice: number; newNoPrice: number } {
-  const fee = (amount * feeBps) / 10000n;
-  const netAmount = amount - fee;
-  const k = yesReserve * noReserve;
-
-  let shares: bigint;
-  let newYesReserve: bigint;
-  let newNoReserve: bigint;
-
-  if (isYes) {
-    newNoReserve = noReserve + netAmount;
-    newYesReserve = k / newNoReserve;
-    shares = yesReserve - newYesReserve;
-  } else {
-    newYesReserve = yesReserve + netAmount;
-    newNoReserve = k / newYesReserve;
-    shares = noReserve - newNoReserve;
-  }
-
-  const total = newYesReserve + newNoReserve;
-  const newYesPrice = Number(newNoReserve * 10000n / total) / 10000;
-
-  return {
-    shares,
-    newYesPrice,
-    newNoPrice: 1 - newYesPrice,
-  };
-}
-
-/**
- * Calculate payout for winning shares
- */
-export function calculatePayout(
-  userShares: bigint,
-  totalWinningShares: bigint,
-  totalPool: bigint,
-): bigint {
-  if (totalWinningShares === 0n) return 0n;
-  return (userShares * totalPool) / totalWinningShares;
+export function formatSats(sats: number): string {
+  if (sats >= 100_000_000) return `${(sats / 1e8).toFixed(4)} WBTC`;
+  if (sats >= 1_000_000) return `${(sats / 1e6).toFixed(2)}M sats`;
+  return `${sats.toLocaleString()} sats`;
 }
 
 /**
@@ -181,11 +126,8 @@ export async function fetchBlockHeight(walletProvider?: unknown): Promise<number
 
 const MAX_SATS = 250_000n;
 
-// Exchange rate: 1 BPUSD = 1000 sats
-export const SATS_PER_BPUSD = 1000;
-// Fee percentages
-export const BTC_BET_FEE_PCT = 0.05; // 5%
-export const BPUSD_BET_FEE_PCT = 0.02; // 2%
+// Parimutuel fee: 3% from bet amount
+export const BET_FEE_PCT = 0.03;
 
 // Treasury address for BTC payments (deployer / contract owner)
 export const TREASURY_ADDRESS = import.meta.env.VITE_TREASURY_ADDRESS || OPNET_CONFIG.treasuryAddress;
@@ -269,10 +211,10 @@ export async function getPredBalanceOnChain(
 }
 
 /**
- * Get BPUSD balance as a human-readable number (not raw bigint).
+ * Get WBTC balance as a human-readable number (not raw bigint).
  * Wrapper around getPredBalanceOnChain for convenience.
  */
-export async function getOnChainBpusdBalance(
+export async function getOnChainWbtcBalance(
   provider: unknown,
   network: unknown,
   senderAddr: unknown,
@@ -282,70 +224,7 @@ export async function getOnChainBpusdBalance(
 }
 
 /**
- * Mint BPUSD with BTC — single wallet popup.
- * Calls publicMint(bpusdAmount) on BPUSD token contract +
- * sends BTC to treasury via extraOutputs.
- * Used for BTC→BPUSD auto-conversion when placing BTC bets.
- */
-export async function mintBpusdWithBtc(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  bpusdAmount: number,
-  btcCostSats: number,
-): Promise<{ success: boolean; txHash: string; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { getContract, ABIDataTypes, BitcoinAbiTypes, BitcoinUtils, OP_NET_ABI } = await import('opnet');
-
-    const MINTABLE_ABI = [
-      ...OP_NET_ABI,
-      {
-        name: 'publicMint',
-        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
-        outputs: [],
-        type: BitcoinAbiTypes.Function,
-      },
-    ] as any;
-
-    const contract = getContract(
-      OPNET_CONFIG.tokenAddress,
-      MINTABLE_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const rawAmount = BitcoinUtils.expandToDecimals(bpusdAmount, OPNET_CONFIG.tokenDecimals);
-    const sim = await withRetry(() => (contract as any).publicMint(rawAmount)) as any;
-    if (sim?.revert) return { txHash: '', success: false, error: `Mint reverted: ${sim.revert}` };
-
-    const gas = await getGasParameters(provider);
-
-    const receipt = await sim.sendTransaction({
-      refundTo: walletAddress,
-      maximumAllowedSatToSpend: BigInt(btcCostSats + 50000),
-      network,
-      feeRate: gas.feeRate,
-      priorityFee: gas.priorityFee,
-      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
-      signer: null,
-      mldsaSigner: null,
-      extraOutputs: [{ address: TREASURY_ADDRESS, value: BigInt(btcCostSats) }],
-    });
-
-    const txHash = receipt?.transactionId || receipt?.txid || '';
-    return { txHash, success: true };
-  } catch (err) {
-    let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC for fees.';
-    return { txHash: '', success: false, error: msg };
-  }
-}
-
-/**
- * Sign a bet proof TX — user signs increaseAllowance on BPUSD token.
+ * Sign a bet proof TX — user signs increaseAllowance on WBTC token.
  * This creates a real on-chain TX that proves the user authorized the bet.
  * User pays gas from their own BTC UTXOs.
  */
@@ -367,7 +246,7 @@ export async function signBetProof(
       senderAddr as never,
     );
 
-    // Approve BPUSD token itself to spend — creates verifiable on-chain proof
+    // Approve WBTC token itself to spend — creates verifiable on-chain proof
     // tokenPubkey is a hex key (0x...) — Address.fromString() accepts hex only, NOT opt1/bc1 strings
     const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.tokenAddress, OPNET_CONFIG.tokenPubkey) as any;
     const sim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, amount)) as any;
@@ -394,7 +273,7 @@ export async function signBetProof(
 }
 
 /**
- * Sign a bet proof TX with human-readable BPUSD amount (auto-expanded to token decimals).
+ * Sign a bet proof TX with human-readable WBTC amount (auto-expanded to token decimals).
  * Wraps signBetProof with expandToDecimals so callers pass e.g. 1000 not 100000000000.
  */
 export async function signBetAmountProof(
@@ -415,33 +294,10 @@ export async function signBetAmountProof(
 }
 
 /**
- * Sign a sell proof TX — creates on-chain proof that user authorized the sell.
- * Used for off-chain markets where there's no contract sellShares().
- * @param shares - number of shares to sell (human units)
- */
-export async function signSellProof(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  shares: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { BitcoinUtils } = await import('opnet');
-    // Use shares as amount proof (expanded to token decimals for consistency)
-    const expandedAmount = BitcoinUtils.expandToDecimals(shares, OPNET_CONFIG.tokenDecimals);
-    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
  * Sign a claim TX — user signs increaseAllowance for the exact claim amount.
- * This creates a REAL on-chain TX with the actual BPUSD payout value.
+ * This creates a REAL on-chain TX with the actual WBTC payout value.
  * Used when claiming winnings from resolved markets.
- * @param claimAmount - payout amount in BPUSD (will be expanded to token decimals)
+ * @param claimAmount - payout amount in sats (will be expanded to token decimals)
  */
 export async function signClaimProof(
   provider: unknown,
@@ -462,8 +318,8 @@ export async function signClaimProof(
 
 /**
  * Sign a reward claim TX — user signs increaseAllowance for the reward amount.
- * Used when claiming achievement/quest BPUSD rewards.
- * @param rewardAmount - reward in BPUSD (will be expanded to token decimals)
+ * Used when claiming achievement/quest WBTC rewards.
+ * @param rewardAmount - reward in sats (will be expanded to token decimals)
  */
 export async function signRewardClaimProof(
   provider: unknown,
@@ -505,7 +361,7 @@ async function resolveContractAddress(
 }
 
 /**
- * Read current allowance of BPUSD token for a given spender.
+ * Read current allowance of WBTC token for a given spender.
  * Returns allowance in human units (divided by 1e8).
  * Used to skip approve step if sufficient allowance already exists.
  */
@@ -552,65 +408,6 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
 }
 
 /**
- * On-chain publicMint — mints BPUSD tokens directly via MintableToken contract.
- * User's OP_WALLET signs the TX. No server faucet needed.
- * Pattern from vibe's SwapUI.tsx (proven working).
- */
-export async function mintTokensOnChain(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown, // Address object from walletconnect
-  walletAddress: string,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { getContract, ABIDataTypes, BitcoinAbiTypes, BitcoinUtils, OP_NET_ABI } = await import('opnet');
-
-    const MINTABLE_ABI = [
-      ...OP_NET_ABI,
-      {
-        name: 'publicMint',
-        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
-        outputs: [],
-        type: BitcoinAbiTypes.Function,
-      },
-    ] as any;
-
-    const contract = getContract(
-      OPNET_CONFIG.tokenAddress,
-      MINTABLE_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const rawAmount = BitcoinUtils.expandToDecimals(OPNET_CONFIG.mintAmount, OPNET_CONFIG.tokenDecimals);
-    const sim = await withRetry(() => (contract as any).publicMint(rawAmount)) as any;
-    if (sim?.revert) return { txHash: '', success: false, error: `Mint reverted: ${sim.revert}` };
-
-    const gas = await getGasParameters(provider);
-
-    const receipt = await sim.sendTransaction({
-      refundTo: walletAddress,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-      feeRate: gas.feeRate,
-      priorityFee: gas.priorityFee,
-      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
-      signer: null,
-      mldsaSigner: null,
-    });
-
-    const txHash = receipt?.transactionId || receipt?.txid || '';
-    return { txHash, success: true };
-  } catch (err) {
-    let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC for fees.';
-    return { txHash: '', success: false, error: msg };
-  }
-}
-
-/**
  * Generate a transaction explorer URL
  */
 export function getExplorerTxUrl(txHash: string): string {
@@ -627,7 +424,7 @@ export function getExplorerAddressUrl(address: string): string {
 // ─── On-chain Vault operations (StakingVault contract) ───
 
 /**
- * Stake BPUSD on-chain via StakingVault.stake(amount).
+ * Stake WBTC on-chain via StakingVault.stake(amount).
  * Non-blocking — called after server records the stake.
  */
 export async function stakeOnChain(
@@ -674,7 +471,7 @@ export async function stakeOnChain(
 }
 
 /**
- * Unstake BPUSD on-chain via StakingVault.unstake(amount).
+ * Unstake WBTC on-chain via StakingVault.unstake(amount).
  */
 export async function unstakeOnChain(
   provider: unknown,
@@ -821,7 +618,7 @@ export async function getOnChainVaultInfo(
 /**
  * Sign a vault stake/unstake/claim proof TX.
  * Same pattern as signBetProof but with a different memo context.
- * @param amount - BPUSD amount (will be expanded to token decimals)
+ * @param amount - WBTC amount (will be expanded to token decimals)
  */
 export async function signVaultProof(
   provider: unknown,
@@ -840,218 +637,15 @@ export async function signVaultProof(
   }
 }
 
-/**
- * Buy shares on-chain via PredictionMarket.buyShares(marketId, isYes, amount).
- * Non-blocking — called after server records the bet.
- * Uses PredictionMarketAbi from contracts/abis.
- */
-export async function buySharesOnChain(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  onchainMarketId: number,
-  isYes: boolean,
-  amount: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { getContract, BitcoinUtils } = await import('opnet');
-    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
+// PredictionMarket on-chain functions removed — parimutuel model uses server-side pools
 
-    const contract = getContract(
-      OPNET_CONFIG.contractAddress,
-      PredictionMarketAbi as never,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
-    const sim = await withRetry(() =>
-      (contract as any).buyShares(BigInt(onchainMarketId), isYes, rawAmount, 0n),
-    ) as any;
-    if (sim?.revert) return { txHash: '', success: false, error: `buyShares revert: ${sim.revert}` };
-
-    const gas = await getGasParameters(provider);
-
-    const receipt = await sim.sendTransaction({
-      refundTo: walletAddress,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-      feeRate: gas.feeRate,
-      priorityFee: gas.priorityFee,
-      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
-      signer: null,
-      mldsaSigner: null,
-    });
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { txHash: '', success: false, error: msg };
-  }
-}
+// claimPayoutOnChain2 and approveForMarket removed — no PredictionMarket contract in parimutuel model
 
 /**
- * Sell shares on-chain via PredictionMarket.sellShares(marketId, isYes, shares, minPayoutOut).
- * Shares are passed as raw BigInt (same unit as contract's internal accounting).
- * Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing.
- */
-export async function sellSharesOnChain(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  onchainMarketId: number,
-  isYes: boolean,
-  shares: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { getContract } = await import('opnet');
-    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
-
-    const contract = getContract(
-      OPNET_CONFIG.contractAddress,
-      PredictionMarketAbi as never,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const sim = await withRetry(() =>
-      (contract as any).sellShares(BigInt(onchainMarketId), isYes, BigInt(shares), 0n),
-    ) as any;
-    if (sim?.revert) return { txHash: '', success: false, error: `sellShares revert: ${sim.revert}` };
-
-    const gas = await getGasParameters(provider);
-
-    const receipt = await sim.sendTransaction({
-      refundTo: walletAddress,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-      feeRate: gas.feeRate,
-      priorityFee: gas.priorityFee,
-      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
-      signer: null,
-      mldsaSigner: null,
-    });
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { txHash: '', success: false, error: msg };
-  }
-}
-
-/**
- * Claim payout on-chain via PredictionMarket.claimPayout(marketId).
- * Non-blocking — called after server records the claim.
- */
-export async function claimPayoutOnChain2(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  onchainMarketId: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    const { getContract } = await import('opnet');
-    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
-
-    const contract = getContract(
-      OPNET_CONFIG.contractAddress,
-      PredictionMarketAbi as never,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const sim = await withRetry(() =>
-      (contract as any).claimPayout(BigInt(onchainMarketId)),
-    ) as any;
-    if (sim?.revert) return { txHash: '', success: false, error: `claimPayout revert: ${sim.revert}` };
-
-    const gas = await getGasParameters(provider);
-
-    const receipt = await sim.sendTransaction({
-      refundTo: walletAddress,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-      feeRate: gas.feeRate,
-      priorityFee: gas.priorityFee,
-      // Bob: signer/mldsaSigner MUST be null on frontend — wallet handles signing
-      signer: null,
-      mldsaSigner: null,
-    });
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { txHash: '', success: false, error: msg };
-  }
-}
-
-/**
- * Approve BPUSD allowance for the PredictionMarket contract.
- * Checks current allowance first — skips TX if already sufficient.
- * Bob: OPNet uses increaseAllowance (not approve). Contract calls transferFrom internally.
- *
- * @param amount - BPUSD amount in human units (e.g. 1000 = 1000 BPUSD)
- * @returns skipped=true when existing allowance was sufficient (no TX needed)
- */
-export async function approveForMarket(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  amount: number,
-): Promise<{ txHash: string; success: boolean; error?: string; skipped?: boolean }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    // Check existing allowance — skip TX if already enough
-    const currentAllowance = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey);
-    if (currentAllowance >= amount) {
-      return { txHash: '', success: true, skipped: true };
-    }
-
-    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
-
-    const token = getContract(
-      OPNET_CONFIG.tokenAddress,
-      OP_20_ABI,
-      provider as never,
-      network as never,
-      senderAddr as never,
-    );
-
-    const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey) as any;
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
-
-    const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;
-    if (approveSim?.revert) return { txHash: '', success: false, error: `increaseAllowance revert: ${approveSim.revert}` };
-
-    const gas = await getGasParameters(provider);
-
-    const approveTx = await approveSim.sendTransaction({
-      refundTo: walletAddress,
-      maximumAllowedSatToSpend: MAX_SATS,
-      network,
-      feeRate: gas.feeRate,
-      priorityFee: gas.priorityFee,
-      signer: null,
-      mldsaSigner: null,
-    });
-    return { txHash: approveTx?.transactionId || approveTx?.txid || '', success: true };
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
- * Approve BPUSD allowance for the StakingVault contract.
+ * Approve WBTC allowance for the StakingVault contract.
  * Checks current allowance first — skips TX if already sufficient.
  *
- * @param amount - BPUSD amount in human units (e.g. 500 = 500 BPUSD)
+ * @param amount - WBTC amount in human units (e.g. 500 = 500 WBTC)
  * @returns skipped=true when existing allowance was sufficient (no TX needed)
  */
 export async function approveForVault(
@@ -1103,12 +697,12 @@ export async function approveForVault(
 }
 
 /**
- * Deposit BPUSD to Treasury contract (on-chain).
+ * Deposit WBTC to Treasury contract (on-chain).
  * Step 1: increaseAllowance for Treasury
  * Step 2: call Treasury.deposit(amount)
  * Frontend: signer=null, mldsaSigner=null (wallet handles signing).
  *
- * @param amount - BPUSD amount in human units
+ * @param amount - WBTC amount in human units
  */
 export async function depositToTreasury(
   provider: unknown,

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, mintTokensOnChain, claimPayoutOnChain2, sellSharesOnChain, signSellProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc } from '../lib/opnet';
+import { getExplorerTxUrl, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatSats as formatSatsDisplay } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -24,9 +24,7 @@ interface PortfolioProps {
 }
 
 export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
-  const [minting, setMinting] = useState(false);
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
-  const [sellingBetId, setSellingBetId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<api.PortfolioMetrics | null>(null);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
 
@@ -37,26 +35,6 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     }
   }, [walletAddress, bets.length]);
 
-  const handleMint = async () => {
-    if (minting || !walletAddress) return;
-    setMinting(true);
-    try {
-      onToast(`Minting ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol}... Sign in OP_WALLET`, 'loading');
-      const result = await mintTokensOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
-      if (result.success) {
-        onBalanceRefresh();
-        const txLink = getExplorerTxUrl(result.txHash);
-        onToast(`+${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} minted!`, 'success', txLink, 'View TX');
-      } else {
-        onToast(result.error || 'Mint failed', 'error');
-      }
-    } catch (err) {
-      onToast(err instanceof Error ? err.message : String(err), 'error');
-    } finally {
-      setMinting(false);
-    }
-  };
-
   const handleClaim = async (betId: string) => {
     if (claimingBetId || !walletAddress) return;
     const bet = bets.find(b => b.id === betId);
@@ -64,79 +42,22 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     setClaimingBetId(betId);
     let opId: number | null = null;
     try {
-      const claimCurrLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
-      opId = await trackOp('claim', undefined, `Claim ${bet.payout.toLocaleString()} ${claimCurrLabel}`, bet.marketId);
-      onToast(`Claiming ${bet.payout.toLocaleString()} ${claimCurrLabel}... Sign in OP_WALLET`, 'loading');
+      opId = await trackOp('claim', undefined, `Claim ${bet.payout.toLocaleString()} sats`, bet.marketId);
+      onToast(`Claiming ${bet.payout.toLocaleString()} sats... Sign in OP_WALLET`, 'loading');
 
-      const market = markets.find(m => m.id === bet.marketId);
-      const onchainId = market?.onchainId;
-      if (!onchainId) throw new Error('Market not found on-chain. Cannot claim.');
-      const r = await claimPayoutOnChain2(walletProvider, walletNetwork, walletAddressObj, walletAddress, onchainId);
-      if (!r.success) throw new Error(r.error || 'Claim TX failed');
+      // Sign claim proof for server verification
+      const r = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.payout);
+      if (!r.success) throw new Error(r.error || 'Claim proof signing failed');
 
       const result = await api.claimPayout(walletAddress, betId, r.txHash);
       onBalanceRefresh();
-      const claimLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : OPNET_CONFIG.tokenSymbol;
-      const txLink = getExplorerTxUrl(r.txHash);
-      onToast(`+${result.payout.toLocaleString()} ${claimLabel} claimed!`, 'success', txLink, 'View TX');
+      onToast(`+${result.payout.toLocaleString()} sats claimed!`, 'success');
       completeOp(opId, 'confirmed', r.txHash);
     } catch (err) {
       onToast(err instanceof Error ? err.message : String(err), 'error');
       completeOp(opId, 'failed');
     } finally {
       setClaimingBetId(null);
-    }
-  };
-
-  const handleSell = async (betId: string) => {
-    if (sellingBetId || !walletAddress) return;
-    const bet = bets.find(b => b.id === betId);
-    if (!bet) return;
-    const sellLabel = (bet.currency || 'bpusd') === 'btc' ? 'sats' : 'BPUSD';
-    if (!window.confirm(`Sell ${bet.shares} shares for ~${sellLabel}? (2% fee) This cannot be undone.`)) return;
-    setSellingBetId(betId);
-    let opId: number | null = null;
-    try {
-      const market = markets.find(m => m.id === bet.marketId);
-      const isOnChain = market?.onchainId && market.onchainId > 0;
-      opId = await trackOp('sell', undefined, `Sell ${bet.shares} ${bet.side.toUpperCase()} shares`, bet.marketId);
-
-      let txHash: string | undefined;
-
-      if (isOnChain) {
-        onToast('Selling shares on-chain... Sign in OP_WALLET', 'loading');
-        const r = await sellSharesOnChain(
-          walletProvider, walletNetwork, walletAddressObj, walletAddress,
-          market.onchainId!, bet.side === 'yes', bet.shares || 0,
-        );
-        if (!r.success) throw new Error(r.error || 'sellShares TX failed');
-        txHash = r.txHash;
-      } else {
-        onToast('Sign sell proof in OP_WALLET...', 'loading');
-        const proofResult = await signSellProof(
-          walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.shares || 1,
-        );
-        if (!proofResult.success) throw new Error(proofResult.error || 'Sell proof signing failed');
-        txHash = proofResult.txHash;
-      }
-
-      onToast('TX signed! Processing sell...', 'loading');
-      const result = await api.sellShares(walletAddress, betId, undefined, txHash);
-      onBalanceRefresh();
-      onBetsUpdate(bets.map(b => b.id === betId
-        ? { ...b, status: (result.remainingShares > 0 ? 'active' : 'lost') as Bet['status'], shares: result.remainingShares }
-        : b
-      ).filter(b => !(b.id === betId && result.remainingShares <= 0)));
-
-      const txLink = getExplorerTxUrl(txHash!);
-      onToast(`Sold for ${result.payout.toLocaleString()} ${sellLabel}!`, 'success', txLink, 'View TX');
-      completeOp(opId, 'confirmed', txHash);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      onToast(`Sell failed: ${msg}`, 'error');
-      completeOp(opId, 'failed');
-    } finally {
-      setSellingBetId(null);
     }
   };
 
@@ -168,26 +89,15 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
   const lostBets = bets.filter((b) => b.status === 'lost');
   const resolvedBets = [...wonBets, ...lostBets];
 
-  // PnL calculation — split by currency to avoid mixing BPUSD and sats
-  const calcPnl = (currency: 'btc' | 'bpusd') => {
-    const won = wonBets.filter(b => (b.currency || 'bpusd') === currency);
-    const lost = lostBets.filter(b => (b.currency || 'bpusd') === currency);
-    const active = activeBets.filter(b => (b.currency || 'bpusd') === currency);
-    const wonAmt = won.reduce((s, b) => s + (b.payout ?? 0), 0);
-    const wonInv = won.reduce((s, b) => s + b.amount, 0);
-    const lostAmt = lost.reduce((s, b) => s + b.amount, 0);
-    const realized = wonAmt - wonInv - lostAmt;
-    const unrealized = active.reduce((s, b) => {
-      const market = getMarket(b.marketId);
-      if (!market || !b.price) return s;
-      const cp = b.side === 'yes' ? market.yesPrice : market.noPrice;
-      return s + Math.round(b.amount * (cp / b.price - 1));
-    }, 0);
-    return { realized, unrealized, total: realized + unrealized };
-  };
-  const pnlBpusd = calcPnl('bpusd');
-  const pnlBtc = calcPnl('btc');
-  const hasBtcBets = bets.some(b => b.currency === 'btc');
+  // PnL calculation — all in sats (WBTC)
+  const wonAmt = wonBets.reduce((s, b) => s + (b.payout ?? 0), 0);
+  const wonInv = wonBets.reduce((s, b) => s + b.amount, 0);
+  const lostAmt = lostBets.reduce((s, b) => s + b.amount, 0);
+  const realizedPnl = wonAmt - wonInv - lostAmt;
+  const unrealizedPnl = activeBets.reduce((s, b) => {
+    return s + ((b.potentialPayout ?? 0) - b.amount);
+  }, 0);
+  const totalPnl = realizedPnl + unrealizedPnl;
 
   const winRate = resolvedBets.length > 0 ? (wonBets.length / resolvedBets.length) * 100 : 0;
   const avgBetSize = bets.length > 0 ? Math.round(totalInvested / bets.length) : 0;
@@ -237,23 +147,14 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         <div className="flex items-center justify-center gap-3 mt-2">
           <div className="flex items-center gap-1">
             <Coins size={14} className="text-btc" />
-            <span className="text-sm font-black text-btc">{Math.floor(onChainBalance).toLocaleString()} BPUSD</span>
+            <span className="text-sm font-black text-btc">{formatSatsDisplay(Math.floor(onChainBalance))}</span>
           </div>
           <span className="text-gray-600">|</span>
           <div className="flex items-center gap-1">
             <Coins size={14} className="text-orange-400" />
-            <span className="text-sm font-black text-orange-400">{walletBtcBalance.toLocaleString()} sats</span>
+            <span className="text-sm font-black text-orange-400">{walletBtcBalance.toLocaleString()} sats BTC</span>
           </div>
         </div>
-        <button
-          onClick={handleMint}
-          disabled={minting}
-          className="mt-3 mx-auto flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600/20 to-btc/20 border border-purple-500/30 text-sm font-bold text-white hover:border-btc/40 transition-all disabled:opacity-50"
-        >
-          {minting ? <Loader2 size={16} className="animate-spin" /> : <Coins size={16} className="text-purple-400" />}
-          {minting ? 'Minting...' : `Mint ${OPNET_CONFIG.mintAmount.toLocaleString()} ${OPNET_CONFIG.tokenSymbol} (On-Chain)`}
-        </button>
-        <p className="text-[10px] text-gray-600 mt-1">Real on-chain mint via OP_WALLET — requires BTC for gas</p>
         {walletBtcBalance > 0 && walletBtcBalance < MIN_BTC_FOR_TX && (
           <div className="mt-3 mx-auto max-w-sm p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[11px] text-red-400 font-bold text-center">
             Low BTC balance: {satsToBtc(walletBtcBalance)} BTC — need at least {satsToBtc(MIN_BTC_FOR_TX)} BTC for on-chain TXs.
@@ -262,36 +163,19 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         )}
       </div>
 
-      {/* PnL Banner — split by currency */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className={`rounded-2xl p-5 border ${pnlBpusd.total >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">BPUSD PnL</span>
-            {pnlBpusd.total >= 0 ? <TrendingUp size={16} className="text-green-400" /> : <TrendingDown size={16} className="text-red-400" />}
-          </div>
-          <div className={`text-2xl font-black ${pnlBpusd.total >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {pnlBpusd.total >= 0 ? '+' : ''}{pnlBpusd.total.toLocaleString()} BPUSD
-          </div>
-          <div className="flex gap-4 mt-2">
-            <span className="text-[10px] text-gray-500">Realized: <span className={pnlBpusd.realized >= 0 ? 'text-green-400' : 'text-red-400'}>{pnlBpusd.realized >= 0 ? '+' : ''}{formatSats(pnlBpusd.realized)}</span></span>
-            <span className="text-[10px] text-gray-500">Unrealized: <span className={pnlBpusd.unrealized >= 0 ? 'text-green-400' : 'text-red-400'}>{pnlBpusd.unrealized >= 0 ? '+' : ''}{formatSats(pnlBpusd.unrealized)}</span></span>
-          </div>
+      {/* PnL Banner */}
+      <div className={`rounded-2xl p-5 border ${totalPnl >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total PnL</span>
+          {totalPnl >= 0 ? <TrendingUp size={16} className="text-green-400" /> : <TrendingDown size={16} className="text-red-400" />}
         </div>
-        {hasBtcBets && (
-          <div className={`rounded-2xl p-5 border ${pnlBtc.total >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">BTC PnL</span>
-              {pnlBtc.total >= 0 ? <TrendingUp size={16} className="text-green-400" /> : <TrendingDown size={16} className="text-red-400" />}
-            </div>
-            <div className={`text-2xl font-black ${pnlBtc.total >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {pnlBtc.total >= 0 ? '+' : ''}{pnlBtc.total.toLocaleString()} sats
-            </div>
-            <div className="flex gap-4 mt-2">
-              <span className="text-[10px] text-gray-500">Realized: <span className={pnlBtc.realized >= 0 ? 'text-green-400' : 'text-red-400'}>{pnlBtc.realized >= 0 ? '+' : ''}{formatSats(pnlBtc.realized)}</span></span>
-              <span className="text-[10px] text-gray-500">Unrealized: <span className={pnlBtc.unrealized >= 0 ? 'text-green-400' : 'text-red-400'}>{pnlBtc.unrealized >= 0 ? '+' : ''}{formatSats(pnlBtc.unrealized)}</span></span>
-            </div>
-          </div>
-        )}
+        <div className={`text-2xl font-black ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {totalPnl >= 0 ? '+' : ''}{formatSats(totalPnl)} sats
+        </div>
+        <div className="flex gap-4 mt-2">
+          <span className="text-[10px] text-gray-500">Realized: <span className={realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}>{realizedPnl >= 0 ? '+' : ''}{formatSats(realizedPnl)}</span></span>
+          <span className="text-[10px] text-gray-500">Unrealized: <span className={unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}>{unrealizedPnl >= 0 ? '+' : ''}{formatSats(unrealizedPnl)}</span></span>
+        </div>
       </div>
 
       {/* P&L Chart + Streak + ROI */}
@@ -328,7 +212,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
               <Tooltip
                 contentStyle={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '11px' }}
                 labelStyle={{ color: '#9ca3af' }}
-                formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${Number(v).toLocaleString()} BPUSD`, 'P&L']}
+                formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${Number(v).toLocaleString()} sats`, 'P&L']}
               />
               <Area
                 type="monotone"
@@ -490,10 +374,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
                         }`}>
                           {bet.side}
                         </span>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${bet.currency === 'btc' ? 'bg-orange-500/10 text-orange-400' : 'bg-btc/10 text-btc'}`}>
-                          {bet.currency === 'btc' ? 'BTC' : 'BPUSD'}
-                        </span>
-                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} {bet.currency === 'btc' ? 'sats' : 'BPUSD'} @ {Math.round(bet.price * 100)}¢</span>
+                        <span className="text-[10px] text-gray-500">{bet.amount.toLocaleString()} sats @ {Math.round(bet.price * 100)}%</span>
                         {bet.status === 'active' && (
                           <span className={`text-[10px] font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {priceDelta >= 0 ? '+' : ''}{priceDelta.toFixed(1)}%
@@ -517,7 +398,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
                         </span>
                       </div>
                       {(bet.status === 'won' || bet.status === 'claimable') && (bet.payout ?? 0) > 0 && (
-                        <span className="text-[10px] font-bold text-green-400">+{(bet.payout ?? 0).toLocaleString()} {bet.currency === 'btc' ? 'sats' : 'BPUSD'}</span>
+                        <span className="text-[10px] font-bold text-green-400">+{(bet.payout ?? 0).toLocaleString()} sats</span>
                       )}
                       {bet.status === 'claimable' && (bet.payout ?? 0) > 0 && (
                         <button
@@ -529,15 +410,10 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
                           {claimingBetId === bet.id ? 'Claiming...' : 'Claim'}
                         </button>
                       )}
-                      {bet.status === 'active' && (bet.shares ?? 0) > 0 && (
-                        <button
-                          onClick={() => handleSell(bet.id)}
-                          disabled={!!sellingBetId}
-                          className="mt-1 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-blue-600/30 to-purple-600/30 border border-blue-500/40 text-[10px] font-bold text-blue-300 hover:border-blue-400/60 transition-all disabled:opacity-50"
-                        >
-                          {sellingBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <TrendingDown size={10} />}
-                          {sellingBetId === bet.id ? 'Selling...' : `Sell ${bet.shares} shares`}
-                        </button>
+                      {bet.status === 'active' && (bet.potentialPayout ?? 0) > 0 && (
+                        <span className="text-[10px] font-bold text-blue-400">
+                          Potential: {(bet.potentialPayout ?? 0).toLocaleString()} sats
+                        </span>
                       )}
                       {bet.status === 'won' && (bet.payout ?? 0) > 0 && (
                         <span className="text-[9px] text-green-500 font-bold flex items-center gap-0.5">

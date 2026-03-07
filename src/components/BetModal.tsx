@@ -1,29 +1,27 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, AlertCircle, Zap, Info, BrainCircuit, Loader2, MessageCircle, Send, TrendingUp } from 'lucide-react';
 import type { Market, WalletState } from '../types';
-import { calculateShares, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT } from '../lib/opnet';
+import { formatSats, BET_FEE_PCT } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface BetModalProps {
   market: Market;
   wallet: WalletState;
-  onChainBalance: number; // real BPUSD from on-chain balanceOf
-  btcPrice?: number; // real BTC/USD price for dynamic rate
+  onChainBalance: number; // WBTC balance in sats
   onClose: () => void;
-  onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd') => void;
+  onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number) => void;
 }
 
 // Bob AI signal cache
 const signalCache = new Map<string, { signal: string; ts: number }>();
 const SIGNAL_TTL = 300000; // 5 min
 
-export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose, onPlaceBet }: BetModalProps) {
+export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }: BetModalProps) {
   const isMultiOutcome = !!(market.outcomes && market.outcomes.length > 1);
   const [side, setSide] = useState<'yes' | 'no'>('yes');
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
-  const [amount, setAmount] = useState('1000');
+  const [amount, setAmount] = useState('25000');
   const [placing, setPlacing] = useState(false);
-  const [currency, setCurrency] = useState<'btc' | 'bpusd'>('bpusd');
   const [showDetails, setShowDetails] = useState(false);
   const [bobSignal, setBobSignal] = useState<string | null>(null);
   const [loadingSignal, setLoadingSignal] = useState(false);
@@ -35,7 +33,6 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
 
   // For multi-outcome, the active market is the selected outcome's sub-market
   const activeMarketId = isMultiOutcome ? (market.outcomes![selectedOutcome]?.marketId || market.id) : market.id;
-  const activePrice = isMultiOutcome ? (market.outcomes![selectedOutcome]?.price || 0.5) : (side === 'yes' ? market.yesPrice : market.noPrice);
 
   // Fetch Bob AI signal when modal opens
   useEffect(() => {
@@ -88,43 +85,39 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
   const signalBg = signalType === 'bullish' ? 'bg-green-500/10 border-green-500/20' : signalType === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
 
   const amountNum = parseInt(amount) || 0;
-  // Dynamic rate: 1 BPUSD = $1, satsPerBpusd = 100M / btcPriceUSD
-  const dynamicSatsPerBpusd = btcPrice > 0 ? Math.round(100_000_000 / btcPrice) : SATS_PER_BPUSD;
-  const feePct = currency === 'btc' ? BTC_BET_FEE_PCT : BPUSD_BET_FEE_PCT;
-  // For BTC bets: amount is in BPUSD, total cost is in sats (amount * satsPerBpusd * (1+fee))
-  const btcCostSats = currency === 'btc' ? Math.ceil(amountNum * dynamicSatsPerBpusd * (1 + BTC_BET_FEE_PCT)) : 0;
-  const feeAmount = currency === 'btc' ? Math.ceil(amountNum * dynamicSatsPerBpusd * BTC_BET_FEE_PCT) : Math.ceil(amountNum * BPUSD_BET_FEE_PCT);
-  const totalCharge = currency === 'btc' ? btcCostSats : amountNum + feeAmount;
-  const activeBalance = currency === 'btc' ? wallet.balanceSats : Math.floor(onChainBalance);
-  const currLabel = currency === 'btc' ? 'sats' : 'BPUSD';
-  const rawSum = market.yesPrice + market.noPrice;
-  const yesPct = rawSum > 0 ? Math.round((market.yesPrice / rawSum) * 100) : 50;
+
+  // Parimutuel calculations
+  const yesPool = market.yesPool || 0;
+  const noPool = market.noPool || 0;
+  const totalPool = yesPool + noPool;
+  const yesPct = totalPool > 0 ? Math.round((yesPool / totalPool) * 100) : 50;
   const noPct = 100 - yesPct;
 
-  // Real AMM calculation using constant-product formula with actual pool data
-  const ammResult = useMemo(() => {
-    if (amountNum <= 0) return null;
-    const yesReserve = BigInt(market.yesPool || Math.round(1_000_000 * (1 - market.yesPrice)));
-    const noReserve = BigInt(market.noPool || Math.round(1_000_000 * market.yesPrice));
-    return calculateShares(BigInt(amountNum), isMultiOutcome ? true : side === 'yes', yesReserve, noReserve);
-  }, [amountNum, side, market.yesPrice, market.yesPool, market.noPool, isMultiOutcome, selectedOutcome]);
+  // Fee from bet amount
+  const fee = Math.ceil(amountNum * BET_FEE_PCT);
+  const netBet = amountNum - fee;
 
-  const price = activePrice;
-  const potentialPayout = amountNum > 0 && price > 0 ? Math.round(amountNum / price) : 0;
+  // Potential payout at current odds (changes with every new bet)
+  const currentSidePool = (isMultiOutcome ? true : side === 'yes') ? yesPool : noPool;
+  const newSidePool = currentSidePool + netBet;
+  const newTotalPool = totalPool + netBet;
+  const potentialPayout = newSidePool > 0 ? Math.floor((netBet / newSidePool) * newTotalPool) : 0;
   const potentialProfit = potentialPayout - amountNum;
-  const priceImpact = ammResult
-    ? Math.abs((side === 'yes' ? ammResult.newYesPrice : ammResult.newNoPrice) - price) / price * 100
-    : 0;
+  const multiplier = amountNum > 0 ? (potentialPayout / amountNum).toFixed(2) : '0.00';
 
-  const insufficientBalance = totalCharge > activeBalance;
+  const isEmptyPool = totalPool === 0;
+  const isOneSided = totalPool > 0 && (yesPool === 0 || noPool === 0);
 
-  const canPlace = wallet.connected && amountNum >= 100 && !placing && !insufficientBalance;
+  const activeBalance = Math.floor(onChainBalance);
+  const insufficientBalance = amountNum > activeBalance;
+  const MIN_BET = 10000;
+  const canPlace = wallet.connected && amountNum >= MIN_BET && !placing && !insufficientBalance;
 
   const handlePlace = async () => {
     if (!canPlace) return;
     setPlacing(true);
     try {
-      await onPlaceBet(activeMarketId, isMultiOutcome ? 'yes' : side, amountNum, currency);
+      await onPlaceBet(activeMarketId, isMultiOutcome ? 'yes' : side, amountNum);
       onClose();
     } catch {
       // Error toast is shown by App.tsx — keep modal open so user can retry
@@ -133,7 +126,7 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
     }
   };
 
-  const presets = [100, 250, 500, 1000]; // Always BPUSD amounts
+  const presets = [10_000, 25_000, 50_000, 100_000];
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
@@ -148,30 +141,6 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
         <div className="mb-5">
           <span className="text-[10px] font-bold uppercase tracking-wider text-btc">{market.category}</span>
           <h3 className="text-base font-bold text-white mt-1 pr-8">{market.question}</h3>
-        </div>
-
-        {/* Currency toggle */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => { setCurrency('bpusd'); setAmount(String(presets[1] || 250)); }}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
-              currency === 'bpusd'
-                ? 'border-btc bg-btc/10 text-btc'
-                : 'border-white/5 bg-surface-2 text-gray-500 hover:border-white/10'
-            }`}
-          >
-            BPUSD <span className="text-[10px] opacity-60">2% fee</span>
-          </button>
-          <button
-            onClick={() => { setCurrency('btc'); setAmount(String(100)); }}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
-              currency === 'btc'
-                ? 'border-orange-500 bg-orange-500/10 text-orange-400'
-                : 'border-white/5 bg-surface-2 text-gray-500 hover:border-white/10'
-            }`}
-          >
-            BTC → BPUSD <span className="text-[10px] opacity-60">5% fee · auto-convert</span>
-          </button>
         </div>
 
         {/* Bob AI Signal */}
@@ -242,7 +211,7 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
                 }`}
               >
                 <div className={`text-2xl font-black ${side === 'yes' ? 'text-green-400' : 'text-gray-500'}`}>YES</div>
-                <div className="text-xs text-gray-400 mt-1">{yesPct}¢ per share</div>
+                <div className="text-xs text-gray-400 mt-1">{yesPct}% odds</div>
               </button>
               <button
                 onClick={() => setSide('no')}
@@ -253,7 +222,7 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
                 }`}
               >
                 <div className={`text-2xl font-black ${side === 'no' ? 'text-red-400' : 'text-gray-500'}`}>NO</div>
-                <div className="text-xs text-gray-400 mt-1">{noPct}¢ per share</div>
+                <div className="text-xs text-gray-400 mt-1">{noPct}% odds</div>
               </button>
             </div>
           </>
@@ -262,14 +231,14 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
         {/* Amount */}
         <div className="mb-4">
           <label className="text-xs font-semibold text-gray-400 mb-2 block">
-            Amount (BPUSD) — {currency === 'btc' ? `Wallet: ${activeBalance.toLocaleString()} sats` : `Balance: ${activeBalance.toLocaleString()} BPUSD`}
+            Amount (sats) — Balance: {formatSats(activeBalance)}
           </label>
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             className="w-full bg-surface-2 border border-white/5 rounded-xl px-4 py-3 text-white text-lg font-bold focus:border-btc/50 focus:outline-none transition-colors"
-            placeholder={`Enter amount in ${currLabel}`}
+            placeholder="Enter amount in sats"
           />
           <div className="flex gap-2 mt-2">
             {presets.map((p) => (
@@ -282,97 +251,90 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
                     : 'bg-surface-2 text-gray-500 border border-white/5 hover:text-white hover:scale-105 hover:border-white/10 active:scale-95'
                 }`}
               >
-                {p >= 1000 ? `${p / 1000}K` : p}
+                {p >= 1_000_000 ? `${p / 1_000_000}M` : p >= 1000 ? `${p / 1000}K` : p}
               </button>
             ))}
           </div>
         </div>
 
+        {/* Empty pool notice */}
+        {isEmptyPool && amountNum > 0 && (
+          <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
+            <Info size={16} className="text-blue-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-blue-300">Be the first! You're betting against future participants. Odds will update as others join.</p>
+          </div>
+        )}
+
+        {/* One-sided pool notice */}
+        {isOneSided && amountNum > 0 && (
+          <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 mb-4">
+            <Info size={16} className="text-yellow-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-yellow-300">Pool is one-sided. If no one bets the other side by resolution, all bets are refunded (minus fee).</p>
+          </div>
+        )}
+
         {/* Summary */}
         {amountNum > 0 && (
           <div className="bg-surface-2 rounded-xl p-4 mb-5 space-y-2">
-            {currency === 'btc' && (
-              <div className="flex justify-between items-center py-1.5 px-3 -mx-1 rounded-lg bg-orange-500/10 border border-orange-500/20 mb-1">
-                <span className="text-xs text-orange-300 font-bold">You pay (BTC)</span>
-                <span className="text-base text-orange-400 font-black">{btcCostSats.toLocaleString()} sats</span>
-              </div>
-            )}
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Bet amount</span>
-              <span className="text-white font-bold">{amountNum.toLocaleString()} BPUSD</span>
+              <span className="text-white font-bold">{formatSats(amountNum)}</span>
             </div>
-            {currency === 'btc' && (
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Rate: {dynamicSatsPerBpusd.toLocaleString()} sats/BPUSD{btcPrice > 0 ? ` ($${btcPrice.toLocaleString()})` : ''}</span>
-                <span className="text-gray-400 font-medium">{(amountNum * dynamicSatsPerBpusd).toLocaleString()} sats</span>
-              </div>
-            )}
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Fee ({Math.round(feePct * 100)}%)</span>
-              <span className="text-gray-400 font-medium">+{feeAmount.toLocaleString()} {currLabel}</span>
+              <span className="text-gray-500">Fee (3%)</span>
+              <span className="text-gray-400 font-medium">-{formatSats(fee)}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">Net amount in pool</span>
+              <span className="text-white font-bold">{formatSats(netBet)}</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-1">
-              <span className="text-gray-500">Total charge</span>
-              <span className="text-white font-bold">{totalCharge.toLocaleString()} {currLabel}</span>
-            </div>
-            {ammResult && (
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Shares received</span>
-                <span className="text-white font-bold">{Number(ammResult.shares).toLocaleString()}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-xs">
               <span className="text-gray-500">Potential payout</span>
-              <span className="text-white font-bold">{potentialPayout.toLocaleString()} {currLabel}</span>
+              <span className="text-white font-bold">{formatSats(potentialPayout)} ({multiplier}x)</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-2">
               <span className="text-gray-500">Potential profit</span>
-              <span className="text-green-400 font-bold">+{potentialProfit.toLocaleString()} {currLabel}</span>
+              <span className={`font-bold ${potentialProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {potentialProfit > 0 ? '+' : ''}{formatSats(potentialProfit)}
+              </span>
             </div>
 
-            {/* AMM Details toggle */}
+            {/* Parimutuel details toggle */}
             <button
               onClick={() => setShowDetails(!showDetails)}
               className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-btc transition-colors pt-1"
             >
               <Info size={10} />
-              {showDetails ? 'Hide' : 'Show'} AMM details
+              {showDetails ? 'Hide' : 'Show'} pool details
             </button>
 
             {showDetails && (
               <div className="space-y-1.5 pt-1 border-t border-white/5">
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600">Price impact</span>
-                  <span className={`font-bold ${priceImpact > 5 ? 'text-red-400' : priceImpact > 1 ? 'text-yellow-400' : 'text-green-400'}`}>
-                    {priceImpact.toFixed(2)}%
-                  </span>
+                  <span className="text-gray-600">YES pool</span>
+                  <span className="text-gray-400 font-medium">{formatSats(yesPool)}</span>
                 </div>
-                {ammResult && (
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-gray-600">New {side.toUpperCase()} price</span>
-                    <span className="text-gray-400 font-medium">
-                      {Math.round((side === 'yes' ? ammResult.newYesPrice : ammResult.newNoPrice) * 100)}¢
-                    </span>
-                  </div>
-                )}
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600">AMM model</span>
-                  <span className="text-gray-400 font-medium">Constant Product (x·y=k)</span>
+                  <span className="text-gray-600">NO pool</span>
+                  <span className="text-gray-400 font-medium">{formatSats(noPool)}</span>
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-gray-600">Total pool</span>
+                  <span className="text-gray-400 font-medium">{formatSats(totalPool)}</span>
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-gray-600">Model</span>
+                  <span className="text-gray-400 font-medium">Parimutuel</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-600">Settlement</span>
                   <span className="text-gray-400 font-medium">Bitcoin L1 (OP_NET)</span>
                 </div>
+                <p className="text-[9px] text-gray-600 pt-1">
+                  Odds change with every new bet. Final payout depends on pool sizes at resolution.
+                </p>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Price impact warning */}
-        {priceImpact > 5 && amountNum > 0 && (
-          <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
-            <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-red-400">High price impact ({priceImpact.toFixed(1)}%). Consider a smaller trade.</p>
           </div>
         )}
 
@@ -388,8 +350,8 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
           <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
             <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
             <p className="text-xs text-red-400">
-              Insufficient {currLabel}: {activeBalance.toLocaleString()} (need {totalCharge.toLocaleString()})
-              {currency === 'btc' && ' — get BTC for gas'}
+              Insufficient balance: {formatSats(activeBalance)} (need {formatSats(amountNum)}).
+              Get WBTC on <a href="https://motoswap.org" target="_blank" rel="noopener" className="underline">MotoSwap</a>.
             </p>
           </div>
         )}
@@ -411,16 +373,16 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
             </>
           ) : !wallet.connected ? (
             'Connect Wallet First'
-          ) : amountNum < 100 ? (
-            `Minimum bet: 100 ${currLabel}`
+          ) : amountNum < MIN_BET ? (
+            `Minimum bet: ${formatSats(MIN_BET)}`
           ) : insufficientBalance ? (
-            `Insufficient ${currLabel} (${activeBalance.toLocaleString()} ${currLabel})`
+            `Insufficient WBTC (${formatSats(activeBalance)})`
           ) : (
             <>
               <Zap size={16} />
               {isMultiOutcome
-                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${amountNum.toLocaleString()} BPUSD${currency === 'btc' ? ` (${btcCostSats.toLocaleString()} sats)` : ''}`
-                : `Place ${side.toUpperCase()} — ${amountNum.toLocaleString()} BPUSD${currency === 'btc' ? ` (${btcCostSats.toLocaleString()} sats)` : ''}`}
+                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${formatSats(amountNum)}`
+                : `Place ${side.toUpperCase()} — ${formatSats(amountNum)}`}
             </>
           )}
         </button>
@@ -481,7 +443,7 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
                     {item.type === 'bet' ? (
                       <span className="text-[10px] text-gray-400">
                         <span className="text-white font-bold">{item.address?.slice(0, 10)}...</span>
-                        {' '}bet {item.amount?.toLocaleString()} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side?.toUpperCase()}</span>
+                        {' '}bet {item.amount ? formatSats(item.amount) : '?'} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side?.toUpperCase()}</span>
                       </span>
                     ) : (
                       <div>
@@ -500,7 +462,7 @@ export function BetModal({ market, wallet, onChainBalance, btcPrice = 0, onClose
         )}
 
         <p className="text-[10px] text-gray-600 text-center mt-3">
-          Powered by OP_NET · Bitcoin Layer 1 · Real on-chain transactions
+          Powered by OP_NET · Bitcoin Layer 1 · Parimutuel betting
         </p>
       </div>
     </div>

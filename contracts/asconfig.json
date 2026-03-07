@@ -1,25 +1,5 @@
 {
     "targets": {
-        "debug": {
-            "outFile": "build/PredictionMarket.wasm",
-            "textFile": "build/PredictionMarket.wat",
-            "use": ["abort=src/index/abort"]
-        },
-        "release": {
-            "outFile": "build/PredictionMarket.wasm",
-            "textFile": "build/PredictionMarket.wat",
-            "use": ["abort=src/index/abort"]
-        },
-        "pred-debug": {
-            "outFile": "build/PredToken.wasm",
-            "textFile": "build/PredToken.wat",
-            "use": ["abort=src/pred-index/abort"]
-        },
-        "pred-release": {
-            "outFile": "build/PredToken.wasm",
-            "textFile": "build/PredToken.wat",
-            "use": ["abort=src/pred-index/abort"]
-        },
         "vault-debug": {
             "outFile": "build/StakingVault.wasm",
             "textFile": "build/StakingVault.wat",

@@ -22,8 +22,8 @@ export function ProtocolStats() {
   };
 
   const items = [
-    { label: 'TVL', value: `${fmt(stats.tvl)} BPUSD`, icon: <Layers size={14} />, color: 'text-btc' },
-    { label: '24h Volume', value: `${fmt(stats.volume24h)} BPUSD`, icon: <TrendingUp size={14} />, color: 'text-green-400' },
+    { label: 'TVL', value: `${fmt(stats.tvl)} sats`, icon: <Layers size={14} />, color: 'text-btc' },
+    { label: '24h Volume', value: `${fmt(stats.volume24h)} sats`, icon: <TrendingUp size={14} />, color: 'text-green-400' },
     { label: 'Total Bets', value: fmt(stats.totalBets), icon: <BarChart3 size={14} />, color: 'text-purple-400' },
     { label: 'Traders', value: fmt(stats.uniqueUsers), icon: <Users size={14} />, color: 'text-blue-400' },
     { label: 'Active Markets', value: String(stats.totalMarkets), icon: <Activity size={14} />, color: 'text-yellow-400' },

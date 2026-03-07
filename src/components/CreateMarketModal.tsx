@@ -114,10 +114,10 @@ export function CreateMarketModal({ walletAddress, balance, onClose, onCreated }
                 className="w-full bg-surface-2 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-btc/50 focus:outline-none"
                 min={500}
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">BPUSD</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">sats</span>
             </div>
             <div className="flex justify-between mt-1">
-              <span className="text-[10px] text-gray-600">Min: 500 BPUSD</span>
+              <span className="text-[10px] text-gray-600">Min: 500 sats</span>
               <span className="text-[10px] text-gray-500">Balance: {balance.toLocaleString()}</span>
             </div>
             <div className="flex gap-2 mt-2">
@@ -149,7 +149,7 @@ export function CreateMarketModal({ walletAddress, balance, onClose, onCreated }
             {creating ? (
               <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating...</>
             ) : (
-              <><Zap size={16} /> Create Market — {liqNum.toLocaleString()} BPUSD</>
+              <><Zap size={16} /> Create Market</>
             )}
           </button>
         </div>

@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signRewardClaimProof, signBetAmountProof, buySharesOnChain, mintBpusdWithBtc, getOnChainBpusdBalance, approveForMarket, approveForVault, waitForTxConfirmation, SATS_PER_BPUSD, BTC_BET_FEE_PCT, BPUSD_BET_FEE_PCT, OPNET_CONFIG } from './lib/opnet';
+import { signRewardClaimProof, signBetAmountProof, getOnChainWbtcBalance, approveForVault, waitForTxConfirmation, OPNET_CONFIG, formatSats } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -35,10 +35,9 @@ function App() {
   const [bets, setBets] = useState<Bet[]>([]);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
-  const [onChainBalance, setOnChainBalance] = useState(0); // BPUSD from on-chain balanceOf
+  const [onChainBalance, setOnChainBalance] = useState(0); // WBTC balance from on-chain balanceOf (in sats)
   const [backedBalance, setBackedBalance] = useState(0); // Backed balance (withdrawable)
   const [serverBalance, setServerBalance] = useState(0); // Total server balance
-  const [btcPrice, setBtcPrice] = useState(0); // Real BTC/USD price for rate calculation
   const { toasts, addToast, removeToast } = useToasts();
   const [showCreateMarket, setShowCreateMarket] = useState(false);
   const [opsRefreshKey, setOpsRefreshKey] = useState(0);
@@ -99,14 +98,6 @@ function App() {
     });
   }, []);
 
-  // Fetch real BTC price for BTC→BPUSD rate calculation
-  useEffect(() => {
-    const fetchBtcPrice = () => api.getPrices().then(p => { if (p.btc > 0) setBtcPrice(p.btc); }).catch(() => {});
-    fetchBtcPrice();
-    const iv = setInterval(fetchBtcPrice, 60000); // refresh every 60s
-    return () => clearInterval(iv);
-  }, []);
-
   // Load markets from server
   useEffect(() => {
     if (marketsLoaded.current) return;
@@ -163,12 +154,12 @@ function App() {
           question: b.question,
           side: b.side,
           amount: b.amount,
+          netAmount: b.netAmount,
           price: b.price,
           timestamp: b.timestamp,
           status: b.status === 'cancelled' ? 'lost' as const : b.status as Bet['status'],
           payout: b.payout,
-          shares: b.shares,
-          currency: b.currency || 'bpusd',
+          potentialPayout: b.potentialPayout,
         })));
       }).catch(() => {});
     };
@@ -177,13 +168,13 @@ function App() {
     return () => clearInterval(iv);
   }, [wallet.connected, wallet.address, signerReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch on-chain BPUSD balance (real token balance from contract)
+  // Fetch on-chain WBTC balance (real token balance from contract)
   // Retries on initial load because wallet SDK provider may not be ready immediately after reconnect
   useEffect(() => {
     if (!wallet.connected || !provider || !addressObj) return;
     let cancelled = false;
     const fetchBalance = () => {
-      getOnChainBpusdBalance(provider, walletNetwork, addressObj)
+      getOnChainWbtcBalance(provider, walletNetwork, addressObj)
         .then((b) => { if (!cancelled) setOnChainBalance(b); })
         .catch(() => {});
     };
@@ -267,7 +258,7 @@ function App() {
     return list;
   }, [markets, category, search, sortBy, favorites]);
 
-  const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number, currency: 'btc' | 'bpusd' = 'bpusd') => {
+  const handlePlaceBet = useCallback(async (marketId: string, side: 'yes' | 'no', amount: number) => {
     let market = markets.find((m) => m.id === marketId);
     if (!market) {
       market = markets.find((m) => m.outcomes?.some((o) => o.marketId === marketId));
@@ -282,89 +273,36 @@ function App() {
       id: pendingId, marketId, side, amount,
       price: side === 'yes' ? market.yesPrice : market.noPrice,
       timestamp: Date.now(), status: 'pending',
-      currency,
     };
     setBets((prev) => [pendingBet, ...prev]);
 
     let opId: number | null = null;
     try {
-      let txHash = '';
-      const hasOnchain = market.onchainId && market.onchainId > 0;
-      opId = await trackOp('buy', undefined, `${side.toUpperCase()} ${amount} ${currency === 'btc' ? 'sats' : 'BPUSD'}`, marketId);
+      opId = await trackOp('buy', undefined, `${side.toUpperCase()} ${formatSats(amount)}`, marketId);
 
-      if (currency === 'btc') {
-        // BTC bet: always popup #1 — mint BPUSD + send BTC to treasury
-        // Dynamic rate: 1 BPUSD = $1, so satsPerBpusd = 100M / btcPriceUSD
-        const dynamicSatsPerBpusd = btcPrice > 0 ? Math.round(100_000_000 / btcPrice) : SATS_PER_BPUSD;
-        const btcCostSats = Math.ceil(amount * dynamicSatsPerBpusd * (1 + BTC_BET_FEE_PCT));
-        addToast(`${hasOnchain ? 'Step 1/2: ' : ''}Mint ${amount} BPUSD + send ${btcCostSats.toLocaleString()} sats... Sign in OP_WALLET`, 'loading');
-        const mintResult = await mintBpusdWithBtc(provider, walletNetwork, addressObj, wallet.address, amount, btcCostSats);
-        if (!mintResult.success) throw new Error(mintResult.error || 'BTC→BPUSD conversion failed');
-        txHash = mintResult.txHash;
-
-        // If market is on-chain — approve (if needed) then buyShares
-        if (hasOnchain) {
-          addToast('Checking allowance...', 'loading');
-          const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
-          if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
-
-          if (!approveResult.skipped) {
-            addToast('Waiting for approval confirmation...', 'loading');
-            const apConf = await waitForTxConfirmation(provider, approveResult.txHash);
-            if (!apConf.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
-          }
-
-          addToast(`${approveResult.skipped ? '' : 'Approved! '}Placing bet on-chain... Sign in OP_WALLET`, 'loading');
-          const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
-          if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
-          txHash = buyResult.txHash;
-        }
-      } else {
-        // BPUSD bet
-        if (hasOnchain) {
-          // On-chain market: check allowance → approve if needed → buyShares
-          addToast('Checking allowance...', 'loading');
-          const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
-          if (!approveResult.success) throw new Error(approveResult.error || 'BPUSD approval failed');
-
-          if (!approveResult.skipped) {
-            addToast('Waiting for approval confirmation...', 'loading');
-            const apConf = await waitForTxConfirmation(provider, approveResult.txHash);
-            if (!apConf.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
-          }
-
-          addToast(`${approveResult.skipped ? '' : 'Approved! '}Buying shares on-chain... Sign in OP_WALLET`, 'loading');
-          const buyResult = await buySharesOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
-          if (!buyResult.success) throw new Error(buyResult.error || 'buyShares failed');
-          txHash = buyResult.txHash;
-        } else {
-          // Off-chain market: sign proof TX (1 popup)
-          addToast('Sign bet proof in OP_WALLET...', 'loading');
-          const proofResult = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
-          if (!proofResult.success) throw new Error(proofResult.error || 'Bet proof signing failed');
-          txHash = proofResult.txHash;
-        }
-      }
+      // Parimutuel: single wallet popup — sign bet proof
+      addToast('Sign bet proof in OP_WALLET...', 'loading');
+      const proofResult = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
+      if (!proofResult.success) throw new Error(proofResult.error || 'Bet proof signing failed');
+      const txHash = proofResult.txHash;
 
       addToast('TX signed! Recording bet...', 'loading');
 
-      // Ensure we have valid auth before server call
       await ensureAuth();
 
-      // Send txHash to server — server records bet + AMM calc
-      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txHash, currency);
+      // Send txHash to server — server records parimutuel bet
+      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txHash);
 
-      // Refresh on-chain BPUSD balance
-      getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
-      // Refresh wallet BTC balance
+      // Refresh on-chain WBTC balance
+      getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
       refreshBalance(wallet.address);
 
       const confirmedBet: Bet = {
         id: result.betId, marketId, side, amount,
+        netAmount: result.netAmount,
         price: side === 'yes' ? market.yesPrice : market.noPrice,
         timestamp: Date.now(), status: 'active',
-        shares: result.shares, txHash,
-        currency,
+        txHash,
       };
       setBets((prev) => prev.map((b) => b.id === pendingId ? confirmedBet : b));
       setMarkets((prev) => prev.map((m) =>
@@ -537,7 +475,7 @@ function App() {
             backedBalance={backedBalance}
             onConnect={connectOPWallet}
             onBalanceRefresh={() => {
-              getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
+              getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
               api.getBalance(wallet.address).then(b => { setServerBalance(b.balance); setBackedBalance(b.backedBalance); }).catch(() => {});
             }}
             onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
@@ -551,7 +489,7 @@ function App() {
             walletBtcBalance={wallet.balanceSats}
             onChainBalance={onChainBalance}
             onConnect={connectOPWallet}
-            onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
+            onBalanceRefresh={() => getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
             trackOp={trackOp}
             completeOp={completeOp}
@@ -571,7 +509,7 @@ function App() {
             walletAddress={wallet.address}
             walletBtcBalance={wallet.balanceSats}
             onConnect={connectOPWallet}
-            onBalanceRefresh={() => getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
+            onBalanceRefresh={() => getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onBetsUpdate={setBets}
             onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
             trackOp={trackOp}
@@ -601,7 +539,7 @@ function App() {
               // Server-side claim (amount is now controlled by server)
               await achievements.claimReward(wallet.address, rewardId, rewardType);
               // Refresh on-chain balance
-              getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
+              getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
             }}
           />
         )}
@@ -637,7 +575,6 @@ function App() {
           market={selectedMarket}
           wallet={wallet}
           onChainBalance={onChainBalance}
-          btcPrice={btcPrice}
           onClose={() => setSelectedMarket(null)}
           onPlaceBet={handlePlaceBet}
         />
@@ -650,7 +587,7 @@ function App() {
           balance={serverBalance || onChainBalance}
           onClose={() => setShowCreateMarket(false)}
           onCreated={(marketId, _newBalance) => {
-            getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
+            getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
             setShowCreateMarket(false);
             addToast(`Market created! ID: ${marketId.slice(0, 20)}...`, 'success');
             api.getMarkets().then(setMarkets).catch(() => {});

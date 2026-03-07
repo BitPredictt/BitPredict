@@ -72,8 +72,14 @@ console.log(`\nUsing WASM: ${wasmPath}`);
 const bytecode = new Uint8Array(readFileSync(wasmPath));
 console.log(`  Bytecode: ${bytecode.length} bytes`);
 
-// No calldata needed — onDeployment sets admin to tx.origin, zeros everything else
-const calldata = new Uint8Array(0);
+// WBTC token address for the vault to use
+const WBTC_ADDRESS = process.env.WBTC_ADDRESS || '';
+
+// Calldata: WBTC token address for StakingVault
+import { BinaryWriter } from './node_modules/@btc-vision/transaction/build/index.js';
+const calldataWriter = new BinaryWriter();
+calldataWriter.writeString(WBTC_ADDRESS);
+const calldata = new Uint8Array(calldataWriter.getBuffer());
 
 const challenge = await getChallenge();
 

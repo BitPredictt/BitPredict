@@ -4,7 +4,7 @@
  * Usage: OPNET_MNEMONIC="12 words..." node deploy/deploy-treasury.mjs
  * Or reads from ../.opnet_seed
  *
- * Requires: BPUSD token address + server ML-DSA pubkey hash (32 bytes)
+ * Requires: WBTC token address + server ML-DSA pubkey hash (32 bytes)
  */
 import {
     Mnemonic, TransactionFactory, ChallengeSolution,
@@ -28,8 +28,8 @@ if (!phrase) {
 }
 if (!phrase) { console.error('Set OPNET_MNEMONIC or create .opnet_seed'); process.exit(1); }
 
-// BPUSD token address (from all-deployed.json or env)
-const BPUSD_ADDRESS = process.env.BPUSD_ADDRESS || 'opt1sqp3dx5nkmvd7yawlzy8jj6ja32glz54c7qepq35c';
+// WBTC token address (from env or default)
+const WBTC_ADDRESS = process.env.WBTC_ADDRESS || '';
 
 // 1. Derive wallet
 const network = { ...networks.testnet, bech32: networks.testnet.bech32Opnet };
@@ -82,11 +82,8 @@ async function getChallenge() {
 import { BinaryWriter } from './node_modules/@btc-vision/transaction/build/index.js';
 
 const calldataWriter = new BinaryWriter();
-// Write BPUSD token address (as bytes — Address.fromString needs resolved Address)
-// For deployment calldata, write the raw address string as bytes
-// Actually, calldata.readAddress() expects a proper Address encoding
-// Let's write the 32-byte hash of the address for now, matching how Calldata reads
-calldataWriter.writeString(BPUSD_ADDRESS);
+// Write WBTC token address
+calldataWriter.writeString(WBTC_ADDRESS);
 calldataWriter.writeBytes(serverSignerHash);
 
 const calldata = calldataWriter.getBuffer();
@@ -160,7 +157,7 @@ const deployInfo = {
         pubkey: result.contractPubKey,
     },
     config: {
-        bpusdAddress: BPUSD_ADDRESS,
+        wbtcAddress: WBTC_ADDRESS,
         serverSignerHash: '0x' + serverSignerHash.toString('hex'),
     },
     deployedAt: new Date().toISOString(),
