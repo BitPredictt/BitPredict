@@ -20,6 +20,7 @@ import { Footer } from './components/Footer';
 import { HowItWorks } from './components/HowItWorks';
 import { Achievements } from './components/Achievements';
 import { VaultDashboard } from './components/VaultDashboard';
+import { WalletPanel } from './components/WalletPanel';
 import { ProtocolStats } from './components/ProtocolStats';
 import { ActiveOperations } from './components/ActiveOperations';
 
@@ -35,6 +36,8 @@ function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
   const [onChainBalance, setOnChainBalance] = useState(0); // BPUSD from on-chain balanceOf
+  const [backedBalance, setBackedBalance] = useState(0); // Backed balance (withdrawable)
+  const [serverBalance, setServerBalance] = useState(0); // Total server balance
   const [btcPrice, setBtcPrice] = useState(0); // Real BTC/USD price for rate calculation
   const { toasts, addToast, removeToast } = useToasts();
   const [showCreateMarket, setShowCreateMarket] = useState(false);
@@ -190,6 +193,20 @@ function App() {
     const iv = setInterval(fetchBalance, 30000);
     return () => { cancelled = true; clearTimeout(r1); clearTimeout(r2); clearTimeout(r3); clearInterval(iv); };
   }, [wallet.connected, provider, walletNetwork, addressObj]);
+
+  // Fetch server balance (including backed_balance) periodically
+  useEffect(() => {
+    if (!wallet.connected || !wallet.address) return;
+    const fetchBal = () => {
+      api.getBalance(wallet.address).then(b => {
+        setServerBalance(b.balance);
+        setBackedBalance(b.backedBalance);
+      }).catch(() => {});
+    };
+    fetchBal();
+    const iv = setInterval(fetchBal, 15000);
+    return () => clearInterval(iv);
+  }, [wallet.connected, wallet.address]);
 
   // Track leaderboard visits
   useEffect(() => {
@@ -510,6 +527,22 @@ function App() {
         )}
 
         {activeTab === 'vault' && (
+          <div className="space-y-6">
+          <WalletPanel
+            walletConnected={wallet.connected}
+            walletAddress={wallet.address}
+            balance={serverBalance}
+            backedBalance={backedBalance}
+            onConnect={connectOPWallet}
+            onBalanceRefresh={() => {
+              getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
+              api.getBalance(wallet.address).then(b => { setServerBalance(b.balance); setBackedBalance(b.backedBalance); }).catch(() => {});
+            }}
+            onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
+            walletProvider={provider}
+            walletNetwork={walletNetwork}
+            walletAddressObj={addressObj}
+          />
           <VaultDashboard
             walletConnected={wallet.connected}
             walletAddress={wallet.address}
@@ -524,6 +557,7 @@ function App() {
             walletNetwork={walletNetwork}
             walletAddressObj={addressObj}
           />
+          </div>
         )}
 
         {activeTab === 'portfolio' && (
@@ -611,7 +645,7 @@ function App() {
       {showCreateMarket && wallet.connected && (
         <CreateMarketModal
           walletAddress={wallet.address}
-          balance={onChainBalance}
+          balance={serverBalance || onChainBalance}
           onClose={() => setShowCreateMarket(false)}
           onCreated={(marketId, _newBalance) => {
             getOnChainBpusdBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});

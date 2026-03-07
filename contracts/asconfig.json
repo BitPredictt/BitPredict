@@ -39,6 +39,16 @@
             "outFile": "build/PriceOracle.wasm",
             "textFile": "build/PriceOracle.wat",
             "use": ["abort=src/oracle-index/abort"]
+        },
+        "treasury-debug": {
+            "outFile": "build/Treasury.wasm",
+            "textFile": "build/Treasury.wat",
+            "use": ["abort=src/treasury-index/abort"]
+        },
+        "treasury-release": {
+            "outFile": "build/Treasury.wasm",
+            "textFile": "build/Treasury.wat",
+            "use": ["abort=src/treasury-index/abort"]
         }
     },
     "options": {

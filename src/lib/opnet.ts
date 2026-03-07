@@ -32,14 +32,16 @@ export const OPNET_CONFIG = {
   explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://opscan.org',
   faucetUrl: OPNET_NETWORK === 'testnet' ? 'https://faucet.opnet.org' : '',
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqzv74ark5nkznzv8ca37wnltq0s3njq2xgstamqk',
-  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqrqvhz2l8gqvpu7p4047axjx2nxftaukvydtrmur',
-  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqp3dx5nkmvd7yawlzy8jj6ja32glz54c7qepq35c',
-  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0xc36f58f9460955607d687c1d3acec2ee032153b9ca882865b435cdaa6df2fa25',
+  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqp93trumaphqht3crax7twldz3nummlngufyznlc',
+  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqq3yu3pntxg59930pvgz7f4cdr632kt6tvdxgy7e',
+  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqr422yjat08rq4z4v0efq2s89cqku6h4lc5976nk',
+  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0xee294a5d05b62ac0554dafd397d8a0c1fbbc11445ebbf5f0739323b2c53ec802',
   // Contract public keys (hex, SHA256 of MLDSA public key) — required for Address.fromString()
   // Use `await provider.getPublicKeyInfo(contractAddress, true)` to fetch dynamically if not set.
   contractPubkey: import.meta.env.VITE_CONTRACT_PUBKEY || '',
   vaultPubkey: import.meta.env.VITE_VAULT_PUBKEY || '',
+  treasuryAddress: import.meta.env.VITE_TREASURY_ADDRESS || '',
+  treasuryPubkey: import.meta.env.VITE_TREASURY_PUBKEY || '',
   tokenDecimals: 8,
   tokenSymbol: 'BPUSD',
   mintAmount: 1000,
@@ -186,7 +188,7 @@ export const BTC_BET_FEE_PCT = 0.05; // 5%
 export const BPUSD_BET_FEE_PCT = 0.02; // 2%
 
 // Treasury address for BTC payments (deployer / contract owner)
-export const TREASURY_ADDRESS = import.meta.env.VITE_TREASURY_ADDRESS || OPNET_CONFIG.contractAddress;
+export const TREASURY_ADDRESS = import.meta.env.VITE_TREASURY_ADDRESS || OPNET_CONFIG.treasuryAddress;
 
 /**
  * Get gas parameters from provider (reusable helper)
@@ -1095,6 +1097,90 @@ export async function approveForVault(
       mldsaSigner: null,
     });
     return { txHash: approveTx?.transactionId || approveTx?.txid || '', success: true };
+  } catch (err) {
+    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Deposit BPUSD to Treasury contract (on-chain).
+ * Step 1: increaseAllowance for Treasury
+ * Step 2: call Treasury.deposit(amount)
+ * Frontend: signer=null, mldsaSigner=null (wallet handles signing).
+ *
+ * @param amount - BPUSD amount in human units
+ */
+export async function depositToTreasury(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amount: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  if (!OPNET_CONFIG.treasuryAddress) return { txHash: '', success: false, error: 'Treasury address not configured' };
+
+  try {
+    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
+    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+
+    // Step 1: increaseAllowance for Treasury contract
+    const token = getContract(
+      OPNET_CONFIG.tokenAddress,
+      OP_20_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const treasuryAddr = await resolveContractAddress(provider, OPNET_CONFIG.treasuryAddress, OPNET_CONFIG.treasuryPubkey) as any;
+    const approveSim = await withRetry(() => (token as any).increaseAllowance(treasuryAddr, rawAmount)) as any;
+    if (approveSim?.revert) return { txHash: '', success: false, error: `Allowance revert: ${approveSim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const approveTx = await approveSim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      signer: null,
+      mldsaSigner: null,
+    });
+
+    // Step 2: Call Treasury.deposit(amount)
+    const TREASURY_ABI = [
+      {
+        name: 'deposit',
+        inputs: [{ name: 'amount', type: 'uint256' }],
+        outputs: [{ name: 'success', type: 'bool' }],
+        type: 'function',
+      },
+    ];
+
+    const treasury = getContract(
+      OPNET_CONFIG.treasuryAddress,
+      TREASURY_ABI,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const depositSim = await withRetry(() => (treasury as any).deposit(rawAmount)) as any;
+    if (depositSim?.revert) return { txHash: '', success: false, error: `Deposit revert: ${depositSim.revert}` };
+
+    const depositTx = await depositSim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      signer: null,
+      mldsaSigner: null,
+    });
+
+    return { txHash: depositTx?.transactionId || depositTx?.txid || '', success: true };
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }

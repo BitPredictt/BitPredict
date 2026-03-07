@@ -35,13 +35,21 @@
 - `contracts/StakingVault.ts` — стейкинг vault с CSV timelocks
 - `contracts/PriceOracle.ts` — multi-sig oracle (3-of-5 median)
 - `contracts/PredToken.ts` — BPUSD OP-20 token
-- `server/index.js` — Express сервер (~2800 строк)
+- `contracts/Treasury.ts` — Treasury (deposit/withdraw, ML-DSA auth, emergency timelock)
+- `server/index.js` — Express сервер (~3100 строк, +treasury endpoints)
 - `src/lib/api.ts` — фронтенд API клиент с JWT
 - `src/lib/opnet.ts` — on-chain взаимодействие
+- `src/components/WalletPanel.tsx` — Deposit/Withdraw UI
 - `src/hooks/useWallet.ts` — wallet hook (@btc-vision/walletconnect)
 
 ## Build Commands
 - Contracts: `cd contracts && npm run build`
+- Treasury only: `cd contracts && npm run build:treasury`
 - Frontend: `npx vite build`
 - Server: `JWT_SECRET=xxx node server/index.js`
 - TypeCheck: `npx tsc --noEmit`
+
+## Server Env Vars (new for Treasury)
+- `PROTOCOL_TREASURY_ADDRESS` — куда слать protocol revenue
+- `WITHDRAWAL_FEE_PCT` — комиссия за вывод (default: 0.005 = 0.5%)
+- `PROTOCOL_FLUSH_THRESHOLD` — порог для flush (default: 10000 BPUSD)

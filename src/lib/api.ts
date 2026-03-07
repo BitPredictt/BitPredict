@@ -77,7 +77,7 @@ export async function loginWithWallet(
 }
 
 export async function getBalance(address: string) {
-  return apiFetch<{ balance: number; btcBalance: number }>(`/api/balance/${address}`);
+  return apiFetch<{ balance: number; btcBalance: number; backedBalance: number; creatorEarnings: number }>(`/api/balance/${address}`);
 }
 
 // --- Markets ---
@@ -289,10 +289,10 @@ export async function unstakeVault(address: string, amount: number, txHash: stri
   });
 }
 
-export async function claimVaultRewards(address: string, txHash: string) {
+export async function claimVaultRewards(address: string, txHash?: string) {
   return apiFetch<{ success: boolean; claimed: number; newBalance: number }>('/api/vault/claim', {
     method: 'POST',
-    body: JSON.stringify({ address, txHash }),
+    body: JSON.stringify({ address, ...(txHash ? { txHash } : {}) }),
   });
 }
 
@@ -503,4 +503,48 @@ export async function updatePendingOp(id: number, status: string, txHash?: strin
     method: 'PATCH',
     body: JSON.stringify({ status, txHash }),
   });
+}
+
+// --- Treasury Deposit/Withdraw ---
+import type { TreasuryDeposit, WithdrawalRequest, DepositResult, WithdrawResult } from '../types';
+
+export async function depositConfirm(address: string, txHash: string, amount: number): Promise<DepositResult> {
+  return apiFetch<DepositResult>('/api/deposit', {
+    method: 'POST',
+    body: JSON.stringify({ address, txHash, amount }),
+  });
+}
+
+export async function withdrawRequest(address: string, amount: number): Promise<WithdrawResult> {
+  return apiFetch<WithdrawResult>('/api/withdraw', {
+    method: 'POST',
+    body: JSON.stringify({ address, amount }),
+  });
+}
+
+export async function withdrawConfirm(address: string, nonce: string, txHash: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>('/api/withdraw/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ address, nonce, txHash }),
+  });
+}
+
+export async function getDepositHistory(address: string): Promise<TreasuryDeposit[]> {
+  return apiFetch<TreasuryDeposit[]>(`/api/deposit/status/${address}`);
+}
+
+export async function getWithdrawHistory(address: string): Promise<WithdrawalRequest[]> {
+  return apiFetch<WithdrawalRequest[]>(`/api/withdraw/status/${address}`);
+}
+
+export interface CreatorStats {
+  totalMarkets: number;
+  activeMarkets: number;
+  totalVolume: number;
+  totalEarnings: number;
+  markets: { id: string; question: string; volume: number; resolved: number; outcome: string | null; initial_liquidity: number }[];
+}
+
+export async function getCreatorStats(address: string): Promise<CreatorStats> {
+  return apiFetch<CreatorStats>(`/api/creator/stats/${address}`);
 }

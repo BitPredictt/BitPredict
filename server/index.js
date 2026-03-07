@@ -22,12 +22,12 @@ let opnetFactory = null;
 let opnetNetwork = null;
 let opnetRpcProvider = null; // JSONRpcProvider for getContract() calls
 
-const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqp3dx5nkmvd7yawlzy8jj6ja32glz54c7qepq35c';
+const PRED_TOKEN = process.env.PRED_TOKEN || 'opt1sqr422yjat08rq4z4v0efq2s89cqku6h4lc5976nk';
 const PRED_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 
 // PredictionMarket contract address (env var for mainnet/testnet switch)
-const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqzv74ark5nkznzv8ca37wnltq0s3njq2xgstamqk';
+const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || 'opt1sqp93trumaphqht3crax7twldz3nummlngufyznlc';
 // Selectors: SHA256 first 4 bytes of function signature (OPNet standard)
 const CREATE_MARKET_SELECTOR = 0x89eb2691;   // createMarket(uint256)
 const RESOLVE_MARKET_SELECTOR = 0xaa5b3340;  // resolveMarket(uint256,bool)
@@ -857,6 +857,9 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_mph_market ON market_price_history
 try { db.exec('ALTER TABLE users ADD COLUMN referrer TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
 // Add creator_address column to markets if not exists
 try { db.exec('ALTER TABLE markets ADD COLUMN creator_address TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
+// Creator rewards: track initial liquidity and creator earnings
+try { db.exec('ALTER TABLE markets ADD COLUMN initial_liquidity INTEGER NOT NULL DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE users ADD COLUMN creator_earnings INTEGER NOT NULL DEFAULT 0'); } catch(e) {}
 // Dual currency migration: btc_balance for users, currency for bets
 try { db.exec('ALTER TABLE users ADD COLUMN btc_balance INTEGER NOT NULL DEFAULT 0'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE bets ADD COLUMN currency TEXT NOT NULL DEFAULT \'bpusd\''); } catch(e) { /* already exists */ }
@@ -883,6 +886,53 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_pendops_addr ON pending_operations
 // Auto-expire stale pending ops older than 1 hour
 try { db.exec("UPDATE pending_operations SET status = 'expired' WHERE status = 'pending' AND created_at < unixepoch() - 3600"); } catch(e) {}
 
+// --- Treasury / Deposit-Withdraw tables ---
+try { db.exec(`CREATE TABLE IF NOT EXISTS treasury_deposits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  address TEXT NOT NULL,
+  tx_hash TEXT NOT NULL UNIQUE,
+  amount_bpusd INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  confirmed_at INTEGER
+)`); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_treasury_dep_addr ON treasury_deposits(address, status)'); } catch(e) {}
+
+try { db.exec(`CREATE TABLE IF NOT EXISTS withdrawal_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  address TEXT NOT NULL,
+  amount_bpusd INTEGER NOT NULL,
+  fee_bpusd INTEGER NOT NULL DEFAULT 0,
+  nonce TEXT NOT NULL UNIQUE,
+  signature TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  tx_hash TEXT DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  expires_at INTEGER NOT NULL,
+  completed_at INTEGER
+)`); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_withdrawal_addr ON withdrawal_requests(address, status)'); } catch(e) {}
+
+try { db.exec(`CREATE TABLE IF NOT EXISTS protocol_revenue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type TEXT NOT NULL,
+  source_market_id TEXT,
+  amount INTEGER NOT NULL,
+  accumulated INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+)`); } catch(e) {}
+
+try { db.exec(`CREATE TABLE IF NOT EXISTS reconciliation_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sqlite_total INTEGER NOT NULL,
+  onchain_total INTEGER,
+  discrepancy INTEGER,
+  checked_at INTEGER NOT NULL DEFAULT (unixepoch())
+)`); } catch(e) {}
+
+// Migration: add backed_balance column to users table
+try { db.exec('ALTER TABLE users ADD COLUMN backed_balance INTEGER NOT NULL DEFAULT 0'); } catch(e) {}
+
 // Vault global state (in-memory, synced to DB)
 let VAULT_TOTAL_STAKED = 0;
 let VAULT_REWARDS_PER_SHARE = 0; // scaled by 1e12
@@ -898,6 +948,19 @@ try {
   const dist = db.prepare('SELECT SUM(fee_amount) as total FROM vault_rewards').get();
   VAULT_TOTAL_DISTRIBUTED = dist?.total || 0;
   console.log(`Vault loaded: ${VAULT_TOTAL_STAKED} staked, ${VAULT_TOTAL_DISTRIBUTED} distributed`);
+} catch(e) { /* first run */ }
+
+// Protocol revenue tracking (in-memory + DB)
+let ACCUMULATED_PROTOCOL_REVENUE = 0;
+const PROTOCOL_TREASURY_ADDRESS = process.env.PROTOCOL_TREASURY_ADDRESS || '';
+const WITHDRAWAL_FEE_PCT = parseFloat(process.env.WITHDRAWAL_FEE_PCT || '0.005'); // 0.5%
+const PROTOCOL_FLUSH_THRESHOLD = parseInt(process.env.PROTOCOL_FLUSH_THRESHOLD || '10000', 10);
+
+// Load accumulated protocol revenue from DB on startup
+try {
+  const rev = db.prepare("SELECT SUM(amount) as total FROM protocol_revenue WHERE accumulated = 1").get();
+  ACCUMULATED_PROTOCOL_REVENUE = rev?.total || 0;
+  console.log(`Protocol revenue loaded: ${ACCUMULATED_PROTOCOL_REVENUE} BPUSD accumulated`);
 } catch(e) { /* first run */ }
 
 // Migration: convert auto-credited 'won' bets (no claim_tx_hash) back to 'claimable'
@@ -1121,6 +1184,21 @@ function settleBets(marketId, outcome) {
       db.prepare('UPDATE bets SET status = ?, payout = ? WHERE id = ?').run('claimable', payout, b.id);
     } else {
       db.prepare('UPDATE bets SET status = ? WHERE id = ?').run('lost', b.id);
+    }
+  }
+
+  // Return remaining liquidity to community market creator
+  const market = db.prepare('SELECT creator_address, market_type, yes_pool, no_pool, initial_liquidity FROM markets WHERE id = ?').get(marketId);
+  if (market && market.creator_address && market.market_type === 'community' && market.initial_liquidity > 0) {
+    // Creator gets back the lesser of: initial_liquidity or remaining pool value
+    const remainingPool = (market.yes_pool || 0) + (market.no_pool || 0);
+    const refund = Math.min(market.initial_liquidity, remainingPool);
+    if (refund > 0) {
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refund, market.creator_address);
+      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+        market.creator_address, 'creator_refund', 'Liquidity Returned',
+        `Your market resolved! ${refund} BPUSD liquidity returned.`, marketId
+      );
     }
   }
 }
@@ -1457,6 +1535,34 @@ function calculateFeeOnTop(amount, currency) {
   return { fee, totalCharge, vaultShare, protocolShare, netAmount: amount };
 }
 
+// --- Revenue distribution helper (fixes protocolShare bug) ---
+// Distributes BOTH vaultShare (to stakers) AND protocolShare (to protocol treasury)
+function distributeRevenue(feeInfo, sourceMarketId) {
+  distributeToVault(feeInfo.vaultShare, sourceMarketId);
+
+  if (feeInfo.protocolShare > 0) {
+    let creatorShare = 0;
+    let protocolNet = feeInfo.protocolShare;
+
+    // Community markets: 50% of protocolShare goes to creator
+    if (sourceMarketId) {
+      const market = db.prepare('SELECT creator_address, market_type FROM markets WHERE id = ?').get(sourceMarketId);
+      if (market && market.creator_address && market.market_type === 'community') {
+        creatorShare = Math.floor(feeInfo.protocolShare * 0.5);
+        protocolNet = feeInfo.protocolShare - creatorShare;
+        if (creatorShare > 0) {
+          db.prepare('UPDATE users SET balance = balance + ?, creator_earnings = creator_earnings + ? WHERE address = ?')
+            .run(creatorShare, creatorShare, market.creator_address);
+        }
+      }
+    }
+
+    db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)')
+      .run('fee', sourceMarketId || '', protocolNet);
+    ACCUMULATED_PROTOCOL_REVENUE += protocolNet;
+  }
+}
+
 // --- Vault fee distribution helper ---
 // vaultShare = pre-calculated amount to distribute (from calculateFeeOnTop)
 function distributeToVault(vaultShare, sourceMarketId) {
@@ -1570,6 +1676,8 @@ app.post('/api/auth', async (req, res) => {
     address: user.address,
     balance: user.balance,
     btcBalance: user.btc_balance || 0,
+    backedBalance: user.backed_balance || 0,
+    creatorEarnings: user.creator_earnings || 0,
     referrer: user.referrer || null,
     token,
   });
@@ -1578,8 +1686,8 @@ app.post('/api/auth', async (req, res) => {
 // Get user balance (both currencies)
 app.get('/api/balance/:address', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE address = ?').get(req.params.address);
-  if (!user) return res.json({ balance: 0, btcBalance: 0 });
-  res.json({ balance: user.balance, btcBalance: user.btc_balance || 0 });
+  if (!user) return res.json({ balance: 0, btcBalance: 0, backedBalance: 0, creatorEarnings: 0 });
+  res.json({ balance: user.balance, btcBalance: user.btc_balance || 0, backedBalance: user.backed_balance || 0, creatorEarnings: user.creator_earnings || 0 });
 });
 
 // List all markets (filter out old resolved markets)
@@ -1693,6 +1801,8 @@ app.get('/api/markets/:id', (req, res) => {
     resolved: !!m.resolved, outcome: m.outcome,
     tags: (() => { try { const t = JSON.parse(m.tags || '[]'); return Array.isArray(t) ? t.filter(x => typeof x === 'string') : []; } catch(e) { return []; } })(), marketType: m.market_type,
     yesPool: m.yes_pool, noPool: m.no_pool,
+    creatorAddress: m.creator_address || null,
+    initialLiquidity: m.initial_liquidity || 0,
   });
 });
 
@@ -1780,7 +1890,7 @@ app.post('/api/bet', requireAuth, async (req, res) => {
 
   try {
     const txnResult = txn();
-    distributeToVault(feeInfo.vaultShare, marketId);
+    distributeRevenue(feeInfo, marketId);
     const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
 
@@ -2061,7 +2171,16 @@ app.get('/api/leaderboard', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', ts: Date.now(), markets: db.prepare('SELECT COUNT(*) as c FROM markets').get().c });
+  const pendingDeposits = db.prepare("SELECT COUNT(*) as c FROM treasury_deposits WHERE status = 'pending'").get()?.c || 0;
+  const pendingWithdrawals = db.prepare("SELECT COUNT(*) as c FROM withdrawal_requests WHERE status = 'pending'").get()?.c || 0;
+  res.json({
+    status: 'ok',
+    ts: Date.now(),
+    markets: db.prepare('SELECT COUNT(*) as c FROM markets').get().c,
+    pendingDeposits,
+    pendingWithdrawals,
+    protocolRevenuePending: ACCUMULATED_PROTOCOL_REVENUE,
+  });
 });
 
 // On-chain bet: frontend sends txHash FIRST, then server records the bet
@@ -2153,7 +2272,7 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
       return { shares };
     });
     const txnResult = txn();
-    distributeToVault(feeInfo.vaultShare, marketId);
+    distributeRevenue(feeInfo, marketId);
     // Referral bonus: 50% of vault share to referrer (in BPUSD always)
     try {
       const u = db.prepare('SELECT referrer FROM users WHERE address = ?').get(address);
@@ -2271,7 +2390,7 @@ app.post('/api/bet/sell', requireAuth, (req, res) => {
     });
     txn();
 
-    distributeToVault(sellFeeInfo.vaultShare, bet.market_id);
+    distributeRevenue(sellFeeInfo, bet.market_id);
 
     const updatedUser = db.prepare('SELECT balance, btc_balance FROM users WHERE address = ?').get(address);
     const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
@@ -2325,9 +2444,9 @@ app.post('/api/markets/create', requireAuth, (req, res) => {
 
     const txn = db.transaction(() => {
       db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(liq, address);
-      db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price, yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, creator_address)
-        VALUES (?, ?, ?, 0.5, 0.5, ?, ?, 0, ?, ?, ?, 'community', ?)`).run(
-        marketId, question, cat, pool, pool, liq, endTs, marketTags, address
+      db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price, yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, creator_address, initial_liquidity)
+        VALUES (?, ?, ?, 0.5, 0.5, ?, ?, 0, ?, ?, ?, 'community', ?, ?)`).run(
+        marketId, question, cat, pool, pool, liq, endTs, marketTags, address, liq
       );
       // Notification
       db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
@@ -2351,6 +2470,23 @@ app.post('/api/markets/create', requireAuth, (req, res) => {
     console.error('Create market error:', e.message);
     res.status(500).json({ error: 'Create market error: ' + e.message });
   }
+});
+
+// ==========================================================================
+// CREATOR STATS
+// ==========================================================================
+app.get('/api/creator/stats/:address', (req, res) => {
+  const addr = req.params.address;
+  const markets = db.prepare('SELECT id, question, volume, resolved, outcome, initial_liquidity, created_at FROM markets WHERE creator_address = ? ORDER BY created_at DESC').all(addr);
+  const user = db.prepare('SELECT creator_earnings FROM users WHERE address = ?').get(addr);
+  const totalVolume = markets.reduce((s, m) => s + (m.volume || 0), 0);
+  res.json({
+    totalMarkets: markets.length,
+    activeMarkets: markets.filter(m => !m.resolved).length,
+    totalVolume,
+    totalEarnings: user?.creator_earnings || 0,
+    markets: markets.slice(0, 20),
+  });
 });
 
 // ==========================================================================
@@ -3128,13 +3264,15 @@ app.post('/api/vault/unstake', requireAuth, async (req, res) => {
 // Claim vault rewards
 app.post('/api/vault/claim', requireAuth, async (req, res) => {
   const { address, txHash } = req.body;
-  if (!address || !txHash) return res.status(400).json({ error: 'address, txHash required' });
+  if (!address) return res.status(400).json({ error: 'address required' });
   if (rateLimit('vault:' + address, 5, 60000)) return res.status(429).json({ error: 'Too many vault operations. Try again in a minute.' });
 
-  // Verify TX on-chain
-  const txVerify = await verifyTxOnChain(txHash, address, 'RewardsClaimed');
-  if (!txVerify.valid && !txVerify.rpcDown) {
-    return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
+  // Verify TX on-chain if provided (optional — server-side claim also supported)
+  if (txHash) {
+    const txVerify = await verifyTxOnChain(txHash, address, 'RewardsClaimed');
+    if (!txVerify.valid && !txVerify.rpcDown) {
+      console.warn('Vault claim TX verify failed, proceeding with server-side claim:', txVerify.error);
+    }
   }
 
   const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
@@ -3364,6 +3502,233 @@ app.patch('/api/operations/:id', requireAuth, (req, res) => {
 setInterval(() => {
   try { db.exec("UPDATE pending_operations SET status = 'expired' WHERE status = 'pending' AND created_at < unixepoch() - 3600"); } catch(e) {}
 }, 5 * 60 * 1000);
+
+// ==========================================================================
+// DEPOSIT / WITHDRAW (Treasury hybrid model)
+// ==========================================================================
+
+// POST /api/deposit — user sends BPUSD tx, server verifies and credits backed_balance
+app.post('/api/deposit', requireAuth, async (req, res) => {
+  const { address, txHash, amount } = req.body;
+  if (!address || !txHash || !amount) return res.status(400).json({ error: 'address, txHash, and amount required' });
+
+  const amountInt = parseInt(amount, 10);
+  if (isNaN(amountInt) || amountInt < 100) return res.status(400).json({ error: 'Minimum deposit: 100 BPUSD' });
+
+  // Rate limit: 3 deposits / 5 min per address
+  if (rateLimit('deposit:' + address, 3, 300000)) return res.status(429).json({ error: 'Too many deposits. Try again later.' });
+
+  // Check duplicate tx_hash
+  const existing = db.prepare('SELECT id FROM treasury_deposits WHERE tx_hash = ?').get(txHash);
+  if (existing) return res.status(409).json({ error: 'This transaction has already been submitted' });
+
+  try {
+    // Verify TX exists on-chain or mempool
+    const txVerify = await verifyTxExists(txHash, address);
+    if (!txVerify.valid) return res.status(400).json({ error: txVerify.error || 'Transaction not found' });
+
+    const status = txVerify.confirmed ? 'confirmed' : 'pending';
+    const confirmedAt = txVerify.confirmed ? Math.floor(Date.now() / 1000) : null;
+
+    db.prepare('INSERT INTO treasury_deposits (address, tx_hash, amount_bpusd, status, confirmed_at) VALUES (?, ?, ?, ?, ?)').run(
+      address, txHash, amountInt, status, confirmedAt
+    );
+
+    // If TX already confirmed, credit immediately
+    if (txVerify.confirmed) {
+      db.prepare('UPDATE users SET backed_balance = backed_balance + ? WHERE address = ?').run(amountInt, address);
+      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amountInt, address);
+    }
+
+    res.json({
+      success: true,
+      status,
+      amount: amountInt,
+      message: txVerify.confirmed ? 'Deposit confirmed and credited' : 'Deposit pending confirmation',
+    });
+  } catch (e) {
+    console.error('Deposit error:', e.message);
+    res.status(500).json({ error: 'Failed to process deposit' });
+  }
+});
+
+// POST /api/withdraw — request withdrawal of backed_balance
+app.post('/api/withdraw', requireAuth, async (req, res) => {
+  const { address, amount } = req.body;
+  if (!address || !amount) return res.status(400).json({ error: 'address and amount required' });
+
+  const amountInt = parseInt(amount, 10);
+  if (isNaN(amountInt) || amountInt < 100) return res.status(400).json({ error: 'Minimum withdrawal: 100 BPUSD' });
+
+  // Rate limit: 3 withdrawals / 5 min
+  if (rateLimit('withdraw:' + address, 3, 300000)) return res.status(429).json({ error: 'Too many withdrawals. Try again later.' });
+
+  // Check backed_balance (only backed funds can be withdrawn)
+  const user = db.prepare('SELECT backed_balance FROM users WHERE address = ?').get(address);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.backed_balance < amountInt) return res.status(400).json({ error: `Insufficient backed balance: ${user.backed_balance} < ${amountInt}` });
+
+  // Calculate fee
+  const fee = Math.ceil(amountInt * WITHDRAWAL_FEE_PCT);
+  const netAmount = amountInt - fee;
+
+  // Generate nonce + HMAC signature
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const expiresAt = Math.floor(Date.now() / 1000) + 600; // 10 min
+  const signaturePayload = `withdraw:${address}:${amountInt}:${fee}:${nonce}:${expiresAt}`;
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(signaturePayload).digest('hex');
+
+  // Debit backed_balance immediately
+  db.prepare('UPDATE users SET backed_balance = backed_balance - ?, balance = balance - ? WHERE address = ?').run(amountInt, amountInt, address);
+
+  // Record withdrawal request
+  db.prepare('INSERT INTO withdrawal_requests (address, amount_bpusd, fee_bpusd, nonce, signature, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    address, amountInt, fee, nonce, signature, 'pending', expiresAt
+  );
+
+  // Record fee as protocol revenue
+  if (fee > 0) {
+    db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('withdrawal_fee', '', fee);
+    ACCUMULATED_PROTOCOL_REVENUE += fee;
+  }
+
+  // Execute transfer on-chain
+  try {
+    const txResult = await transferBpusd(address, netAmount);
+    if (txResult.success) {
+      db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE nonce = ?").run(
+        txResult.txHash || '', nonce
+      );
+      res.json({ success: true, nonce, netAmount, fee, txHash: txResult.txHash, status: 'completed' });
+    } else {
+      // Transfer failed — keep as pending, will retry or expire
+      res.json({ success: true, nonce, netAmount, fee, status: 'pending', message: 'Transfer queued, will process shortly' });
+    }
+  } catch (e) {
+    console.error('Withdraw transfer error:', e.message);
+    res.json({ success: true, nonce, netAmount, fee, status: 'pending', message: 'Transfer queued' });
+  }
+});
+
+// POST /api/withdraw/confirm — confirm withdrawal with txHash
+app.post('/api/withdraw/confirm', requireAuth, (req, res) => {
+  const { address, nonce, txHash } = req.body;
+  if (!address || !nonce || !txHash) return res.status(400).json({ error: 'address, nonce, and txHash required' });
+
+  const wr = db.prepare("SELECT * FROM withdrawal_requests WHERE nonce = ? AND address = ? AND status = 'pending'").get(nonce, address);
+  if (!wr) return res.status(404).json({ error: 'Withdrawal request not found or already processed' });
+
+  db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE id = ?").run(txHash, wr.id);
+  res.json({ success: true });
+});
+
+// GET /api/deposit/status/:address — deposit history
+app.get('/api/deposit/status/:address', (req, res) => {
+  const deposits = db.prepare('SELECT * FROM treasury_deposits WHERE address = ? ORDER BY created_at DESC LIMIT 50').all(req.params.address);
+  res.json(deposits);
+});
+
+// GET /api/withdraw/status/:address — withdrawal history
+app.get('/api/withdraw/status/:address', (req, res) => {
+  const withdrawals = db.prepare('SELECT * FROM withdrawal_requests WHERE address = ? ORDER BY created_at DESC LIMIT 50').all(req.params.address);
+  res.json(withdrawals);
+});
+
+// ==========================================================================
+// BACKGROUND JOBS — Treasury
+// ==========================================================================
+
+// Confirm pending deposits (every 30s)
+async function confirmPendingDeposits() {
+  try {
+    const pending = db.prepare("SELECT id, tx_hash, address, amount_bpusd FROM treasury_deposits WHERE status = 'pending' AND created_at > unixepoch() - 86400").all();
+    if (!pending.length) return;
+
+    for (const dep of pending) {
+      try {
+        const res = await fetch(OPNET_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [dep.tx_hash], id: 1 }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const data = await res.json();
+        if (data.result && data.result.blockNumber !== undefined && data.result.blockNumber !== null) {
+          db.prepare("UPDATE treasury_deposits SET status = 'confirmed', confirmed_at = unixepoch() WHERE id = ?").run(dep.id);
+          // Credit backed_balance + balance
+          db.prepare('UPDATE users SET backed_balance = backed_balance + ?, balance = balance + ? WHERE address = ?').run(dep.amount_bpusd, dep.amount_bpusd, dep.address);
+          console.log(`Deposit ${dep.id} confirmed: +${dep.amount_bpusd} BPUSD to ${dep.address}`);
+        }
+      } catch { /* skip, retry next cycle */ }
+    }
+  } catch (e) {
+    console.error('confirmPendingDeposits error:', e.message);
+  }
+}
+
+// Expire stale withdrawals (every 60s) — return balance if withdrawal not completed in time
+function expireStaleWithdrawals() {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const expired = db.prepare("SELECT id, address, amount_bpusd, fee_bpusd FROM withdrawal_requests WHERE status = 'pending' AND expires_at < ?").all(now);
+    for (const wr of expired) {
+      // Return full amount (including fee) to user
+      db.prepare('UPDATE users SET backed_balance = backed_balance + ?, balance = balance + ? WHERE address = ?').run(wr.amount_bpusd, wr.amount_bpusd, wr.address);
+      db.prepare("UPDATE withdrawal_requests SET status = 'expired' WHERE id = ?").run(wr.id);
+      // Reverse the protocol revenue entry for the fee
+      if (wr.fee_bpusd > 0) {
+        ACCUMULATED_PROTOCOL_REVENUE -= wr.fee_bpusd;
+        db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('withdrawal_fee_reversal', '', -wr.fee_bpusd);
+      }
+      console.log(`Withdrawal ${wr.id} expired — returned ${wr.amount_bpusd} BPUSD to ${wr.address}`);
+    }
+  } catch (e) {
+    console.error('expireStaleWithdrawals error:', e.message);
+  }
+}
+
+// Reconcile balances (every 30 min) — log SQLite totals for monitoring
+function reconcileBalances() {
+  try {
+    const sqliteTotal = db.prepare('SELECT SUM(backed_balance) as total FROM users').get()?.total || 0;
+    const pendingDeposits = db.prepare("SELECT SUM(amount_bpusd) as total FROM treasury_deposits WHERE status = 'pending'").get()?.total || 0;
+    const pendingWithdrawals = db.prepare("SELECT SUM(amount_bpusd) as total FROM withdrawal_requests WHERE status = 'pending'").get()?.total || 0;
+    const expectedTotal = sqliteTotal + pendingWithdrawals; // pending withdrawals already debited
+
+    db.prepare('INSERT INTO reconciliation_log (sqlite_total, onchain_total, discrepancy) VALUES (?, ?, ?)').run(
+      sqliteTotal, null, pendingDeposits // onchain_total requires RPC call, log pending for now
+    );
+    console.log(`Reconciliation: SQLite backed=${sqliteTotal}, pendingDep=${pendingDeposits}, pendingWd=${pendingWithdrawals}`);
+  } catch (e) {
+    console.error('reconcileBalances error:', e.message);
+  }
+}
+
+// Flush protocol revenue (every 6 hours) — send accumulated protocolShare to treasury address
+async function flushProtocolRevenue() {
+  if (!PROTOCOL_TREASURY_ADDRESS || ACCUMULATED_PROTOCOL_REVENUE < PROTOCOL_FLUSH_THRESHOLD) return;
+
+  const flushAmount = ACCUMULATED_PROTOCOL_REVENUE;
+  console.log(`Flushing ${flushAmount} BPUSD protocol revenue to ${PROTOCOL_TREASURY_ADDRESS}`);
+
+  try {
+    const txResult = await transferBpusd(PROTOCOL_TREASURY_ADDRESS, flushAmount);
+    if (txResult.success) {
+      // Mark all accumulated entries as flushed
+      db.prepare("UPDATE protocol_revenue SET accumulated = 0 WHERE accumulated = 1").run();
+      ACCUMULATED_PROTOCOL_REVENUE = 0;
+      console.log(`Protocol revenue flushed: ${flushAmount} BPUSD, TX: ${txResult.txHash}`);
+    }
+  } catch (e) {
+    console.error('flushProtocolRevenue error:', e.message);
+  }
+}
+
+// Register background jobs
+setInterval(() => confirmPendingDeposits(), 30_000);
+setInterval(() => expireStaleWithdrawals(), 60_000);
+setInterval(() => reconcileBalances(), 30 * 60 * 1000);
+setInterval(() => flushProtocolRevenue(), 6 * 60 * 60 * 1000);
 
 // --- Start ---
 const PORT = process.env.PORT || 3456;

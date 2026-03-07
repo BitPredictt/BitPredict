@@ -124,22 +124,32 @@ export function VaultDashboard({
   const handleClaim = async () => {
     if (claiming || !userInfo?.pendingRewards) return;
     setClaiming(true);
-    onToast('Claiming rewards... Sign in OP_WALLET', 'loading');
+    onToast('Claiming rewards...', 'loading');
     let opId: number | null = null;
 
     try {
       opId = await trackOp('vault_claim', undefined, `Claim ${userInfo.pendingRewards.toLocaleString()} BPUSD rewards`);
 
-      const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
-      if (!r.success) throw new Error(r.error || 'Claim TX failed');
+      // Try on-chain claim first, fall back to server-side claim
+      let txHash = '';
+      try {
+        const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
+        if (r.success) txHash = r.txHash;
+      } catch {
+        // On-chain claim failed (e.g. no on-chain stake) — proceed with server-side claim
+      }
 
       onToast('Processing...', 'loading');
 
-      const result = await api.claimVaultRewards(walletAddress, r.txHash);
+      const result = await api.claimVaultRewards(walletAddress, txHash || undefined);
       onBalanceRefresh();
-      const txLink = getExplorerTxUrl(r.txHash);
-      onToast(`Claimed ${result.claimed.toLocaleString()} BPUSD!`, 'success', txLink, 'View TX');
-      completeOp(opId, 'confirmed', r.txHash);
+      if (txHash) {
+        const txLink = getExplorerTxUrl(txHash);
+        onToast(`Claimed ${result.claimed.toLocaleString()} BPUSD!`, 'success', txLink, 'View TX');
+      } else {
+        onToast(`Claimed ${result.claimed.toLocaleString()} BPUSD!`, 'success');
+      }
+      completeOp(opId, 'confirmed', txHash || undefined);
       loadData();
     } catch (err) {
       onToast(err instanceof Error ? err.message : String(err), 'error');

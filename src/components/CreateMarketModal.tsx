@@ -129,6 +129,16 @@ export function CreateMarketModal({ walletAddress, balance, onClose, onCreated }
             </div>
           </div>
 
+          {/* Creator Rewards Info */}
+          <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-3 space-y-1.5">
+            <div className="text-xs font-bold text-green-400">Creator Rewards</div>
+            <div className="text-[11px] text-gray-400 space-y-1">
+              <div>- You earn <span className="text-green-400 font-bold">25% of all fees</span> from bets on your market</div>
+              <div>- Your liquidity is <span className="text-green-400 font-bold">returned</span> when the market resolves</div>
+              <div>- More volume = more earnings for you</div>
+            </div>
+          </div>
+
           {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
 
           <button

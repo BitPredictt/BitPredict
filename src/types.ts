@@ -137,6 +137,48 @@ export interface TopPredictor {
   isFollowed?: boolean;
 }
 
+// --- Treasury Deposit/Withdraw types ---
+export interface TreasuryDeposit {
+  id: number;
+  address: string;
+  tx_hash: string;
+  amount_bpusd: number;
+  status: 'pending' | 'confirmed';
+  created_at: number;
+  confirmed_at: number | null;
+}
+
+export interface WithdrawalRequest {
+  id: number;
+  address: string;
+  amount_bpusd: number;
+  fee_bpusd: number;
+  nonce: string;
+  signature: string;
+  status: 'pending' | 'completed' | 'expired';
+  tx_hash: string;
+  created_at: number;
+  expires_at: number;
+  completed_at: number | null;
+}
+
+export interface DepositResult {
+  success: boolean;
+  status: string;
+  amount: number;
+  message: string;
+}
+
+export interface WithdrawResult {
+  success: boolean;
+  nonce: string;
+  netAmount: number;
+  fee: number;
+  txHash?: string;
+  status: string;
+  message?: string;
+}
+
 // --- PnL types ---
 export interface PnlData {
   cumulativePnl: number;
