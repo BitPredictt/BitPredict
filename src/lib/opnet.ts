@@ -834,7 +834,7 @@ export async function wrapBTC(
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org';
+    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC.';
     return { txHash: '', success: false, error: msg };
   }
 }
@@ -888,9 +888,13 @@ export async function unwrapWBTC(
 
     // Step 2: Request BTC disbursement from server
     const apiUrl = import.meta.env.VITE_API_URL || '';
+    const token = localStorage.getItem('bp_jwt') || '';
     const resp = await fetch(`${apiUrl}/api/unwrap`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ address: walletAddress, amount: amountSats, burnTxHash }),
     });
     const data = await resp.json();
@@ -902,7 +906,7 @@ export async function unwrapWBTC(
     return { txHash: data.btcTxHash || burnTxHash, success: true };
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org';
+    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC.';
     return { txHash: '', success: false, error: msg };
   }
 }

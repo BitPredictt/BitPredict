@@ -3403,6 +3403,11 @@ app.post('/api/unwrap', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'address, amount, and burnTxHash required' });
     }
 
+    // Validate address format
+    if (!address.startsWith(OPNET_ADDRESS_PREFIX) || address.length > 120 || address.length < 20) {
+      return res.status(400).json({ error: 'Invalid address format' });
+    }
+
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum < 10000) {
       return res.status(400).json({ error: 'Minimum unwrap: 10,000 sats' });
@@ -3420,34 +3425,42 @@ app.post('/api/unwrap', requireAuth, async (req, res) => {
       return res.status(429).json({ error: 'Rate limit: max 3 unwrap requests per 5 minutes' });
     }
 
-    // Check burnTxHash not already processed
-    const existing = db.prepare(
-      "SELECT id FROM unwrap_requests WHERE burn_tx_hash = ?"
-    ).get(burnTxHash);
-    if (existing) {
+    // Atomic: check dedup + insert inside transaction to prevent race condition
+    const insertUnwrap = db.transaction(() => {
+      const existing = db.prepare(
+        "SELECT id FROM unwrap_requests WHERE burn_tx_hash = ?"
+      ).get(burnTxHash);
+      if (existing) return null; // already processed
+      const ins = db.prepare(
+        "INSERT INTO unwrap_requests (address, amount_sats, burn_tx_hash, status, created_at) VALUES (?, ?, ?, 'pending', unixepoch())"
+      ).run(address, amountNum, burnTxHash);
+      return ins.lastInsertRowid;
+    });
+    const requestId = insertUnwrap();
+    if (!requestId) {
       return res.status(409).json({ error: 'This burn transaction was already processed' });
     }
 
-    // Record as pending
-    const insert = db.prepare(
-      "INSERT INTO unwrap_requests (address, amount_sats, burn_tx_hash, status, created_at) VALUES (?, ?, ?, 'pending', unixepoch())"
-    ).run(address, amountNum, burnTxHash);
-    const requestId = insert.lastInsertRowid;
+    // Verify burn TX exists on chain before sending BTC
+    const txCheck = await verifyTxExists(burnTxHash, address);
+    if (!txCheck.valid) {
+      db.prepare("UPDATE unwrap_requests SET status = 'rejected', completed_at = unixepoch() WHERE id = ?").run(requestId);
+      return res.status(400).json({ error: `Invalid burn TX: ${txCheck.error || 'not found'}` });
+    }
 
     // Send BTC from pool
-    const btcTxHash = await sendBtcFromPool(address, amountNum);
+    const result = await sendBtcFromPool(address, amountNum);
 
-    if (btcTxHash) {
+    if (result && result.success && result.txHash) {
       db.prepare(
         "UPDATE unwrap_requests SET status = 'completed', btc_tx_hash = ?, completed_at = unixepoch() WHERE id = ?"
-      ).run(btcTxHash, requestId);
-      res.json({ success: true, btcTxHash, requestId: Number(requestId) });
+      ).run(result.txHash, requestId);
+      res.json({ success: true, btcTxHash: result.txHash, requestId: Number(requestId) });
     } else {
-      // sendBtcFromPool returned null — queued for manual processing
       db.prepare(
         "UPDATE unwrap_requests SET status = 'failed', completed_at = unixepoch() WHERE id = ?"
       ).run(requestId);
-      res.status(500).json({ error: 'BTC transfer failed. Contact support.', requestId: Number(requestId) });
+      res.status(500).json({ error: result?.error || 'BTC transfer failed. Contact support.', requestId: Number(requestId) });
     }
   } catch (e) {
     console.error('[/api/unwrap] Error:', e.message);
@@ -3455,8 +3468,8 @@ app.post('/api/unwrap', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/unwrap/status/:address — unwrap history
-app.get('/api/unwrap/status/:address', (req, res) => {
+// GET /api/unwrap/status/:address — unwrap history (auth required)
+app.get('/api/unwrap/status/:address', requireAuth, (req, res) => {
   const unwraps = db.prepare(
     'SELECT * FROM unwrap_requests WHERE address = ? ORDER BY created_at DESC LIMIT 50'
   ).all(req.params.address);
