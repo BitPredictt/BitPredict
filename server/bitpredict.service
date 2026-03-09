@@ -8,7 +8,23 @@ WorkingDirectory=/root/bitpredict-server
 ExecStart=/usr/bin/node index.js
 Restart=always
 RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Core env vars (sensitive values set on VPS only)
 Environment=NODE_ENV=production
+Environment=OPNET_NETWORK=testnet
+Environment=OPNET_RPC_BASE=https://testnet.opnet.org
+Environment=ALLOWED_ORIGIN=https://bitpredict.club
+Environment=GEMINI_MODEL=gemini-2.5-flash
+Environment=PORT=3456
+Environment=GAS_SAT_FEE=10000
+Environment=PRIORITY_FEE=1000
+Environment=LOW_POOL_THRESHOLD=500000
+
+# Secrets: JWT_SECRET, OPNET_SEED, GEMINI_API_KEY — set directly on VPS
+# Contract addresses: WBTC_TOKEN, STAKING_VAULT_ADDRESS, etc. — set directly on VPS
+
 StandardOutput=append:/var/log/bitpredict.log
 StandardError=append:/var/log/bitpredict.log
 
