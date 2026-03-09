@@ -88,6 +88,23 @@ try {
     process.exit(1);
 }
 
+// Validate WASM exports (must have 'execute' and 'onDeploy')
+try {
+    const wasmModule = await WebAssembly.compile(bytecode);
+    const exports = WebAssembly.Module.exports(wasmModule).map(e => e.name);
+    const required = ['execute', 'onDeploy'];
+    const missing = required.filter(name => !exports.includes(name));
+    if (missing.length > 0) {
+        console.error(`WASM missing required exports: ${missing.join(', ')}`);
+        console.error('Available exports:', exports.join(', '));
+        process.exit(1);
+    }
+    console.log('  WASM exports validated: execute, onDeploy present');
+} catch (e) {
+    console.error(`WASM validation failed: ${e.message}`);
+    process.exit(1);
+}
+
 const challenge = await getChallenge();
 
 const utxos = await provider.fetchUTXO({

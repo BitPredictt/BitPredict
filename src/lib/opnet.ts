@@ -840,8 +840,9 @@ export async function wrapBTC(
 }
 
 /**
- * Unwrap WBTC to BTC via the WBTC contract.
- * Contract burns WBTC. Frontend includes extraOutputs: BTC from pool to user.
+ * Unwrap WBTC to BTC — two-step custodial process:
+ * 1. Call contract.unwrap(amount) — burns WBTC on-chain
+ * 2. Server sends BTC from pool to user wallet
  *
  * @param amountSats - amount in satoshis to unwrap
  */
@@ -853,9 +854,9 @@ export async function unwrapWBTC(
   amountSats: number,
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  if (!OPNET_CONFIG.wbtcPoolAddress) return { txHash: '', success: false, error: 'Pool address not configured' };
 
   try {
+    // Step 1: Burn WBTC on-chain via contract.unwrap()
     const { getContract } = await import('opnet');
     const { WBTCAbi } = await import('../../contracts/abis/WBTC.abi');
 
@@ -867,12 +868,7 @@ export async function unwrapWBTC(
       senderAddr as never,
     );
 
-    // Set transaction details — BTC output from pool to user
-    await (contract as any).setTransactionDetails({
-      outputs: [{ to: walletAddress, value: BigInt(amountSats) }],
-    });
-
-    const sim = await withRetry(() => (contract as any).unwrap(BigInt(amountSats), walletAddress)) as any;
+    const sim = await withRetry(() => (contract as any).unwrap(BigInt(amountSats))) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `unwrap revert: ${sim.revert}` };
 
     const gas = await getGasParameters(provider);
@@ -883,11 +879,27 @@ export async function unwrapWBTC(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      extraOutputs: [{ address: walletAddress, value: BigInt(amountSats) }],
       signer: null,
       mldsaSigner: null,
     });
-    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+
+    const burnTxHash = receipt?.transactionId || receipt?.txid || '';
+    if (!burnTxHash) return { txHash: '', success: false, error: 'Burn TX failed' };
+
+    // Step 2: Request BTC disbursement from server
+    const apiUrl = import.meta.env.VITE_API_URL || '';
+    const resp = await fetch(`${apiUrl}/api/unwrap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: walletAddress, amount: amountSats, burnTxHash }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      // Burn succeeded but server disbursement pending — user will get BTC later
+      return { txHash: burnTxHash, success: true, error: data.error || 'BTC disbursement queued' };
+    }
+
+    return { txHash: data.btcTxHash || burnTxHash, success: true };
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err);
     if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org';

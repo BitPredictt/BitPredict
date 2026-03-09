@@ -171,25 +171,17 @@ export class WBTC extends OP20 {
     }
 
     /**
-     * unwrap(amount: u256, recipientBtcAddress: string) — Unwrap WBTC to BTC.
-     * Frontend must include extraOutputs sending BTC from pool to recipient.
-     * Contract verifies:
-     *   1. recipientBtcAddress is a valid bech32
-     *   2. An output to that address exists with exact amount
-     *   3. recipientBtcAddress is NOT the pool address (no self-send)
-     * Then burns WBTC from sender.
+     * unwrap(amount: u256) — Burn WBTC, request BTC from pool.
+     * Custodial model: contract burns WBTC + decrements totalWrapped.
+     * Server monitors UnwrapEvent and sends BTC from pool to user.
+     * No output verification — BTC disbursement is server-side.
      */
-    @method(
-        { name: 'amount', type: ABIDataTypes.UINT256 },
-        { name: 'recipientBtcAddress', type: ABIDataTypes.STRING },
-    )
+    @method({ name: 'amount', type: ABIDataTypes.UINT256 })
     @returns({ name: 'success', type: ABIDataTypes.BOOL })
     public unwrap(calldata: Calldata): BytesWriter {
         this.whenNotPaused();
 
         const amount: u256 = calldata.readU256();
-        const recipientAddr: string = calldata.readStringWithLength();
-
         if (u256.eq(amount, u256.Zero)) {
             throw new Revert('Amount must be > 0');
         }
@@ -197,19 +189,6 @@ export class WBTC extends OP20 {
         // Guard: amount must fit in u64
         if (u256.gt(amount, U64_MAX)) {
             throw new Revert('Amount exceeds u64 range');
-        }
-
-        // Validate recipient is valid bech32
-        const recipientDecoded = Bech32.decodeOrNull(recipientAddr);
-        if (recipientDecoded === null) {
-            throw new Revert('Invalid recipient bech32 address');
-        }
-        const recipientProgram = (recipientDecoded as SegwitDecoded).program;
-
-        // Ensure recipient is NOT the pool address
-        const poolProgram = this.getPoolProgram();
-        if (this.bytesEqual(recipientProgram, poolProgram)) {
-            throw new Revert('Cannot unwrap to pool address');
         }
 
         const sender: Address = Blockchain.tx.sender;
@@ -222,28 +201,6 @@ export class WBTC extends OP20 {
         // Check totalWrapped
         if (u256.lt(this.totalWrapped.value, amount)) {
             throw new Revert('Insufficient pool liquidity');
-        }
-
-        const targetValue: u64 = amount.toU64();
-
-        // Verify BTC output to recipient address (strict equality)
-        const outputs = Blockchain.tx.outputs;
-        let verified: boolean = false;
-
-        for (let i: i32 = 0; i < outputs.length; i++) {
-            const output = outputs[i];
-            if (!output.hasTo || output.to === null) continue;
-
-            if (output.value == targetValue) {
-                if (this.matchesAddress(output.to as string, recipientProgram)) {
-                    verified = true;
-                    break;
-                }
-            }
-        }
-
-        if (!verified) {
-            throw new Revert('No BTC output to recipient found');
         }
 
         // Effects first (CEI pattern)
@@ -354,14 +311,14 @@ export class WBTC extends OP20 {
     }
 
     /**
-     * Check if an output address matches a given witness program.
+     * Check if an output address matches the pool address.
      * Handles both bech32 strings and raw hex formats (simulation).
      */
-    private matchesAddress(outputAddr: string, targetProgram: Uint8Array): boolean {
+    private matchesPoolAddress(outputAddr: string, poolProgram: Uint8Array): boolean {
         // Try bech32 decode first
         const decoded = Bech32.decodeOrNull(outputAddr);
         if (decoded !== null) {
-            return this.bytesEqual((decoded as SegwitDecoded).program, targetProgram);
+            return this.bytesEqual((decoded as SegwitDecoded).program, poolProgram);
         }
 
         // Fallback: might be hex in simulation
@@ -369,18 +326,11 @@ export class WBTC extends OP20 {
             const hexStr = outputAddr.startsWith('0x') ? outputAddr.substring(2) : outputAddr;
             const hexBytes = this.hexToBytes(hexStr);
             if (hexBytes !== null) {
-                return this.bytesEqual(hexBytes as Uint8Array, targetProgram);
+                return this.bytesEqual(hexBytes as Uint8Array, poolProgram);
             }
         }
 
         return false;
-    }
-
-    /**
-     * Check if an output address matches the pool address.
-     */
-    private matchesPoolAddress(outputAddr: string, poolProgram: Uint8Array): boolean {
-        return this.matchesAddress(outputAddr, poolProgram);
     }
 
     private bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

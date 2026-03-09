@@ -273,6 +273,58 @@ async function transferWbtc(toAddress, amount) {
   }
 }
 
+/**
+ * Send raw BTC from pool (deployer wallet) to a recipient address.
+ * Used for WBTC unwrap — user burns WBTC, server sends BTC.
+ * @param {string} toAddress - recipient p2tr/bech32 address
+ * @param {number} amountSats - amount in satoshis
+ */
+async function sendBtcFromPool(toAddress, amountSats) {
+  if (!deployerWallet || !opnetProvider || !opnetFactory) {
+    throw new Error('Deployer wallet not initialized');
+  }
+  if (txLock) throw new Error('Transaction in progress, try again');
+  txLock = true;
+  try {
+    const utxos = await opnetProvider.fetchUTXO({
+      address: deployerWallet.p2tr,
+      minAmount: BigInt(amountSats),
+      requestedAmount: BigInt(amountSats) + 50000n,
+    });
+    if (!utxos || utxos.length === 0) throw new Error('Insufficient pool BTC UTXOs');
+
+    const feeRate = await getDynamicFeeRate();
+
+    const result = await opnetFactory.createBTCTransfer({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      network: opnetNetwork,
+      utxos,
+      from: deployerWallet.p2tr,
+      to: toAddress,
+      amount: BigInt(amountSats),
+      feeRate,
+      priorityFee: 1000n,
+      gasSatFee: 10000n,
+    });
+
+    // Broadcast transaction(s)
+    if (result.fundingTransaction) {
+      await opnetProvider.broadcastTransaction(result.fundingTransaction, false);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    const b = await opnetProvider.broadcastTransaction(result.transaction || result.interactionTransaction, false);
+    const txHash = b?.result || b?.txid || '';
+    console.log(`[sendBtcFromPool] Sent ${amountSats} sats to ${toAddress}: ${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    console.error('[sendBtcFromPool] Error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    txLock = false;
+  }
+}
+
 // Init deployer wallet on startup
 initDeployerWallet();
 
@@ -770,6 +822,18 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS withdrawal_requests (
   completed_at INTEGER
 )`); } catch(e) {}
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_withdrawal_addr ON withdrawal_requests(address, status)'); } catch(e) {}
+
+try { db.exec(`CREATE TABLE IF NOT EXISTS unwrap_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  address TEXT NOT NULL,
+  amount_sats INTEGER NOT NULL,
+  burn_tx_hash TEXT NOT NULL UNIQUE,
+  btc_tx_hash TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  completed_at INTEGER
+)`); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_unwrap_addr ON unwrap_requests(address, status)'); } catch(e) {}
 
 try { db.exec(`CREATE TABLE IF NOT EXISTS protocol_revenue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3329,6 +3393,74 @@ app.post('/api/withdraw/confirm', requireAuth, (req, res) => {
 
   db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE id = ?").run(txHash, wr.id);
   res.json({ success: true });
+});
+
+// POST /api/unwrap — custodial WBTC unwrap: burn confirmed → send BTC from pool
+app.post('/api/unwrap', requireAuth, async (req, res) => {
+  try {
+    const { address, amount, burnTxHash } = req.body;
+    if (!address || !amount || !burnTxHash) {
+      return res.status(400).json({ error: 'address, amount, and burnTxHash required' });
+    }
+
+    const amountNum = Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum < 10000) {
+      return res.status(400).json({ error: 'Minimum unwrap: 10,000 sats' });
+    }
+    if (amountNum > 100_000_000) {
+      return res.status(400).json({ error: 'Maximum unwrap: 1 BTC per request' });
+    }
+
+    // Rate limit: 3 per 5 minutes per address
+    const fiveMinAgo = Math.floor(Date.now() / 1000) - 300;
+    const recentCount = db.prepare(
+      "SELECT COUNT(*) as cnt FROM unwrap_requests WHERE address = ? AND created_at > ?"
+    ).get(address, fiveMinAgo);
+    if (recentCount && recentCount.cnt >= 3) {
+      return res.status(429).json({ error: 'Rate limit: max 3 unwrap requests per 5 minutes' });
+    }
+
+    // Check burnTxHash not already processed
+    const existing = db.prepare(
+      "SELECT id FROM unwrap_requests WHERE burn_tx_hash = ?"
+    ).get(burnTxHash);
+    if (existing) {
+      return res.status(409).json({ error: 'This burn transaction was already processed' });
+    }
+
+    // Record as pending
+    const insert = db.prepare(
+      "INSERT INTO unwrap_requests (address, amount_sats, burn_tx_hash, status, created_at) VALUES (?, ?, ?, 'pending', unixepoch())"
+    ).run(address, amountNum, burnTxHash);
+    const requestId = insert.lastInsertRowid;
+
+    // Send BTC from pool
+    const btcTxHash = await sendBtcFromPool(address, amountNum);
+
+    if (btcTxHash) {
+      db.prepare(
+        "UPDATE unwrap_requests SET status = 'completed', btc_tx_hash = ?, completed_at = unixepoch() WHERE id = ?"
+      ).run(btcTxHash, requestId);
+      res.json({ success: true, btcTxHash, requestId: Number(requestId) });
+    } else {
+      // sendBtcFromPool returned null — queued for manual processing
+      db.prepare(
+        "UPDATE unwrap_requests SET status = 'failed', completed_at = unixepoch() WHERE id = ?"
+      ).run(requestId);
+      res.status(500).json({ error: 'BTC transfer failed. Contact support.', requestId: Number(requestId) });
+    }
+  } catch (e) {
+    console.error('[/api/unwrap] Error:', e.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/unwrap/status/:address — unwrap history
+app.get('/api/unwrap/status/:address', (req, res) => {
+  const unwraps = db.prepare(
+    'SELECT * FROM unwrap_requests WHERE address = ? ORDER BY created_at DESC LIMIT 50'
+  ).all(req.params.address);
+  res.json(unwraps);
 });
 
 // GET /api/deposit/status/:address — deposit history

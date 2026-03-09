@@ -11,10 +11,7 @@ export const WBTCAbi = [
     },
     {
         name: 'unwrap',
-        inputs: [
-            { name: 'amount', type: ABIDataTypes.UINT256 },
-            { name: 'recipientBtcAddress', type: ABIDataTypes.STRING },
-        ],
+        inputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }],
         outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
         type: BitcoinAbiTypes.Function,
     },
