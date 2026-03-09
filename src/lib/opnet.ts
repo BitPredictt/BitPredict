@@ -872,7 +872,7 @@ export async function unwrapWBTC(
       outputs: [{ to: walletAddress, value: BigInt(amountSats) }],
     });
 
-    const sim = await withRetry(() => (contract as any).unwrap(BigInt(amountSats))) as any;
+    const sim = await withRetry(() => (contract as any).unwrap(BigInt(amountSats), walletAddress)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `unwrap revert: ${sim.revert}` };
 
     const gas = await getGasParameters(provider);

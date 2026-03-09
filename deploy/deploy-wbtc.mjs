@@ -69,9 +69,10 @@ async function getChallenge() {
     });
 }
 
-// 4. Build calldata: poolBtcAddress (string)
+// 4. Build calldata: poolBtcAddress (string with u32 length prefix)
+// MUST match contract's calldata.readStringWithLength()
 const calldataWriter = new BinaryWriter();
-calldataWriter.writeString(poolAddress);
+calldataWriter.writeStringWithLength(poolAddress);
 const calldata = calldataWriter.getBuffer();
 
 // 5. Deploy WBTC

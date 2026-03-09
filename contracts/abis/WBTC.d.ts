@@ -30,6 +30,11 @@ export type Unwrap = CallResult<
 >;
 
 /**
+ * @description Represents the result of the approve function call.
+ */
+export type Approve = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
  * @description Represents the result of the setPoolAddress function call.
  */
 export type SetPoolAddress = CallResult<{}, OPNetEvent<never>[]>;
@@ -69,7 +74,8 @@ export type GetPoolAddress = CallResult<
 // ------------------------------------------------------------------
 export interface IWBTC extends IOP_NETContract {
     wrap(amount: bigint): Promise<Wrap>;
-    unwrap(amount: bigint): Promise<Unwrap>;
+    unwrap(amount: bigint, recipientBtcAddress: string): Promise<Unwrap>;
+    approve(): Promise<Approve>;
     setPoolAddress(newPool: string): Promise<SetPoolAddress>;
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;

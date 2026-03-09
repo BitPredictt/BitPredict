@@ -27,6 +27,10 @@
                 {
                     "name": "amount",
                     "type": "UINT256"
+                },
+                {
+                    "name": "recipientBtcAddress",
+                    "type": "STRING"
                 }
             ],
             "outputs": [
@@ -35,6 +39,14 @@
                     "type": "BOOL"
                 }
             ]
+        },
+        {
+            "name": "approve",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [],
+            "outputs": []
         },
         {
             "name": "setPoolAddress",
