@@ -1,9 +1,10 @@
 /**
- * BitPredict — Deploy Treasury on OPNet testnet
+ * BitPredict — Deploy Treasury on OPNet
  *
  * Usage: OPNET_MNEMONIC="12 words..." node deploy/deploy-treasury.mjs
  * Or reads from ../.opnet_seed
  *
+ * Set OPNET_NETWORK=mainnet for mainnet deployment (default: testnet)
  * Requires: WBTC token address + server ML-DSA pubkey hash (32 bytes)
  */
 import {
@@ -17,7 +18,9 @@ import { dirname, join } from 'path';
 import { createHash } from 'crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RPC_URL = process.env.OPNET_RPC_URL || 'https://testnet.opnet.org';
+const NETWORK_NAME = process.env.OPNET_NETWORK || 'testnet';
+const RPC_URL = process.env.OPNET_RPC_URL || (NETWORK_NAME === 'mainnet' ? 'https://api.opnet.org' : 'https://testnet.opnet.org');
+console.log(`Network: ${NETWORK_NAME} | RPC: ${RPC_URL}`);
 
 // Read mnemonic from env or .opnet_seed file
 let phrase = process.env.OPNET_MNEMONIC;
@@ -32,7 +35,7 @@ if (!phrase) { console.error('Set OPNET_MNEMONIC or create .opnet_seed'); proces
 const WBTC_ADDRESS = process.env.WBTC_ADDRESS || '';
 
 // 1. Derive wallet
-const network = { ...networks.testnet, bech32: networks.testnet.bech32Opnet };
+const network = NETWORK_NAME === 'mainnet' ? networks.bitcoin : (networks.opnetTestnet || { ...networks.testnet, bech32: networks.testnet.bech32Opnet });
 const mnemonic = new Mnemonic(phrase, '', network);
 const wallet = mnemonic.deriveOPWallet(undefined, 0);
 console.log('Wallet:', wallet.p2tr);
@@ -115,6 +118,20 @@ if (!utxos || utxos.length === 0) {
     process.exit(1);
 }
 
+// Get dynamic fee rate
+let feeRate = 2;
+try {
+    const feeRes = await fetch(`${RPC_URL}/api/v1/json-rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_gasParameters', params: [], id: 2 }),
+        signal: AbortSignal.timeout(10000),
+    });
+    const feeData = await feeRes.json();
+    if (feeData.result) feeRate = Math.max(2, Number(feeData.result.feeRate || feeData.result.fastestFee || 2));
+    console.log(`Fee rate: ${feeRate} sat/vB`);
+} catch { console.log('Using default fee rate: 2 sat/vB'); }
+
 console.log(`\nDeploying Treasury...`);
 const factory = new TransactionFactory();
 const result = await factory.signDeployment({
@@ -123,7 +140,7 @@ const result = await factory.signDeployment({
     network,
     utxos,
     from: wallet.p2tr,
-    feeRate: 2,
+    feeRate,
     priorityFee: 1000n,
     gasSatFee: 100_000n,
     bytecode,
@@ -149,7 +166,7 @@ console.log(`   Pubkey:  ${result.contractPubKey}`);
 
 // Save
 const deployInfo = {
-    network: 'testnet',
+    network: NETWORK_NAME,
     deployer: wallet.p2tr,
     contract: {
         name: 'Treasury',

@@ -32,10 +32,10 @@ export const OPNET_CONFIG = {
   explorerUrl: import.meta.env.VITE_EXPLORER_URL || 'https://opscan.org',
   faucetUrl: OPNET_NETWORK === 'testnet' ? 'https://faucet.opnet.org' : '',
   motoswapUrl: 'https://motoswap.org',
-  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || 'opt1sqp93trumaphqht3crax7twldz3nummlngufyznlc',
-  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || 'opt1sqq3yu3pntxg59930pvgz7f4cdr632kt6tvdxgy7e',
-  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || 'opt1sqr422yjat08rq4z4v0efq2s89cqku6h4lc5976nk',
-  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '0xee294a5d05b62ac0554dafd397d8a0c1fbbc11445ebbf5f0739323b2c53ec802',
+  contractAddress: import.meta.env.VITE_CONTRACT_ADDRESS || '',
+  vaultAddress: import.meta.env.VITE_VAULT_ADDRESS || '',
+  tokenAddress: import.meta.env.VITE_TOKEN_ADDRESS || '',
+  tokenPubkey: import.meta.env.VITE_TOKEN_PUBKEY || '',
   // Contract public keys (hex, SHA256 of MLDSA public key) — required for Address.fromString()
   // Use `await provider.getPublicKeyInfo(contractAddress, true)` to fetch dynamically if not set.
   contractPubkey: import.meta.env.VITE_CONTRACT_PUBKEY || '',
@@ -101,8 +101,8 @@ export function isOPWalletAvailable(): boolean {
  */
 export function isValidOPNetAddress(address: string): boolean {
   if (!address) return false;
-  // opt1 (OPNet testnet), bc1 (mainnet taproot/segwit), bcrt1 (regtest), tb1 (Bitcoin testnet)
-  return /^(opt1[a-z0-9]{39,80}|bc1[a-z0-9]{39,80}|bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn13][a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
+  // ob1 (OPNet mainnet), opt1 (OPNet testnet), bc1 (mainnet taproot/segwit), bcrt1 (regtest), tb1 (Bitcoin testnet)
+  return /^(ob1[a-z0-9]{39,80}|opt1[a-z0-9]{39,80}|bc1[a-z0-9]{39,80}|bcrt1[a-z0-9]{39,59}|tb1[a-z0-9]{39,59}|[mn13][a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
 }
 
 /**

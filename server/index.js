@@ -26,11 +26,30 @@ const WBTC_TOKEN = process.env.WBTC_TOKEN || '';
 const WBTC_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 const MIN_BET_SATS = 10000; // 10,000 sats minimum bet
+const GAS_SAT_FEE = BigInt(process.env.GAS_SAT_FEE || '10000');
+const PRIORITY_FEE = BigInt(process.env.PRIORITY_FEE || '1000');
 
 // Contract pubkey hex (32 bytes) — resolved via getCode RPC on startup
 let WBTC_CONTRACT_PUBKEY = '';
 
 let txLock = false;
+let txLockAcquiredAt = 0;
+const TX_LOCK_TIMEOUT_MS = 120_000; // 2 min auto-release
+
+function acquireTxLock() {
+  if (txLock) {
+    if (Date.now() - txLockAcquiredAt > TX_LOCK_TIMEOUT_MS) {
+      console.error('[txLock] Timeout detected — force-releasing stale lock');
+      txLock = false;
+    } else {
+      return false;
+    }
+  }
+  txLock = true;
+  txLockAcquiredAt = Date.now();
+  return true;
+}
+function releaseTxLock() { txLock = false; txLockAcquiredAt = 0; }
 
 // Get dynamic fee rate from RPC (with fallback)
 async function getDynamicFeeRate() {
@@ -159,10 +178,9 @@ async function createOnChainProof(amount, memo) {
   if (!WBTC_CONTRACT_PUBKEY) {
     return { success: false, error: 'PRED contract pubkey not resolved' };
   }
-  if (txLock) {
+  if (!acquireTxLock()) {
     return { success: false, error: 'Server busy, try again in a few seconds' };
   }
-  txLock = true;
   try {
     const dynamicFeeRate = await getDynamicFeeRate();
     const { BinaryWriter } = await import('@btc-vision/transaction');
@@ -195,8 +213,8 @@ async function createOnChainProof(amount, memo) {
       contract: WBTC_CONTRACT_PUBKEY, // 32-byte hex pubkey (NOT bech32)
       calldata: writer.getBuffer(),
       feeRate: dynamicFeeRate,
-      priorityFee: 1000n,
-      gasSatFee: 10000n,
+      priorityFee: PRIORITY_FEE,
+      gasSatFee: GAS_SAT_FEE,
       challenge,
       linkMLDSAPublicKeyToAddress: true,
       revealMLDSAPublicKey: true,
@@ -215,7 +233,7 @@ async function createOnChainProof(amount, memo) {
     console.error(`On-chain proof error [${memo}]:`, e.message, '\nStack:', e.stack);
     return { success: false, error: e.message };
   } finally {
-    txLock = false;
+    releaseTxLock();
   }
 }
 
@@ -228,8 +246,7 @@ async function transferWbtc(toAddress, amount) {
   if (!WBTC_CONTRACT_PUBKEY) {
     return { success: false, error: 'WBTC contract pubkey not resolved' };
   }
-  if (txLock) return { success: false, error: 'Server busy, try again in a few seconds' };
-  txLock = true;
+  if (!acquireTxLock()) return { success: false, error: 'Server busy, try again in a few seconds' };
   try {
     const feeRate = await getDynamicFeeRate();
     const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
@@ -269,7 +286,7 @@ async function transferWbtc(toAddress, amount) {
     console.error('transferWbtc error:', e.message);
     return { success: false, error: e.message };
   } finally {
-    txLock = false;
+    releaseTxLock();
   }
 }
 
@@ -283,8 +300,7 @@ async function sendBtcFromPool(toAddress, amountSats) {
   if (!deployerWallet || !opnetProvider || !opnetFactory) {
     throw new Error('Deployer wallet not initialized');
   }
-  if (txLock) throw new Error('Transaction in progress, try again');
-  txLock = true;
+  if (!acquireTxLock()) return { success: false, error: 'Transaction in progress, try again' };
   try {
     const utxos = await opnetProvider.fetchUTXO({
       address: deployerWallet.p2tr,
@@ -304,8 +320,8 @@ async function sendBtcFromPool(toAddress, amountSats) {
       to: toAddress,
       amount: BigInt(amountSats),
       feeRate,
-      priorityFee: 1000n,
-      gasSatFee: 10000n,
+      priorityFee: PRIORITY_FEE,
+      gasSatFee: GAS_SAT_FEE,
     });
 
     // Broadcast transaction(s)
@@ -321,7 +337,7 @@ async function sendBtcFromPool(toAddress, amountSats) {
     console.error('[sendBtcFromPool] Error:', e.message);
     return { success: false, error: e.message };
   } finally {
-    txLock = false;
+    releaseTxLock();
   }
 }
 
@@ -3448,6 +3464,31 @@ app.post('/api/unwrap', requireAuth, async (req, res) => {
       return res.status(400).json({ error: `Invalid burn TX: ${txCheck.error || 'not found'}` });
     }
 
+    // Large unwraps (>100k sats): require confirmed burn TX, queue if unconfirmed
+    if (amountNum > 100_000 && !txCheck.confirmed) {
+      db.prepare("UPDATE unwrap_requests SET status = 'queued' WHERE id = ?").run(requestId);
+      return res.status(202).json({
+        success: true, pending: true, requestId: Number(requestId),
+        message: 'Large unwrap queued — waiting for burn TX confirmation (~10 min)',
+      });
+    }
+
+    // Check pool balance before sending
+    if (deployerWallet && opnetProvider) {
+      try {
+        const poolUtxos = await opnetProvider.fetchUTXO({
+          address: deployerWallet.p2tr, minAmount: BigInt(amountNum), requestedAmount: BigInt(amountNum) + 50000n,
+        });
+        if (!poolUtxos || poolUtxos.length === 0) {
+          db.prepare("UPDATE unwrap_requests SET status = 'queued' WHERE id = ?").run(requestId);
+          return res.status(202).json({
+            success: true, pending: true, requestId: Number(requestId),
+            message: 'Unwrap queued — pool refill in progress',
+          });
+        }
+      } catch { /* proceed anyway, sendBtcFromPool will handle */ }
+    }
+
     // Send BTC from pool
     const result = await sendBtcFromPool(address, amountNum);
 
@@ -3578,21 +3619,109 @@ async function flushProtocolRevenue() {
   }
 }
 
+// ==========================================================================
+// BACKGROUND: Process queued unwraps (large unwraps waiting for confirmation)
+// ==========================================================================
+async function processQueuedUnwraps() {
+  try {
+    const queued = db.prepare("SELECT * FROM unwrap_requests WHERE status = 'queued' AND created_at > unixepoch() - 86400").all();
+    if (!queued.length) return;
+    for (const req of queued) {
+      try {
+        const txCheck = await verifyTxExists(req.burn_tx_hash, req.address);
+        if (!txCheck.valid) continue; // still not visible
+        if (!txCheck.confirmed) continue; // wait for confirmation
+        const result = await sendBtcFromPool(req.address, req.amount_sats);
+        if (result && result.success && result.txHash) {
+          db.prepare("UPDATE unwrap_requests SET status = 'completed', btc_tx_hash = ?, completed_at = unixepoch() WHERE id = ?")
+            .run(result.txHash, req.id);
+          console.log(`[processQueuedUnwraps] Completed unwrap #${req.id}: ${req.amount_sats} sats → ${req.address}`);
+        }
+      } catch (e) {
+        console.error(`[processQueuedUnwraps] Error processing #${req.id}:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('[processQueuedUnwraps] Error:', e.message);
+  }
+}
+
+// ==========================================================================
+// HEALTH CHECK
+// ==========================================================================
+app.get('/api/health', async (_req, res) => {
+  const dbOk = !!db.prepare('SELECT 1').get();
+  const walletOk = !!deployerWallet;
+  let rpcOk = false;
+  try {
+    const r = await fetch(OPNET_RPC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_blockNumber', params: [], id: 1 }),
+      signal: AbortSignal.timeout(5000),
+    });
+    rpcOk = r.ok;
+  } catch { /* rpc down */ }
+  const status = dbOk && walletOk && rpcOk ? 200 : 503;
+  res.status(status).json({ db: dbOk, wallet: walletOk, rpc: rpcOk, network: OPNET_NETWORK_NAME, txLock });
+});
+
+// ==========================================================================
+// POOL BALANCE MONITOR
+// ==========================================================================
+const LOW_POOL_THRESHOLD = BigInt(process.env.LOW_POOL_THRESHOLD || '500000'); // 0.005 BTC default
+
+async function checkPoolBalance() {
+  if (!deployerWallet || !opnetProvider) return;
+  try {
+    const utxos = await opnetProvider.fetchUTXO({
+      address: deployerWallet.p2tr,
+      minAmount: 1000n,
+      requestedAmount: 100_000_000n,
+    });
+    const totalSats = utxos.reduce((a, u) => a + u.value, 0n);
+    if (totalSats < LOW_POOL_THRESHOLD) {
+      console.error(`[ALERT] Pool balance LOW: ${totalSats} sats (threshold: ${LOW_POOL_THRESHOLD}). Refill ${deployerWallet.p2tr}!`);
+    }
+  } catch (e) {
+    console.error('[checkPoolBalance] Error:', e.message);
+  }
+}
+
 // Register background jobs
 setInterval(() => confirmPendingDeposits(), 30_000);
 setInterval(() => expireStaleWithdrawals(), 60_000);
 setInterval(() => reconcileBalances(), 30 * 60 * 1000);
 setInterval(() => flushProtocolRevenue(), 6 * 60 * 60 * 1000);
+setInterval(() => checkPoolBalance(), 10 * 60 * 1000);
+setInterval(() => processQueuedUnwraps(), 60_000);
+
+// --- Graceful shutdown ---
+function gracefulShutdown(signal) {
+  console.log(`${signal} received — graceful shutdown`);
+  const waitForLock = () => {
+    if (txLock) return setTimeout(waitForLock, 500);
+    try { db.close(); } catch {}
+    process.exit(0);
+  };
+  setTimeout(() => { try { db.close(); } catch {} process.exit(1); }, 10000); // force after 10s
+  waitForLock();
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (err) => { console.error('UNCAUGHT:', err); });
+process.on('unhandledRejection', (reason) => { console.error('UNHANDLED REJECTION:', reason); });
 
 // --- Start ---
 const PORT = process.env.PORT || 3456;
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`BitPredict API running on :${PORT}`);
+  console.log(`BitPredict API running on :${PORT} [${OPNET_NETWORK_NAME}]`);
   // Initial price fetch
   await fetchPrice('btc');
   await fetchPrice('eth');
   await fetchPrice('sol');
-  // 5-min markets removed (L1 incompatible)
   // Initial Polymarket sync
   setTimeout(() => syncPolymarketEvents(), 5000);
+  // Initial pool balance check
+  setTimeout(() => checkPoolBalance(), 15000);
 });

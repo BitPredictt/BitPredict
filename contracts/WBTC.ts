@@ -5,7 +5,7 @@
  * - wrap(): User sends BTC to pool address → contract mints WBTC
  * - unwrap(): Contract burns WBTC → frontend sends BTC from pool to user via extraOutputs
  *
- * Pool address = deployer's p2tr (testnet).
+ * Pool address = deployer's p2tr.
  * Verification via Blockchain.tx.outputs (NativeSwap pattern).
  *
  * Security: Bob audit Mar 9, 2026 — all CRITICAL/HIGH/MEDIUM fixed.
@@ -80,7 +80,7 @@ export class WBTC extends OP20 {
     public constructor() {
         super();
         this.poolBtcAddress = new StoredString(Blockchain.nextPointer, 0);
-        this.totalWrapped = new StoredU256(Blockchain.nextPointer, u256.Zero.toUint8Array());
+        this.totalWrapped = new StoredU256(Blockchain.nextPointer, new Uint8Array(0));
         this.adminAddress = new StoredAddress(Blockchain.nextPointer);
         this._paused = new StoredBoolean(Blockchain.nextPointer, false);
     }
