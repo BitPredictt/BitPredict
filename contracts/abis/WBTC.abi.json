@@ -27,10 +27,6 @@
                 {
                     "name": "amount",
                     "type": "UINT256"
-                },
-                {
-                    "name": "recipientBtcAddress",
-                    "type": "STRING"
                 }
             ],
             "outputs": [

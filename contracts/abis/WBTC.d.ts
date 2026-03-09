@@ -74,7 +74,7 @@ export type GetPoolAddress = CallResult<
 // ------------------------------------------------------------------
 export interface IWBTC extends IOP_NETContract {
     wrap(amount: bigint): Promise<Wrap>;
-    unwrap(amount: bigint, recipientBtcAddress: string): Promise<Unwrap>;
+    unwrap(amount: bigint): Promise<Unwrap>;
     approve(): Promise<Approve>;
     setPoolAddress(newPool: string): Promise<SetPoolAddress>;
     pause(): Promise<Pause>;

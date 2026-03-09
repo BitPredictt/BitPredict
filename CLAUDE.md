@@ -34,7 +34,7 @@
 - `contracts/PredictionMarket.ts` — основной контракт (buyShares, sellShares, claimPayout, createMarket, resolveMarket)
 - `contracts/StakingVault.ts` — стейкинг vault с CSV timelocks
 - `contracts/PriceOracle.ts` — multi-sig oracle (3-of-5 median)
-- `contracts/PredToken.ts` — BPUSD OP-20 token
+- `contracts/PredToken.ts` — DEPRECATED (replaced by WBTC)
 - `contracts/Treasury.ts` — Treasury (deposit/withdraw, ML-DSA auth, emergency timelock)
 - `server/index.js` — Express сервер (~3100 строк, +treasury endpoints)
 - `src/lib/api.ts` — фронтенд API клиент с JWT
@@ -56,4 +56,4 @@
 ## Server Env Vars (new for Treasury)
 - `PROTOCOL_TREASURY_ADDRESS` — куда слать protocol revenue
 - `WITHDRAWAL_FEE_PCT` — комиссия за вывод (default: 0.005 = 0.5%)
-- `PROTOCOL_FLUSH_THRESHOLD` — порог для flush (default: 10000 BPUSD)
+- `PROTOCOL_FLUSH_THRESHOLD` — порог для flush (default: 10000 sats)

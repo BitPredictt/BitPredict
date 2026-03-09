@@ -609,7 +609,7 @@ try {
         payout INTEGER NOT NULL DEFAULT 0,
         tx_hash TEXT DEFAULT '',
         claim_tx_hash TEXT DEFAULT '',
-        currency TEXT NOT NULL DEFAULT 'bpusd',
+        currency TEXT NOT NULL DEFAULT 'wbtc',
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         FOREIGN KEY (user_address) REFERENCES users(address),
         FOREIGN KEY (market_id) REFERENCES markets(id)
