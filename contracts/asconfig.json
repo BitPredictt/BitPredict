@@ -29,6 +29,16 @@
             "outFile": "build/Treasury.wasm",
             "textFile": "build/Treasury.wat",
             "use": ["abort=src/treasury-index/abort"]
+        },
+        "wbtc-debug": {
+            "outFile": "build/WBTC.wasm",
+            "textFile": "build/WBTC.wat",
+            "use": ["abort=src/wbtc-index/abort"]
+        },
+        "wbtc-release": {
+            "outFile": "build/WBTC.wasm",
+            "textFile": "build/WBTC.wat",
+            "use": ["abort=src/wbtc-index/abort"]
         }
     },
     "options": {

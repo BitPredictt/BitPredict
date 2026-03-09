@@ -44,6 +44,7 @@ export const OPNET_CONFIG = {
   treasuryPubkey: import.meta.env.VITE_TREASURY_PUBKEY || '',
   tokenDecimals: 8,
   tokenSymbol: 'WBTC',
+  wbtcPoolAddress: import.meta.env.VITE_WBTC_POOL_ADDRESS || '',
 };
 
 /**
@@ -777,5 +778,119 @@ export async function depositToTreasury(
     return { txHash: depositTx?.transactionId || depositTx?.txid || '', success: true };
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── Wrap/Unwrap BTC <-> WBTC (NativeSwap) ───
+
+/**
+ * Wrap BTC to WBTC via the WBTC contract.
+ * Sends BTC to pool address via extraOutputs, contract mints WBTC 1:1.
+ *
+ * @param amountSats - amount in satoshis to wrap
+ */
+export async function wrapBTC(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amountSats: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  if (!OPNET_CONFIG.wbtcPoolAddress) return { txHash: '', success: false, error: 'Pool address not configured' };
+
+  try {
+    const { getContract } = await import('opnet');
+    const { WBTCAbi } = await import('../../contracts/abis/WBTC.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.tokenAddress,
+      WBTCAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    // Set transaction details for payable method — include BTC output to pool
+    await (contract as any).setTransactionDetails({
+      outputs: [{ to: OPNET_CONFIG.wbtcPoolAddress, value: BigInt(amountSats) }],
+    });
+
+    const sim = await withRetry(() => (contract as any).wrap(BigInt(amountSats))) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `wrap revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      extraOutputs: [{ address: OPNET_CONFIG.wbtcPoolAddress, value: BigInt(amountSats) }],
+      signer: null,
+      mldsaSigner: null,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    let msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org';
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
+ * Unwrap WBTC to BTC via the WBTC contract.
+ * Contract burns WBTC. Frontend includes extraOutputs: BTC from pool to user.
+ *
+ * @param amountSats - amount in satoshis to unwrap
+ */
+export async function unwrapWBTC(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  amountSats: number,
+): Promise<{ txHash: string; success: boolean; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  if (!OPNET_CONFIG.wbtcPoolAddress) return { txHash: '', success: false, error: 'Pool address not configured' };
+
+  try {
+    const { getContract } = await import('opnet');
+    const { WBTCAbi } = await import('../../contracts/abis/WBTC.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.tokenAddress,
+      WBTCAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    // Set transaction details — BTC output from pool to user
+    await (contract as any).setTransactionDetails({
+      outputs: [{ to: walletAddress, value: BigInt(amountSats) }],
+    });
+
+    const sim = await withRetry(() => (contract as any).unwrap(BigInt(amountSats))) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `unwrap revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      extraOutputs: [{ address: walletAddress, value: BigInt(amountSats) }],
+      signer: null,
+      mldsaSigner: null,
+    });
+    return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
+  } catch (err) {
+    let msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('no utxo')) msg = 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org';
+    return { txHash: '', success: false, error: msg };
   }
 }

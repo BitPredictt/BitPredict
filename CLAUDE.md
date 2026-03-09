@@ -39,11 +39,15 @@
 - `server/index.js` — Express сервер (~3100 строк, +treasury endpoints)
 - `src/lib/api.ts` — фронтенд API клиент с JWT
 - `src/lib/opnet.ts` — on-chain взаимодействие
-- `src/components/WalletPanel.tsx` — Deposit/Withdraw UI
+- `src/components/WalletPanel.tsx` — Deposit/Withdraw/Wrap/Unwrap UI
 - `src/hooks/useWallet.ts` — wallet hook (@btc-vision/walletconnect)
+- `contracts/WBTC.ts` — NativeSwap WBTC token (wrap/unwrap BTC↔WBTC)
+- `contracts/abis/WBTC.abi.ts` — WBTC ABI for frontend
+- `deploy/deploy-wbtc.mjs` — WBTC deploy script
 
 ## Build Commands
 - Contracts: `cd contracts && npm run build`
+- WBTC only: `cd contracts && npm run build:wbtc`
 - Treasury only: `cd contracts && npm run build:treasury`
 - Frontend: `npx vite build`
 - Server: `JWT_SECRET=xxx node server/index.js`

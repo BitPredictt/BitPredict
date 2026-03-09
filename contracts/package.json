@@ -6,7 +6,8 @@
         "build": "asc src/vault-index.ts --target vault-release --config asconfig.json && asc src/oracle-index.ts --target oracle-release --config asconfig.json && asc src/treasury-index.ts --target treasury-release --config asconfig.json",
         "build:vault": "asc src/vault-index.ts --target vault-release --config asconfig.json",
         "build:oracle": "asc src/oracle-index.ts --target oracle-release --config asconfig.json",
-        "build:treasury": "asc src/treasury-index.ts --target treasury-release --config asconfig.json"
+        "build:treasury": "asc src/treasury-index.ts --target treasury-release --config asconfig.json",
+        "build:wbtc": "asc src/wbtc-index.ts --target wbtc-release --config asconfig.json"
     },
     "dependencies": {
         "@btc-vision/btc-runtime": "latest",

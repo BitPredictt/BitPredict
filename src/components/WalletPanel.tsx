@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Clock, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react';
 import * as api from '../lib/api';
-import { depositToTreasury, getExplorerTxUrl } from '../lib/opnet';
+import { depositToTreasury, wrapBTC, unwrapWBTC, getExplorerTxUrl, OPNET_CONFIG, truncateAddress } from '../lib/opnet';
 import type { TreasuryDeposit, WithdrawalRequest } from '../types';
 
 interface WalletPanelProps {
@@ -22,7 +22,7 @@ export function WalletPanel({
   onConnect, onBalanceRefresh, onToast,
   walletProvider, walletNetwork, walletAddressObj,
 }: WalletPanelProps) {
-  const [mode, setMode] = useState<'deposit' | 'withdraw'>('deposit');
+  const [mode, setMode] = useState<'deposit' | 'withdraw' | 'wrap' | 'unwrap'>('deposit');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [deposits, setDeposits] = useState<TreasuryDeposit[]>([]);
@@ -110,6 +110,56 @@ export function WalletPanel({
     }
   };
 
+  const handleWrap = async () => {
+    const amt = parseInt(amount, 10);
+    if (isNaN(amt) || amt < 10000) {
+      onToast('Minimum wrap: 10,000 sats', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      onToast('Wrapping BTC to WBTC...', 'loading');
+      const result = await wrapBTC(walletProvider, walletNetwork, walletAddressObj, walletAddress, amt);
+      if (!result.success) {
+        onToast(result.error || 'Wrap failed', 'error');
+        return;
+      }
+      onToast(`Wrapped ${amt.toLocaleString()} sats to WBTC`, 'success',
+        getExplorerTxUrl(result.txHash), 'View TX');
+      setAmount('');
+      onBalanceRefresh();
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Wrap error', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnwrap = async () => {
+    const amt = parseInt(amount, 10);
+    if (isNaN(amt) || amt < 10000) {
+      onToast('Minimum unwrap: 10,000 sats', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      onToast('Unwrapping WBTC to BTC...', 'loading');
+      const result = await unwrapWBTC(walletProvider, walletNetwork, walletAddressObj, walletAddress, amt);
+      if (!result.success) {
+        onToast(result.error || 'Unwrap failed', 'error');
+        return;
+      }
+      onToast(`Unwrapped ${amt.toLocaleString()} sats from WBTC`, 'success',
+        getExplorerTxUrl(result.txHash), 'View TX');
+      setAmount('');
+      onBalanceRefresh();
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Unwrap error', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const statusIcon = (status: string) => {
     if (status === 'confirmed' || status === 'completed') return <CheckCircle2 size={14} className="text-green-400" />;
     if (status === 'pending') return <Clock size={14} className="text-yellow-400" />;
@@ -161,24 +211,47 @@ export function WalletPanel({
       </div>
 
       {/* Mode toggle */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-1.5 mb-4">
         <button
           onClick={() => setMode('deposit')}
-          className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${
+          className={`flex-1 py-2 rounded-xl text-xs font-medium transition ${
             mode === 'deposit' ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
           }`}
         >
-          <ArrowDownToLine size={14} className="inline mr-1" /> Deposit
+          <ArrowDownToLine size={12} className="inline mr-1" /> Deposit
         </button>
         <button
           onClick={() => setMode('withdraw')}
-          className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${
+          className={`flex-1 py-2 rounded-xl text-xs font-medium transition ${
             mode === 'withdraw' ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
           }`}
         >
-          <ArrowUpFromLine size={14} className="inline mr-1" /> Withdraw
+          <ArrowUpFromLine size={12} className="inline mr-1" /> Withdraw
+        </button>
+        <button
+          onClick={() => setMode('wrap')}
+          className={`flex-1 py-2 rounded-xl text-xs font-medium transition ${
+            mode === 'wrap' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+          }`}
+        >
+          Wrap
+        </button>
+        <button
+          onClick={() => setMode('unwrap')}
+          className={`flex-1 py-2 rounded-xl text-xs font-medium transition ${
+            mode === 'unwrap' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+          }`}
+        >
+          Unwrap
         </button>
       </div>
+
+      {/* Wrap/Unwrap info */}
+      {(mode === 'wrap' || mode === 'unwrap') && OPNET_CONFIG.wbtcPoolAddress && (
+        <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl px-3 py-2 mb-3 text-xs text-blue-300">
+          1:1 rate. Pool: {truncateAddress(OPNET_CONFIG.wbtcPoolAddress, 8)}
+        </div>
+      )}
 
       {/* Amount input */}
       <div className="mb-4">
@@ -187,7 +260,12 @@ export function WalletPanel({
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={mode === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'}
+            placeholder={
+              mode === 'deposit' ? 'Amount to deposit (sats)' :
+              mode === 'withdraw' ? 'Amount to withdraw (sats)' :
+              mode === 'wrap' ? 'BTC amount (sats)' :
+              'WBTC amount (sats)'
+            }
             min={10000}
             max={mode === 'withdraw' ? backedBalance : undefined}
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
@@ -206,15 +284,26 @@ export function WalletPanel({
       </div>
 
       <button
-        onClick={mode === 'deposit' ? handleDeposit : handleWithdraw}
+        onClick={
+          mode === 'deposit' ? handleDeposit :
+          mode === 'withdraw' ? handleWithdraw :
+          mode === 'wrap' ? handleWrap :
+          handleUnwrap
+        }
         disabled={loading || !amount || parseInt(amount, 10) < 10000}
         className={`w-full py-3 rounded-xl font-medium transition flex items-center justify-center gap-2 ${
           loading ? 'bg-gray-700 cursor-wait' :
-          mode === 'deposit' ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-orange-600 hover:bg-orange-500 text-white'
+          mode === 'deposit' ? 'bg-green-600 hover:bg-green-500 text-white' :
+          mode === 'withdraw' ? 'bg-orange-600 hover:bg-orange-500 text-white' :
+          mode === 'wrap' ? 'bg-blue-600 hover:bg-blue-500 text-white' :
+          'bg-purple-600 hover:bg-purple-500 text-white'
         } disabled:opacity-50`}
       >
         {loading ? <><Loader2 size={16} className="animate-spin" /> Processing...</> :
-          mode === 'deposit' ? 'Deposit WBTC' : 'Withdraw WBTC'}
+          mode === 'deposit' ? 'Deposit WBTC' :
+          mode === 'withdraw' ? 'Withdraw WBTC' :
+          mode === 'wrap' ? 'Wrap BTC → WBTC' :
+          'Unwrap WBTC → BTC'}
       </button>
 
       {/* Transaction history */}
