@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Clock, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react';
 import * as api from '../lib/api';
-import { depositToTreasury, wrapBTC, unwrapWBTC, getExplorerTxUrl, OPNET_CONFIG, truncateAddress, waitForTxConfirmation } from '../lib/opnet';
+import { depositToTreasury, wrapBTC, unwrapWBTC, getExplorerTxUrl, OPNET_CONFIG, truncateAddress, waitForTxConfirmation, formatBtc } from '../lib/opnet';
 import type { TreasuryDeposit, WithdrawalRequest } from '../types';
 
 interface WalletPanelProps {
@@ -49,19 +49,20 @@ export function WalletPanel({
   }, [loadHistory]);
 
   const handleDeposit = async () => {
-    const amt = parseInt(amount, 10);
-    if (isNaN(amt) || amt < 10000) {
-      onToast('Minimum deposit: 10,000 sats', 'error');
+    const sats = Math.round((parseFloat(amount) || 0) * 1e8);
+    if (sats < 10000) {
+      onToast('Minimum deposit: 0.0001 BTC', 'error');
       return;
     }
+    const amt = sats;
 
     setLoading(true);
     try {
       // Check if user has enough WBTC on-chain, if not — wrap first
       if (onChainBalance < amt) {
         const deficit = amt - onChainBalance;
-        setStep(`Wrapping ${deficit.toLocaleString()} BTC → WBTC...`);
-        onToast(`Wrapping ${deficit.toLocaleString()} sats BTC → WBTC...`, 'loading');
+        setStep(`Wrapping ${formatBtc(deficit)} → WBTC...`);
+        onToast(`Wrapping ${formatBtc(deficit)} BTC → WBTC...`, 'loading');
         const wrapResult = await wrapBTC(walletProvider, walletNetwork, walletAddressObj, walletAddress, deficit);
         if (!wrapResult.success) {
           onToast(wrapResult.error || 'Wrap failed', 'error');
@@ -89,7 +90,7 @@ export function WalletPanel({
       // Notify server
       const result = await api.depositConfirm(walletAddress, txResult.txHash, amt);
       if (result.success) {
-        onToast(`Deposited ${amt.toLocaleString()} sats`, 'success',
+        onToast(`Deposited ${formatBtc(amt)}`, 'success',
           getExplorerTxUrl(txResult.txHash), 'View TX');
         setAmount('');
         onBalanceRefresh();
@@ -104,13 +105,14 @@ export function WalletPanel({
   };
 
   const handleWithdraw = async () => {
-    const amt = parseInt(amount, 10);
-    if (isNaN(amt) || amt < 10000) {
-      onToast('Minimum withdrawal: 10,000 sats', 'error');
+    const sats = Math.round((parseFloat(amount) || 0) * 1e8);
+    if (sats < 10000) {
+      onToast('Minimum withdrawal: 0.0001 BTC', 'error');
       return;
     }
+    const amt = sats;
     if (amt > backedBalance) {
-      onToast(`Insufficient backed balance: ${backedBalance.toLocaleString()} sats`, 'error');
+      onToast(`Insufficient backed balance: ${formatBtc(backedBalance)}`, 'error');
       return;
     }
 
@@ -120,8 +122,8 @@ export function WalletPanel({
       const result = await api.withdrawRequest(walletAddress, amt);
       if (result.success) {
         const msg = result.status === 'completed'
-          ? `Withdrawn ${result.netAmount.toLocaleString()} sats (fee: ${result.fee.toLocaleString()})`
-          : `Withdrawal queued: ${result.netAmount.toLocaleString()} sats`;
+          ? `Withdrawn ${formatBtc(result.netAmount)} (fee: ${formatBtc(result.fee)})`
+          : `Withdrawal queued: ${formatBtc(result.netAmount)}`;
         onToast(msg, 'success', result.txHash ? getExplorerTxUrl(result.txHash) : undefined, result.txHash ? 'View TX' : undefined);
         setAmount('');
         onBalanceRefresh();
@@ -155,7 +157,8 @@ export function WalletPanel({
     );
   }
 
-  const amt = parseInt(amount, 10) || 0;
+  const amtBtc = parseFloat(amount) || 0;
+  const amt = Math.round(amtBtc * 1e8); // convert BTC to sats
   const needsWrap = mode === 'deposit' && amt > 0 && onChainBalance < amt;
 
   return (
@@ -173,24 +176,23 @@ export function WalletPanel({
       <div className="grid grid-cols-3 gap-3 mb-5">
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-gray-400">Platform</div>
-          <div className="text-lg font-bold text-white">{balance.toLocaleString()}</div>
-          <div className="text-xs text-gray-500">sats</div>
+          <div className="text-lg font-bold text-white">{formatBtc(balance)}</div>
         </div>
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-green-400">Backed</div>
-          <div className="text-lg font-bold text-green-400">{backedBalance.toLocaleString()}</div>
+          <div className="text-lg font-bold text-green-400">{formatBtc(backedBalance)}</div>
           <div className="text-xs text-gray-500">Withdrawable</div>
         </div>
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-btc">On-chain</div>
-          <div className="text-lg font-bold text-btc">{onChainBalance.toLocaleString()}</div>
+          <div className="text-lg font-bold text-btc">{formatBtc(onChainBalance)}</div>
           <div className="text-xs text-gray-500">WBTC</div>
         </div>
       </div>
 
       {syntheticBalance > 0 && (
         <div className="bg-purple-900/20 border border-purple-700/30 rounded-xl px-3 py-2 mb-4 text-xs text-purple-300 text-center">
-          +{syntheticBalance.toLocaleString()} bonus sats (rewards, non-withdrawable)
+          +{formatBtc(syntheticBalance)} bonus (rewards, non-withdrawable)
         </div>
       )}
 
@@ -218,8 +220,8 @@ export function WalletPanel({
       {mode === 'deposit' && (
         <div className="bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2 mb-3 text-xs text-green-300">
           {needsWrap
-            ? `Will auto-wrap ${(amt - onChainBalance).toLocaleString()} BTC → WBTC, then deposit`
-            : 'Deposits WBTC from your wallet to the platform. BTC is auto-wrapped if needed.'
+            ? `Will auto-wrap ${formatBtc(amt - onChainBalance)} → WBTC, then deposit`
+            : 'Deposits WBTC to the platform. BTC is auto-wrapped if needed.'
           }
         </div>
       )}
@@ -236,20 +238,20 @@ export function WalletPanel({
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={mode === 'deposit' ? 'Amount in sats' : 'Amount to withdraw (sats)'}
-            min={10000}
-            max={mode === 'withdraw' ? backedBalance : undefined}
+            placeholder={mode === 'deposit' ? 'Amount in BTC (e.g. 0.001)' : 'Amount in BTC (e.g. 0.001)'}
+            step="0.00000001"
+            min={0.0001}
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
           />
           {mode === 'withdraw' && (
-            <button onClick={() => setAmount(String(backedBalance))} className="px-3 py-2.5 bg-gray-800 rounded-xl text-xs text-gray-400 hover:text-white border border-gray-700">
+            <button onClick={() => setAmount((backedBalance / 1e8).toFixed(8))} className="px-3 py-2.5 bg-gray-800 rounded-xl text-xs text-gray-400 hover:text-white border border-gray-700">
               MAX
             </button>
           )}
         </div>
         {mode === 'withdraw' && amt > 0 && (
           <div className="text-xs text-gray-400 mt-1.5">
-            Fee: {Math.ceil(amt * 0.005).toLocaleString()} sats (0.5%) | Net: {Math.floor(amt * 0.995).toLocaleString()} sats
+            Fee: {formatBtc(Math.ceil(amt * 0.005))} (0.5%) | Net: {formatBtc(Math.floor(amt * 0.995))}
           </div>
         )}
       </div>
@@ -266,9 +268,9 @@ export function WalletPanel({
         {loading ? (
           <><Loader2 size={16} className="animate-spin" /> {step || 'Processing...'}</>
         ) : mode === 'deposit' ? (
-          needsWrap ? `Wrap & Deposit ${amt.toLocaleString()} sats` : `Deposit ${amt > 0 ? amt.toLocaleString() + ' ' : ''}sats`
+          needsWrap ? `Wrap & Deposit ${amtBtc > 0 ? formatBtc(amt) : ''}` : `Deposit ${amtBtc > 0 ? formatBtc(amt) : ''}`
         ) : (
-          `Withdraw ${amt > 0 ? amt.toLocaleString() + ' ' : ''}sats`
+          `Withdraw ${amtBtc > 0 ? formatBtc(amt) : ''}`
         )}
       </button>
 

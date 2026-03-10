@@ -2,7 +2,7 @@ import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Tr
 import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
 import { NotificationBell } from './NotificationBell';
-import { OPNET_CONFIG } from '../lib/opnet';
+import { OPNET_CONFIG, formatBtc } from '../lib/opnet';
 
 interface HeaderProps {
   wallet: WalletState;
@@ -72,7 +72,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
                 <span className="w-2 h-2 rounded-full bg-green-500 status-breathing shrink-0" />
                 <div className="text-right">
                   <div className="flex items-center gap-1.5 justify-end">
-                    <span className="text-[10px] font-bold text-btc">{Math.floor(onChainBalance).toLocaleString()} sats</span>
+                    <span className="text-[10px] font-bold text-btc">{formatBtc(Math.floor(onChainBalance))} WBTC</span>
                     <span className="text-gray-600 text-[10px]">|</span>
                     <span className="text-[10px] font-bold text-orange-400">{(wallet.balanceSats / 1e8).toFixed(6)} BTC</span>
                   </div>

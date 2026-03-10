@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, AlertCircle, Zap, Info, BrainCircuit, Loader2, MessageCircle, Send, TrendingUp } from 'lucide-react';
 import type { Market, WalletState } from '../types';
-import { formatSats, BET_FEE_PCT } from '../lib/opnet';
+import { formatBtc, BET_FEE_PCT } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface BetModalProps {
@@ -84,7 +84,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
   const signalColor = signalType === 'bullish' ? 'text-green-400' : signalType === 'bearish' ? 'text-red-400' : 'text-yellow-400';
   const signalBg = signalType === 'bullish' ? 'bg-green-500/10 border-green-500/20' : signalType === 'bearish' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20';
 
-  const amountNum = parseInt(amount) || 0;
+  const amountNum = Math.round((parseFloat(amount) || 0) * 1e8); // BTC input → sats
 
   // Parimutuel calculations
   const yesPool = market.yesPool || 0;
@@ -126,7 +126,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
     }
   };
 
-  const presets = [10_000, 25_000, 50_000, 100_000];
+  const presets = [0.0001, 0.0005, 0.001, 0.005]; // BTC
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
@@ -231,14 +231,15 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
         {/* Amount */}
         <div className="mb-4">
           <label className="text-xs font-semibold text-gray-400 mb-2 block">
-            Amount (sats) — Balance: {formatSats(activeBalance)}
+            Amount (BTC) — Balance: {formatBtc(activeBalance)}
           </label>
           <input
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             className="w-full bg-surface-2 border border-white/5 rounded-xl px-4 py-3 text-white text-lg font-bold focus:border-btc/50 focus:outline-none transition-colors"
-            placeholder="Enter amount in sats"
+            placeholder="Enter amount in BTC (e.g. 0.001)"
+            step="0.00000001"
           />
           <div className="flex gap-2 mt-2">
             {presets.map((p) => (
@@ -251,7 +252,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                     : 'bg-surface-2 text-gray-500 border border-white/5 hover:text-white hover:scale-105 hover:border-white/10 active:scale-95'
                 }`}
               >
-                {p >= 1_000_000 ? `${p / 1_000_000}M` : p >= 1000 ? `${p / 1000}K` : p}
+                {p} BTC
               </button>
             ))}
           </div>
@@ -278,24 +279,24 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
           <div className="bg-surface-2 rounded-xl p-4 mb-5 space-y-2">
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Bet amount</span>
-              <span className="text-white font-bold">{formatSats(amountNum)}</span>
+              <span className="text-white font-bold">{formatBtc(amountNum)}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Fee (3%)</span>
-              <span className="text-gray-400 font-medium">-{formatSats(fee)}</span>
+              <span className="text-gray-400 font-medium">-{formatBtc(fee)}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Net amount in pool</span>
-              <span className="text-white font-bold">{formatSats(netBet)}</span>
+              <span className="text-white font-bold">{formatBtc(netBet)}</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-1">
               <span className="text-gray-500">Potential payout</span>
-              <span className="text-white font-bold">{formatSats(potentialPayout)} ({multiplier}x)</span>
+              <span className="text-white font-bold">{formatBtc(potentialPayout)} ({multiplier}x)</span>
             </div>
             <div className="flex justify-between text-xs border-t border-white/5 pt-2">
               <span className="text-gray-500">Potential profit</span>
               <span className={`font-bold ${potentialProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {potentialProfit > 0 ? '+' : ''}{formatSats(potentialProfit)}
+                {potentialProfit > 0 ? '+' : ''}{formatBtc(potentialProfit)}
               </span>
             </div>
 
@@ -312,15 +313,15 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
               <div className="space-y-1.5 pt-1 border-t border-white/5">
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-600">YES pool</span>
-                  <span className="text-gray-400 font-medium">{formatSats(yesPool)}</span>
+                  <span className="text-gray-400 font-medium">{formatBtc(yesPool)}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-600">NO pool</span>
-                  <span className="text-gray-400 font-medium">{formatSats(noPool)}</span>
+                  <span className="text-gray-400 font-medium">{formatBtc(noPool)}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-600">Total pool</span>
-                  <span className="text-gray-400 font-medium">{formatSats(totalPool)}</span>
+                  <span className="text-gray-400 font-medium">{formatBtc(totalPool)}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-gray-600">Model</span>
@@ -350,7 +351,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
           <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
             <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
             <p className="text-xs text-red-400">
-              Insufficient balance: {formatSats(activeBalance)} (need {formatSats(amountNum)}).
+              Insufficient balance: {formatBtc(activeBalance)} (need {formatBtc(amountNum)}).
               Get WBTC on <a href="https://motoswap.org" target="_blank" rel="noopener" className="underline">MotoSwap</a>.
             </p>
           </div>
@@ -374,15 +375,15 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
           ) : !wallet.connected ? (
             'Connect Wallet First'
           ) : amountNum < MIN_BET ? (
-            `Minimum bet: ${formatSats(MIN_BET)}`
+            `Minimum bet: ${formatBtc(MIN_BET)}`
           ) : insufficientBalance ? (
-            `Insufficient WBTC (${formatSats(activeBalance)})`
+            `Insufficient WBTC (${formatBtc(activeBalance)})`
           ) : (
             <>
               <Zap size={16} />
               {isMultiOutcome
-                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${formatSats(amountNum)}`
-                : `Place ${side.toUpperCase()} — ${formatSats(amountNum)}`}
+                ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${formatBtc(amountNum)}`
+                : `Place ${side.toUpperCase()} — ${formatBtc(amountNum)}`}
             </>
           )}
         </button>
@@ -443,7 +444,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                     {item.type === 'bet' ? (
                       <span className="text-[10px] text-gray-400">
                         <span className="text-white font-bold">{item.address?.slice(0, 10)}...</span>
-                        {' '}bet {item.amount ? formatSats(item.amount) : '?'} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side?.toUpperCase()}</span>
+                        {' '}bet {item.amount ? formatBtc(item.amount) : '?'} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side?.toUpperCase()}</span>
                       </span>
                     ) : (
                       <div>

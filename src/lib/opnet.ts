@@ -83,8 +83,17 @@ export function formatVolume(sats: number): string {
  * Format sats for display
  */
 export function formatSats(sats: number): string {
-  if (sats >= 100_000_000) return `${(sats / 1e8).toFixed(4)} WBTC`;
+  if (sats >= 100_000_000) return `${(sats / 1e8).toFixed(4)} BTC`;
   if (sats >= 1_000_000) return `${(sats / 1e6).toFixed(2)}M sats`;
+  return `${sats.toLocaleString()} sats`;
+}
+
+/** Format sats as BTC with appropriate decimals */
+export function formatBtc(sats: number): string {
+  const btc = sats / 1e8;
+  if (btc >= 1) return `${btc.toFixed(4)} BTC`;
+  if (btc >= 0.001) return `${btc.toFixed(6)} BTC`;
+  if (btc >= 0.00001) return `${btc.toFixed(8)} BTC`;
   return `${sats.toLocaleString()} sats`;
 }
 
@@ -809,8 +818,10 @@ export async function wrapBTC(
     );
 
     // Set transaction details for payable method — include BTC output to pool
+    // Format must match E2E pattern: index, value, to, flags, scriptPubKey
     await (contract as any).setTransactionDetails({
-      outputs: [{ to: OPNET_CONFIG.wbtcPoolAddress, value: BigInt(amountSats) }],
+      inputs: [],
+      outputs: [{ index: 1, value: BigInt(amountSats), to: OPNET_CONFIG.wbtcPoolAddress, flags: 0, scriptPubKey: undefined }],
     });
 
     const sim = await withRetry(() => (contract as any).wrap(BigInt(amountSats))) as any;

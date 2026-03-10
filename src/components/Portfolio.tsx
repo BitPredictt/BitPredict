@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatSats as formatSatsDisplay } from '../lib/opnet';
+import { getExplorerTxUrl, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -42,8 +42,8 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     setClaimingBetId(betId);
     let opId: number | null = null;
     try {
-      opId = await trackOp('claim', undefined, `Claim ${bet.payout.toLocaleString()} sats`, bet.marketId);
-      onToast(`Claiming ${bet.payout.toLocaleString()} sats... Sign in OP_WALLET`, 'loading');
+      opId = await trackOp('claim', undefined, `Claim ${formatBtc(bet.payout)} reward`, bet.marketId);
+      onToast(`Claiming ${formatBtc(bet.payout)}... Sign in OP_WALLET`, 'loading');
 
       // Sign claim proof for server verification
       const r = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.payout);
@@ -51,7 +51,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
 
       const result = await api.claimPayout(walletAddress, betId, r.txHash);
       onBalanceRefresh();
-      onToast(`+${result.payout.toLocaleString()} sats claimed!`, 'success');
+      onToast(`+${formatBtc(result.payout)} claimed!`, 'success');
       completeOp(opId, 'confirmed', r.txHash);
     } catch (err) {
       onToast(err instanceof Error ? err.message : String(err), 'error');
@@ -130,11 +130,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     }
   };
 
-  const formatSats = (v: number) => {
-    if (Math.abs(v) >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
-    if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}K`;
-    return String(v);
-  };
+  const fmtBtc = (v: number) => formatBtc(Math.abs(v));
 
   return (
     <div className="space-y-6 pb-20 animate-fade-in max-w-2xl mx-auto">
@@ -147,12 +143,12 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
         <div className="flex items-center justify-center gap-3 mt-2">
           <div className="flex items-center gap-1">
             <Coins size={14} className="text-btc" />
-            <span className="text-sm font-black text-btc">{formatSatsDisplay(Math.floor(onChainBalance))}</span>
+            <span className="text-sm font-black text-btc">{formatBtc(Math.floor(onChainBalance))}</span>
           </div>
           <span className="text-gray-600">|</span>
           <div className="flex items-center gap-1">
             <Coins size={14} className="text-orange-400" />
-            <span className="text-sm font-black text-orange-400">{walletBtcBalance.toLocaleString()} sats BTC</span>
+            <span className="text-sm font-black text-orange-400">{formatBtc(walletBtcBalance)} BTC</span>
           </div>
         </div>
         {walletBtcBalance > 0 && walletBtcBalance < MIN_BTC_FOR_TX && (
@@ -170,11 +166,11 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
           {totalPnl >= 0 ? <TrendingUp size={16} className="text-green-400" /> : <TrendingDown size={16} className="text-red-400" />}
         </div>
         <div className={`text-2xl font-black ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-          {totalPnl >= 0 ? '+' : ''}{formatSats(totalPnl)} sats
+          {totalPnl >= 0 ? '+' : '-'}{fmtBtc(totalPnl)}
         </div>
         <div className="flex gap-4 mt-2">
-          <span className="text-[10px] text-gray-500">Realized: <span className={realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}>{realizedPnl >= 0 ? '+' : ''}{formatSats(realizedPnl)}</span></span>
-          <span className="text-[10px] text-gray-500">Unrealized: <span className={unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}>{unrealizedPnl >= 0 ? '+' : ''}{formatSats(unrealizedPnl)}</span></span>
+          <span className="text-[10px] text-gray-500">Realized: <span className={realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}>{realizedPnl >= 0 ? '+' : ''}{fmtBtc(realizedPnl)}</span></span>
+          <span className="text-[10px] text-gray-500">Unrealized: <span className={unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}>{unrealizedPnl >= 0 ? '+' : ''}{fmtBtc(unrealizedPnl)}</span></span>
         </div>
       </div>
 
@@ -212,7 +208,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
               <Tooltip
                 contentStyle={{ background: '#1a1a24', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '11px' }}
                 labelStyle={{ color: '#9ca3af' }}
-                formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${Number(v).toLocaleString()} sats`, 'P&L']}
+                formatter={(v) => [formatBtc(Number(v)), 'P&L']}
               />
               <Area
                 type="monotone"
@@ -236,7 +232,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Total Bets</div>
         </div>
         <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
-          <div className="text-lg font-black text-white">{formatSats(totalInvested)}</div>
+          <div className="text-lg font-black text-white">{fmtBtc(totalInvested)}</div>
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Invested</div>
         </div>
         <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
@@ -247,7 +243,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Win Rate</div>
         </div>
         <div className="bg-surface-2 rounded-xl p-3 border border-white/5 text-center stat-card-hover">
-          <div className="text-lg font-black text-white">{formatSats(avgBetSize)}</div>
+          <div className="text-lg font-black text-white">{fmtBtc(avgBetSize)}</div>
           <div className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Avg Bet</div>
         </div>
       </div>
@@ -289,7 +285,7 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
                   <div className="flex-1 h-2.5 rounded-full bg-surface-3 overflow-hidden">
                     <div className={`h-full rounded-full bg-gradient-to-r ${color}`} style={{ width: `${Math.max(5, (data.count / bets.length) * 100)}%` }} />
                   </div>
-                  <span className="text-[10px] text-gray-500 w-24 text-right">{data.count} bets · {formatSats(data.amount)}</span>
+                  <span className="text-[10px] text-gray-500 w-24 text-right">{data.count} bets · {fmtBtc(data.amount)}</span>
                 </div>
               );
             })}
@@ -330,11 +326,11 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
               <div className="text-[9px] text-gray-500">Best Streak</div>
             </div>
             <div className="bg-black/30 rounded-lg p-2 text-center">
-              <div className="text-sm font-bold text-red-400">{formatSats(metrics.maxDrawdown)}</div>
+              <div className="text-sm font-bold text-red-400">{fmtBtc(metrics.maxDrawdown)}</div>
               <div className="text-[9px] text-gray-500">Max DD</div>
             </div>
             <div className="bg-black/30 rounded-lg p-2 text-center">
-              <div className="text-sm font-bold text-white">{formatSats(metrics.avgBet)}</div>
+              <div className="text-sm font-bold text-white">{fmtBtc(metrics.avgBet)}</div>
               <div className="text-[9px] text-gray-500">Avg Bet</div>
             </div>
           </div>
