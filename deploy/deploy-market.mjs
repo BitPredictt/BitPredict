@@ -1,8 +1,8 @@
 /**
- * BitPredict — Deploy StakingVault on OPNet testnet
+ * BitPredict — Deploy PredictionMarket on OPNet
  *
- * Usage: OPNET_MNEMONIC="12 words..." node deploy/deploy-vault.mjs
- * Or reads from ../.opnet_seed
+ * Usage: node deploy/deploy-market.mjs
+ * Reads mnemonic from ../.opnet_seed or OPNET_MNEMONIC env
  */
 import {
     Mnemonic, TransactionFactory, ChallengeSolution,
@@ -14,27 +14,27 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RPC_URL = 'https://testnet.opnet.org';
+const NETWORK_NAME = process.env.OPNET_NETWORK || 'testnet';
+const RPC_URL = process.env.OPNET_RPC_URL || (NETWORK_NAME === 'mainnet' ? 'https://api.opnet.org' : 'https://testnet.opnet.org');
+console.log(`Network: ${NETWORK_NAME} | RPC: ${RPC_URL}`);
 
-// Read mnemonic from env or .opnet_seed file
 let phrase = process.env.OPNET_MNEMONIC;
 if (!phrase) {
-    try {
-        phrase = readFileSync(join(__dirname, '..', '.opnet_seed'), 'utf8').trim();
-    } catch { /* ignore */ }
+    try { phrase = readFileSync(join(__dirname, '..', '.opnet_seed'), 'utf8').trim(); }
+    catch { /* ignore */ }
 }
 if (!phrase) { console.error('Set OPNET_MNEMONIC or create .opnet_seed'); process.exit(1); }
 
-// 1. Derive wallet
-const network = { ...networks.testnet, bech32: networks.testnet.bech32Opnet };
+// WBTC token pubkey (contract reads readAddress = 32-byte pubkey)
+const WBTC_PUBKEY = process.env.WBTC_PUBKEY || '0xabf2cab66aa84b86759c3aa948d8f73b108fe8f14f0dc717424727ca3687f6c5';
+
+const network = NETWORK_NAME === 'mainnet' ? networks.bitcoin : (networks.opnetTestnet || { ...networks.testnet, bech32: networks.testnet.bech32Opnet });
 const mnemonic = new Mnemonic(phrase, '', network);
 const wallet = mnemonic.deriveOPWallet(undefined, 0);
 console.log('Wallet:', wallet.p2tr);
 
-// 2. Provider
 const provider = new OPNetLimitedProvider(RPC_URL);
 
-// 3. Get epoch challenge
 async function getChallenge() {
     const res = await fetch(`${RPC_URL}/api/v1/json-rpc`, {
         method: 'POST',
@@ -44,7 +44,6 @@ async function getChallenge() {
     });
     const { result: e } = await res.json();
     console.log('Epoch:', e.epochNumber, '| blocks', e.startBlock, '-', e.endBlock);
-
     return new ChallengeSolution({
         epochNumber: e.epochNumber,
         mldsaPublicKey: e.proposer.mldsaPublicKey,
@@ -65,20 +64,23 @@ async function getChallenge() {
     });
 }
 
-// 4. Deploy StakingVault
-const wasmPath = join(__dirname, '..', 'contracts', 'build', 'StakingVault.wasm');
-console.log(`\nUsing WASM: ${wasmPath}`);
-
-const bytecode = new Uint8Array(readFileSync(wasmPath));
-console.log(`  Bytecode: ${bytecode.length} bytes`);
-
-// WBTC token pubkey for the vault (readAddress expects 32-byte pubkey, NOT bech32 string)
-const WBTC_PUBKEY = process.env.WBTC_PUBKEY || '0xabf2cab66aa84b86759c3aa948d8f73b108fe8f14f0dc717424727ca3687f6c5';
-console.log(`  Token pubkey: ${WBTC_PUBKEY}`);
-
+// Calldata: tokenAddress (32-byte Address)
 const calldataWriter = new BinaryWriter();
 calldataWriter.writeAddress(Address.fromString(WBTC_PUBKEY));
 const calldata = new Uint8Array(calldataWriter.getBuffer());
+console.log(`  Token pubkey: ${WBTC_PUBKEY}`);
+
+const wasmPath = join(__dirname, '..', 'contracts', 'build', 'PredictionMarket.wasm');
+console.log(`\nUsing WASM: ${wasmPath}`);
+
+let bytecode;
+try {
+    bytecode = new Uint8Array(readFileSync(wasmPath));
+    console.log(`  Bytecode: ${bytecode.length} bytes`);
+} catch (e) {
+    console.error(`PredictionMarket.wasm not found. Build first: cd contracts && npm run build:market`);
+    process.exit(1);
+}
 
 const challenge = await getChallenge();
 
@@ -94,7 +96,7 @@ if (!utxos || utxos.length === 0) {
     process.exit(1);
 }
 
-console.log(`\nDeploying StakingVault...`);
+console.log(`\nDeploying PredictionMarket...`);
 const factory = new TransactionFactory();
 const result = await factory.signDeployment({
     signer: wallet.keypair,
@@ -122,25 +124,25 @@ console.log(`Broadcasting deployment tx...`);
 const b2 = await provider.broadcastTransaction(result.transaction[1], false);
 console.log('   Deploy:', JSON.stringify(b2));
 
-console.log(`\nStakingVault deployed!`);
+console.log(`\nPredictionMarket deployed!`);
 console.log(`   Address: ${result.contractAddress}`);
 console.log(`   Pubkey:  ${result.contractPubKey}`);
 
-// Save
 const deployInfo = {
-    network: 'testnet',
+    network: NETWORK_NAME,
     deployer: wallet.p2tr,
     contract: {
-        name: 'StakingVault',
+        name: 'PredictionMarket',
         address: result.contractAddress,
         pubkey: result.contractPubKey,
     },
+    tokenPubkey: WBTC_PUBKEY,
     deployedAt: new Date().toISOString(),
 };
 
-writeFileSync(join(__dirname, 'vault-deployed.json'), JSON.stringify(deployInfo, null, 2));
-console.log('\nSaved to deploy/vault-deployed.json');
+writeFileSync(join(__dirname, 'market-deployed.json'), JSON.stringify(deployInfo, null, 2));
+console.log('\nSaved to deploy/market-deployed.json');
 console.log('\n════════════════════════════════════════════');
-console.log('StakingVault address:', result.contractAddress);
-console.log('StakingVault pubkey: ', result.contractPubKey);
+console.log('PredictionMarket address:', result.contractAddress);
+console.log('PredictionMarket pubkey: ', result.contractPubKey);
 console.log('════════════════════════════════════════════');

@@ -9,7 +9,7 @@
  */
 import {
     Mnemonic, TransactionFactory, ChallengeSolution,
-    OPNetLimitedProvider,
+    OPNetLimitedProvider, Address,
 } from './node_modules/@btc-vision/transaction/build/index.js';
 import { networks } from './node_modules/@btc-vision/bitcoin/build/index.js';
 import { readFileSync, writeFileSync } from 'fs';
@@ -31,8 +31,8 @@ if (!phrase) {
 }
 if (!phrase) { console.error('Set OPNET_MNEMONIC or create .opnet_seed'); process.exit(1); }
 
-// WBTC token address (from env or default)
-const WBTC_ADDRESS = process.env.WBTC_ADDRESS || '';
+// WBTC token pubkey (readAddress expects 32-byte pubkey, NOT bech32 string)
+const WBTC_PUBKEY = process.env.WBTC_PUBKEY || '0xabf2cab66aa84b86759c3aa948d8f73b108fe8f14f0dc717424727ca3687f6c5';
 
 // 1. Derive wallet
 const network = NETWORK_NAME === 'mainnet' ? networks.bitcoin : (networks.opnetTestnet || { ...networks.testnet, bech32: networks.testnet.bech32Opnet });
@@ -80,13 +80,13 @@ async function getChallenge() {
     });
 }
 
-// 4. Build calldata: tokenAddress (32 bytes) + serverSignerHash (32 bytes)
-// Use BinaryWriter pattern from OPNet
+// 4. Build calldata: tokenAddress (32 bytes Address) + serverSignerHash (32 bytes u256)
 import { BinaryWriter } from './node_modules/@btc-vision/transaction/build/index.js';
 
 const calldataWriter = new BinaryWriter();
-// Write WBTC token address
-calldataWriter.writeString(WBTC_ADDRESS);
+// Write WBTC token address as proper Address (32-byte pubkey)
+calldataWriter.writeAddress(Address.fromString(WBTC_PUBKEY));
+// Write server signer hash as u256 (Treasury reads readU256)
 calldataWriter.writeBytes(serverSignerHash);
 
 const calldata = calldataWriter.getBuffer();
@@ -174,7 +174,7 @@ const deployInfo = {
         pubkey: result.contractPubKey,
     },
     config: {
-        wbtcAddress: WBTC_ADDRESS,
+        wbtcPubkey: WBTC_PUBKEY,
         serverSignerHash: '0x' + serverSignerHash.toString('hex'),
     },
     deployedAt: new Date().toISOString(),

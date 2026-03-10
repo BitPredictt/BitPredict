@@ -3,8 +3,8 @@
   "deployer": "opt1pjg7vu2qts5p7ls3hh9qpxmwnkmsy9yyqyxv66vxduu9kuq2l689s8vz2m2",
   "contract": {
     "name": "StakingVault",
-    "address": "opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt",
-    "pubkey": "0x1fe6041ec3b1dd64bd7c44155fe0eb1ddc5cd558b3565793b7b176a4dcb570ea"
+    "address": "opt1sqqxqss2hqn7hn5xhkv7fzupvn6u3yq7puuypj3uv",
+    "pubkey": "0x75b069d8a074f563548101b01800f0632101600412fba0746a3ea7b0d9321fb0"
   },
-  "deployedAt": "2026-03-03T03:35:13.863Z"
+  "deployedAt": "2026-03-10T14:52:00.042Z"
 }

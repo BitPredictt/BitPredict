@@ -777,6 +777,15 @@ export class PredictionMarket extends ReentrancyGuard {
     const noReserve: u256  = this.noReserves.get(marketKey);
     const total: u256      = SafeMath.add(yesReserve, noReserve);
 
+    // No liquidity — return 50/50
+    if (u256.eq(total, u256.Zero)) {
+      const half: u256 = u256.fromU64(BPS_BASE / 2);
+      const writer = new BytesWriter(64);
+      writer.writeU256(half);
+      writer.writeU256(half);
+      return writer;
+    }
+
     const yesBps: u256 = SafeMath.div(SafeMath.mul(noReserve, u256.fromU64(BPS_BASE)), total);
     const noBps: u256  = SafeMath.sub(u256.fromU64(BPS_BASE), yesBps);
 

@@ -30,6 +30,16 @@
             "textFile": "build/Treasury.wat",
             "use": ["abort=src/treasury-index/abort"]
         },
+        "market-debug": {
+            "outFile": "build/PredictionMarket.wasm",
+            "textFile": "build/PredictionMarket.wat",
+            "use": ["abort=src/index/abort"]
+        },
+        "market-release": {
+            "outFile": "build/PredictionMarket.wasm",
+            "textFile": "build/PredictionMarket.wat",
+            "use": ["abort=src/index/abort"]
+        },
         "wbtc-debug": {
             "outFile": "build/WBTC.wasm",
             "textFile": "build/WBTC.wat",
