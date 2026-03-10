@@ -5415,7 +5415,7 @@
   if
    i32.const 10464
    i32.const 10528
-   i32.const 512
+   i32.const 498
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -6906,7 +6906,7 @@
    if
     i32.const 11312
     i32.const 10528
-    i32.const 549
+    i32.const 535
     i32.const 9
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
@@ -7132,7 +7132,7 @@
    if
     i32.const 11824
     i32.const 10528
-    i32.const 534
+    i32.const 520
     i32.const 9
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
@@ -7157,7 +7157,7 @@
   if
    i32.const 10592
    i32.const 10528
-   i32.const 167
+   i32.const 157
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -7597,7 +7597,7 @@
   if
    i32.const 11920
    i32.const 10528
-   i32.const 238
+   i32.const 228
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -7672,7 +7672,7 @@
   if
    i32.const 12000
    i32.const 10528
-   i32.const 246
+   i32.const 236
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8015,7 +8015,7 @@
   if
    i32.const 12160
    i32.const 10528
-   i32.const 314
+   i32.const 304
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8207,7 +8207,7 @@
   if
    i32.const 12224
    i32.const 10528
-   i32.const 519
+   i32.const 505
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8267,7 +8267,7 @@
   if
    i32.const 12272
    i32.const 10528
-   i32.const 371
+   i32.const 361
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8400,7 +8400,7 @@
   if
    i32.const 11920
    i32.const 10528
-   i32.const 401
+   i32.const 391
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8475,7 +8475,7 @@
   if
    i32.const 12000
    i32.const 10528
-   i32.const 409
+   i32.const 399
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8637,7 +8637,7 @@
   if
    i32.const 12400
    i32.const 10528
-   i32.const 442
+   i32.const 432
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8680,7 +8680,7 @@
   if
    i32.const 12464
    i32.const 10528
-   i32.const 446
+   i32.const 436
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable

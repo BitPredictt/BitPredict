@@ -31,9 +31,7 @@ import {
   ReentrancyLevel,
 } from '@btc-vision/btc-runtime/runtime';
 
-// ============================================================
-// Constants
-// ============================================================
+/** Constants */
 
 const PRECISION: u256 = u256.fromU64(1_000_000_000_000); // 1e12 for reward math
 const MIN_STAKE: u256 = u256.fromU64(100); // 100 BPUSD minimum
@@ -43,9 +41,7 @@ const MIN_LOCK_BLOCKS: u64 = 144; // ~1 day at 10min blocks (CSV timelock)
 const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7; // transferFrom — OPNet SHA-256 selector
 const TRANSFER_SELECTOR: u32 = 0x3b88ef57;      // transfer — OPNet SHA-256 selector
 
-// ============================================================
-// Events
-// ============================================================
+/** Events */
 
 class StakedEvent extends NetEvent {
   constructor(user: Address, amount: u256, totalStaked: u256) {
@@ -95,9 +91,7 @@ class RevenueDistributedEvent extends NetEvent {
   }
 }
 
-// ============================================================
-// Contract
-// ============================================================
+/** Contract */
 
 @final
 export class StakingVault extends ReentrancyGuard {
@@ -135,9 +129,7 @@ export class StakingVault extends ReentrancyGuard {
     this.userStakeBlock     = new AddressMemoryMap(Blockchain.nextPointer);
   }
 
-  // ============================================================
-  // Lifecycle
-  // ============================================================
+  /** Lifecycle */
 
   public override onDeployment(calldata: Calldata): void {
     const token: Address = calldata.readAddress();
@@ -149,9 +141,7 @@ export class StakingVault extends ReentrancyGuard {
     this.stakerCount.value = u256.Zero;
   }
 
-  // ============================================================
-  // Write Methods
-  // ============================================================
+  /** Write Methods */
 
   /**
    * stake(amount: u256) — Stake BPUSD into the vault.
@@ -471,9 +461,7 @@ export class StakingVault extends ReentrancyGuard {
     return new BytesWriter(0);
   }
 
-  // ============================================================
-  // Read-Only Methods
-  // ============================================================
+  /** Read-Only Methods */
 
   @method()
   @returns({ name: 'totalStaked', type: ABIDataTypes.UINT256 })
@@ -503,9 +491,7 @@ export class StakingVault extends ReentrancyGuard {
     return writer;
   }
 
-  // ============================================================
-  // Internal Helpers
-  // ============================================================
+  /** Internal Helpers */
 
   private whenNotPaused(): void {
     if (this._paused.value) {

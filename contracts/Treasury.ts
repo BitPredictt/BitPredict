@@ -32,9 +32,7 @@ import {
 import { sha256 } from '@btc-vision/btc-runtime/runtime/env/global';
 import { MLDSASecurityLevel } from '@btc-vision/btc-runtime/runtime/env/consensus/MLDSAMetadata';
 
-// ============================================================
-// Constants
-// ============================================================
+/** Constants */
 
 const MIN_DEPOSIT: u256 = u256.fromU64(100); // 100 BPUSD minimum
 const EMERGENCY_TIMELOCK: u64 = 1008; // ~7 days at 10min blocks
@@ -71,9 +69,7 @@ function getDomainSeparator(name: string, version: string, contractAddr: Address
   return sha256(writer.getBuffer());
 }
 
-// ============================================================
-// Events
-// ============================================================
+/** Events */
 
 class DepositEvent extends NetEvent {
   constructor(user: Address, amount: u256, newBalance: u256) {
@@ -131,9 +127,7 @@ class PausedEvent extends NetEvent {
   }
 }
 
-// ============================================================
-// Contract
-// ============================================================
+/** Contract */
 
 @final
 export class Treasury extends ReentrancyGuard {
@@ -164,9 +158,7 @@ export class Treasury extends ReentrancyGuard {
     this.emergencyUnlock   = new AddressMemoryMap(Blockchain.nextPointer);
   }
 
-  // ============================================================
-  // Lifecycle
-  // ============================================================
+  /** Lifecycle */
 
   public override onDeployment(calldata: Calldata): void {
     const token: Address = calldata.readAddress();
@@ -178,9 +170,7 @@ export class Treasury extends ReentrancyGuard {
     this.totalDeposits.value = u256.Zero;
   }
 
-  // ============================================================
-  // Write Methods
-  // ============================================================
+  /** Write Methods */
 
   /**
    * deposit(amount: u256) — Deposit BPUSD into treasury.
@@ -402,9 +392,7 @@ export class Treasury extends ReentrancyGuard {
     return writer;
   }
 
-  // ============================================================
-  // Admin Methods
-  // ============================================================
+  /** Admin Methods */
 
   /**
    * setServerSigner(newSignerHash) — Update server ML-DSA pubkey hash.
@@ -471,9 +459,7 @@ export class Treasury extends ReentrancyGuard {
     return writer;
   }
 
-  // ============================================================
-  // View Methods
-  // ============================================================
+  /** View Methods */
 
   /**
    * getBalance(user) — Get user's treasury balance.
@@ -542,9 +528,7 @@ export class Treasury extends ReentrancyGuard {
     return writer;
   }
 
-  // ============================================================
-  // Internal Helpers
-  // ============================================================
+  /** Internal Helpers */
 
   private whenNotPaused(): void {
     if (this._paused.value) {

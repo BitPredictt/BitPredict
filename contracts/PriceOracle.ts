@@ -29,17 +29,13 @@ import {
   ReentrancyLevel,
 } from '@btc-vision/btc-runtime/runtime';
 
-// ============================================================
-// Constants
-// ============================================================
+/** Constants */
 
 const MAX_ORACLES: i32 = 5;
 const QUORUM: i32 = 3;            // 3-of-5 required for aggregation
 const MAX_STALENESS: u64 = 50;    // max 50 blocks stale (~8 hours at 10 min/block)
 
-// ============================================================
-// Events
-// ============================================================
+/** Events */
 
 class PriceSubmittedEvent extends NetEvent {
   constructor(oracle: Address, assetId: u256, price: u256, blockNumber: u256) {
@@ -88,9 +84,7 @@ class OracleRemovedEvent extends NetEvent {
   }
 }
 
-// ============================================================
-// Contract
-// ============================================================
+/** Contract */
 
 @final
 export class PriceOracle extends ReentrancyGuard {
@@ -136,9 +130,7 @@ export class PriceOracle extends ReentrancyGuard {
     this.oracleCount.value = u256.Zero;
   }
 
-  // ============================================================
-  // Write Methods
-  // ============================================================
+  /** Write Methods */
 
   /**
    * addOracle(oracle: Address) — Admin adds an authorized oracle node.
@@ -296,9 +288,7 @@ export class PriceOracle extends ReentrancyGuard {
     return new BytesWriter(0);
   }
 
-  // ============================================================
-  // Read-Only Methods
-  // ============================================================
+  /** Read-Only Methods */
 
   /**
    * getPrice(assetId: u256) → (price: u256, blockNumber: u256, stale: bool)
@@ -378,9 +368,7 @@ export class PriceOracle extends ReentrancyGuard {
     return writer;
   }
 
-  // ============================================================
-  // Internal: Median Aggregation
-  // ============================================================
+  /** Internal: Median Aggregation */
 
   /**
    * Collect fresh (non-stale) submissions from all slots.
@@ -453,9 +441,7 @@ export class PriceOracle extends ReentrancyGuard {
     ));
   }
 
-  // ============================================================
-  // Internal Helpers
-  // ============================================================
+  /** Internal Helpers */
 
   private requireAdmin(): void {
     if (!Blockchain.tx.sender.equals(this.adminAddress.value)) {

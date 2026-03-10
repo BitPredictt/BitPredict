@@ -34,9 +34,7 @@ import { SegwitDecoded } from '@btc-vision/btc-runtime/runtime/script/ScriptUtil
 // Max value that fits in u64 — guard against truncation
 const U64_MAX: u256 = u256.fromU64(u64.MAX_VALUE);
 
-// ============================================================
-// Events
-// ============================================================
+/** Events */
 
 class WrapEvent extends NetEvent {
     constructor(user: Address, amount: u256) {
@@ -65,9 +63,7 @@ class PoolAddressChangedEvent extends NetEvent {
     }
 }
 
-// ============================================================
-// Contract
-// ============================================================
+/** Contract */
 
 @final
 export class WBTC extends OP20 {
@@ -85,9 +81,7 @@ export class WBTC extends OP20 {
         this._paused = new StoredBoolean(Blockchain.nextPointer, false);
     }
 
-    // ============================================================
-    // Lifecycle
-    // ============================================================
+    /** Lifecycle */
 
     public override onDeployment(calldata: Calldata): void {
         const poolAddr: string = calldata.readStringWithLength();
@@ -107,9 +101,7 @@ export class WBTC extends OP20 {
         this.totalWrapped.value = u256.Zero;
     }
 
-    // ============================================================
-    // Core: wrap / unwrap
-    // ============================================================
+    /** Core: wrap / unwrap */
 
     /**
      * wrap(amount: u256) — Wrap BTC to WBTC.
@@ -216,18 +208,14 @@ export class WBTC extends OP20 {
         return writer;
     }
 
-    // ============================================================
-    // OP20 override — block approve, use increaseAllowance
-    // ============================================================
+    /** OP20 override — block approve, use increaseAllowance */
 
     @method()
     public approve(_calldata: Calldata): BytesWriter {
         throw new Revert('Use increaseAllowance instead of approve');
     }
 
-    // ============================================================
-    // Admin methods
-    // ============================================================
+    /** Admin methods */
 
     @method({ name: 'newPool', type: ABIDataTypes.STRING })
     public setPoolAddress(calldata: Calldata): BytesWriter {
@@ -259,9 +247,7 @@ export class WBTC extends OP20 {
         return new BytesWriter(0);
     }
 
-    // ============================================================
-    // View methods
-    // ============================================================
+    /** View methods */
 
     @method()
     @returns({ name: 'totalWrapped', type: ABIDataTypes.UINT256 })
@@ -281,9 +267,7 @@ export class WBTC extends OP20 {
         return writer;
     }
 
-    // ============================================================
-    // Internal helpers
-    // ============================================================
+    /** Internal helpers */
 
     private whenNotPaused(): void {
         if (this._paused.value) {

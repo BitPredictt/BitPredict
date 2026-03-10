@@ -32,9 +32,7 @@ import {
   ReentrancyLevel,
 } from '@btc-vision/btc-runtime/runtime';
 
-// ============================================================
-// Constants
-// ============================================================
+/** Constants */
 
 const BPS_BASE: u64 = 10000;
 const MAX_FEE_BPS: u64 = 500;           // max 5% fee
@@ -46,9 +44,7 @@ const MIN_MARKET_DURATION: u64 = 6;      // 6 blocks ≈ 1 hour
 const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7; // transferFrom — OPNet SHA-256 selector
 const TRANSFER_SELECTOR: u32 = 0x3b88ef57;      // transfer — OPNet SHA-256 selector
 
-// ============================================================
-// Events
-// ============================================================
+/** Events */
 
 class MarketCreatedEvent extends NetEvent {
   constructor(marketId: u256, endBlock: u256, creator: Address) {
@@ -142,9 +138,7 @@ class UnpausedEvent extends NetEvent {
   }
 }
 
-// ============================================================
-// Contract
-// ============================================================
+/** Contract */
 
 @final
 export class PredictionMarket extends ReentrancyGuard {
@@ -201,9 +195,7 @@ export class PredictionMarket extends ReentrancyGuard {
     this.userClaimed   = new AddressMemoryMap(Blockchain.nextPointer);
   }
 
-  // ============================================================
-  // Lifecycle
-  // ============================================================
+  /** Lifecycle */
 
   public override onDeployment(calldata: Calldata): void {
     // calldata: tokenAddress (Address)
@@ -217,9 +209,7 @@ export class PredictionMarket extends ReentrancyGuard {
     this.activeMarketCount.value = u256.Zero;
   }
 
-  // ============================================================
-  // Write Methods
-  // ============================================================
+  /** Write Methods */
 
   /**
    * createMarket(endBlock: u256) → marketId: u256
@@ -716,9 +706,7 @@ export class PredictionMarket extends ReentrancyGuard {
     return new BytesWriter(0);
   }
 
-  // ============================================================
-  // Read-Only Methods
-  // ============================================================
+  /** Read-Only Methods */
 
   /**
    * getMarketInfo(marketId: u256)
@@ -795,9 +783,7 @@ export class PredictionMarket extends ReentrancyGuard {
     return writer;
   }
 
-  // ============================================================
-  // Internal Helpers
-  // ============================================================
+  /** Internal Helpers */
 
   private whenNotPaused(): void {
     if (this._paused.value) {
