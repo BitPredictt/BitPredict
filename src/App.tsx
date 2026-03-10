@@ -473,6 +473,7 @@ function App() {
             walletAddress={wallet.address}
             balance={serverBalance}
             backedBalance={backedBalance}
+            onChainBalance={onChainBalance}
             onConnect={connectOPWallet}
             onBalanceRefresh={() => {
               getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
