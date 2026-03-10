@@ -362,12 +362,11 @@ export function useAchievements() {
       unlockAchievement('bull_bear');
     }
 
-    // Achievement: diversified (3 categories) — count unique categories
-    const allCategories = new Set(allBets.map((b) => {
-      // Try to find category from marketCategory param or from bet data
-      return '';
-    }).filter(Boolean));
+    // Achievement: diversified (3 categories) — track categories in localStorage
+    const storedCats: string[] = JSON.parse(localStorage.getItem('bp_bet_categories') || '[]');
+    const allCategories = new Set(storedCats.filter(Boolean));
     allCategories.add(marketCategory);
+    localStorage.setItem('bp_bet_categories', JSON.stringify([...allCategories]));
     // Set progress to number of unique categories (not increment)
     setAchievements(prev => prev.map(a =>
       a.id === 'diversified' ? { ...a, progress: Math.max(a.progress ?? 0, allCategories.size) } : a

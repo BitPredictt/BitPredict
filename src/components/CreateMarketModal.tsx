@@ -36,7 +36,7 @@ export function CreateMarketModal({ walletAddress, balance, onClose, onCreated }
     setError('');
     try {
       const endTime = Math.floor(Date.now() / 1000) + duration;
-      const result = await api.createMarket(walletAddress, question, endTime, category, liqNum);
+      const result = await api.createMarket(walletAddress, question, endTime, category);
       onCreated(result.marketId, result.newBalance);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create market');

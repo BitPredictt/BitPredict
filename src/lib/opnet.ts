@@ -139,8 +139,10 @@ export const TREASURY_ADDRESS = import.meta.env.VITE_TREASURY_ADDRESS || OPNET_C
 export async function getGasParameters(provider: unknown): Promise<{ feeRate: number; priorityFee: bigint }> {
   const gas = await (provider as any).gasParameters();
   const feeRate = Number(gas?.bitcoin?.recommended?.medium || gas?.bitcoin?.conservative || 10);
-  const gasPerSat = BigInt(gas?.gasPerSat || 1n) > 0n ? BigInt(gas.gasPerSat) : 1n;
-  const priorityFeeSats = BigInt(gas?.baseGas || 1000n) / gasPerSat;
+  const rawGasPerSat = gas?.gasPerSat != null ? BigInt(gas.gasPerSat) : 1n;
+  const gasPerSat = rawGasPerSat > 0n ? rawGasPerSat : 1n;
+  const rawBaseGas = gas?.baseGas != null ? BigInt(gas.baseGas) : 1000n;
+  const priorityFeeSats = rawBaseGas / gasPerSat;
   const priorityFee = priorityFeeSats < 1000n ? 1000n : priorityFeeSats > 50000n ? 50000n : priorityFeeSats;
   return { feeRate, priorityFee };
 }
@@ -433,7 +435,7 @@ export async function stakeOnChain(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    const { getContract, BitcoinUtils } = await import('opnet');
+    const { getContract } = await import('opnet');
     const { StakingVaultAbi } = await import('../../contracts/abis/StakingVault.abi');
 
     const contract = getContract(
@@ -479,7 +481,7 @@ export async function unstakeOnChain(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    const { getContract, BitcoinUtils } = await import('opnet');
+    const { getContract } = await import('opnet');
     const { StakingVaultAbi } = await import('../../contracts/abis/StakingVault.abi');
 
     const contract = getContract(
@@ -652,13 +654,14 @@ export async function approveForVault(
 ): Promise<{ txHash: string; success: boolean; error?: string; skipped?: boolean }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    // Check existing allowance — skip TX if already enough
-    const currentAllowance = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey);
-    if (currentAllowance >= amount) {
+    // Check existing allowance — skip TX if already enough (both in sats)
+    const currentAllowanceBtc = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey);
+    const currentAllowanceSats = currentAllowanceBtc * 1e8;
+    if (currentAllowanceSats >= amount) {
       return { txHash: '', success: true, skipped: true };
     }
 
-    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
+    const { getContract, OP_20_ABI } = await import('opnet');
 
     const token = getContract(
       OPNET_CONFIG.tokenAddress,
