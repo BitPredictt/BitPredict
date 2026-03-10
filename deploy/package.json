@@ -5,6 +5,6 @@
   "dependencies": {
     "@btc-vision/bitcoin": "^6.5.6",
     "@btc-vision/transaction": "^1.8.0-rc.8",
-    "opnet": "^1.8.0"
+    "opnet": "^1.8.3"
   }
 }

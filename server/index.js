@@ -220,12 +220,10 @@ async function createOnChainProof(amount, memo) {
       revealMLDSAPublicKey: true,
     });
 
-    // Broadcast funding tx, then interaction tx
-    const b1 = await opnetProvider.broadcastTransaction(result.fundingTransaction, false);
-    console.log(`[${memo}] Funding TX:`, JSON.stringify(b1));
-    await new Promise(r => setTimeout(r, 2000));
-    const b2 = await opnetProvider.broadcastTransaction(result.interactionTransaction, false);
-    console.log(`[${memo}] Interaction TX:`, JSON.stringify(b2));
+    // Broadcast transaction (v1.8.0 API: result.tx is hex string)
+    const rawTx = result.tx || result.interactionTransaction;
+    const b2 = await opnetProvider.broadcastTransaction(rawTx, false);
+    console.log(`[${memo}] TX broadcast:`, JSON.stringify(b2));
 
     const txHash = b2?.result || '';
     return { success: true, txHash };
@@ -324,12 +322,9 @@ async function sendBtcFromPool(toAddress, amountSats) {
       gasSatFee: GAS_SAT_FEE,
     });
 
-    // Broadcast transaction(s)
-    if (result.fundingTransaction) {
-      await opnetProvider.broadcastTransaction(result.fundingTransaction, false);
-      await new Promise(r => setTimeout(r, 2000));
-    }
-    const b = await opnetProvider.broadcastTransaction(result.transaction || result.interactionTransaction, false);
+    // Broadcast transaction (v1.8.0 API: result.tx is hex string)
+    const rawTx = result.tx || result.transaction || result.interactionTransaction;
+    const b = await opnetProvider.broadcastTransaction(rawTx, false);
     const txHash = b?.result || b?.txid || '';
     console.log(`[sendBtcFromPool] Sent ${amountSats} sats to ${toAddress}: ${txHash}`);
     return { success: true, txHash };
