@@ -212,7 +212,7 @@ export async function getPredBalanceOnChain(
 }
 
 /**
- * Get WBTC balance as a human-readable number (not raw bigint).
+ * Get WBTC balance in raw units (sats) as a number.
  * Wrapper around getPredBalanceOnChain for convenience.
  */
 export async function getOnChainWbtcBalance(
@@ -221,7 +221,7 @@ export async function getOnChainWbtcBalance(
   senderAddr: unknown,
 ): Promise<number> {
   const raw = await getPredBalanceOnChain(provider, network, senderAddr);
-  return Number(raw) / 1e8; // 8 decimals → human number
+  return Number(raw); // raw on-chain units (sats)
 }
 
 /**
@@ -274,8 +274,8 @@ export async function signBetProof(
 }
 
 /**
- * Sign a bet proof TX with human-readable WBTC amount (auto-expanded to token decimals).
- * Wraps signBetProof with expandToDecimals so callers pass e.g. 1000 not 100000000000.
+ * Sign a bet proof TX — user signs increaseAllowance for the bet amount (in sats).
+ * Wraps signBetProof, passing amount directly as raw on-chain units.
  */
 export async function signBetAmountProof(
   provider: unknown,
@@ -286,9 +286,7 @@ export async function signBetAmountProof(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    const { BitcoinUtils } = await import('opnet');
-    const expandedAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
-    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+    return signBetProof(provider, network, senderAddr, walletAddress, BigInt(amount));
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -298,7 +296,7 @@ export async function signBetAmountProof(
  * Sign a claim TX — user signs increaseAllowance for the exact claim amount.
  * This creates a REAL on-chain TX with the actual WBTC payout value.
  * Used when claiming winnings from resolved markets.
- * @param claimAmount - payout amount in sats (will be expanded to token decimals)
+ * @param claimAmount - payout amount in raw on-chain units (sats)
  */
 export async function signClaimProof(
   provider: unknown,
@@ -309,9 +307,7 @@ export async function signClaimProof(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    const { BitcoinUtils } = await import('opnet');
-    const expandedAmount = BitcoinUtils.expandToDecimals(claimAmount, OPNET_CONFIG.tokenDecimals);
-    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+    return signBetProof(provider, network, senderAddr, walletAddress, BigInt(claimAmount));
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -448,7 +444,7 @@ export async function stakeOnChain(
       senderAddr as never,
     );
 
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const rawAmount = BigInt(amount);
     const sim = await withRetry(() => (contract as any).stake(rawAmount)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `stake revert: ${sim.revert}` };
 
@@ -494,7 +490,7 @@ export async function unstakeOnChain(
       senderAddr as never,
     );
 
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const rawAmount = BigInt(amount);
     const sim = await withRetry(() => (contract as any).unstake(rawAmount)) as any;
     if (sim?.revert) return { txHash: '', success: false, error: `unstake revert: ${sim.revert}` };
 
@@ -630,9 +626,7 @@ export async function signVaultProof(
 ): Promise<{ txHash: string; success: boolean; error?: string }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    const { BitcoinUtils } = await import('opnet');
-    const expandedAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
-    return signBetProof(provider, network, senderAddr, walletAddress, expandedAmount);
+    return signBetProof(provider, network, senderAddr, walletAddress, BigInt(amount));
   } catch (err) {
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -675,7 +669,7 @@ export async function approveForVault(
     );
 
     const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey) as any;
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const rawAmount = BigInt(amount);
 
     const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;
     if (approveSim?.revert) return { txHash: '', success: false, error: `increaseAllowance revert: ${approveSim.revert}` };
@@ -716,8 +710,8 @@ export async function depositToTreasury(
   if (!OPNET_CONFIG.treasuryAddress) return { txHash: '', success: false, error: 'Treasury address not configured' };
 
   try {
-    const { getContract, OP_20_ABI, BitcoinUtils } = await import('opnet');
-    const rawAmount = BitcoinUtils.expandToDecimals(amount, OPNET_CONFIG.tokenDecimals);
+    const { getContract, OP_20_ABI } = await import('opnet');
+    const rawAmount = BigInt(amount);
 
     // Step 1: increaseAllowance for Treasury contract
     const token = getContract(

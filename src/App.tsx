@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signRewardClaimProof, signBetAmountProof, getOnChainWbtcBalance, approveForVault, waitForTxConfirmation, OPNET_CONFIG, formatSats } from './lib/opnet';
+import { signBetAmountProof, getOnChainWbtcBalance, OPNET_CONFIG, formatSats } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';

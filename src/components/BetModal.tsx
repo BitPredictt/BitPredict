@@ -98,7 +98,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
   const netBet = amountNum - fee;
 
   // Potential payout at current odds (changes with every new bet)
-  const currentSidePool = (isMultiOutcome ? true : side === 'yes') ? yesPool : noPool;
+  const currentSidePool = isMultiOutcome ? yesPool : (side === 'yes' ? yesPool : noPool);
   const newSidePool = currentSidePool + netBet;
   const newTotalPool = totalPool + netBet;
   const potentialPayout = newSidePool > 0 ? Math.floor((netBet / newSidePool) * newTotalPool) : 0;
