@@ -342,6 +342,25 @@ async function sendBtcFromPool(toAddress, amountSats) {
 // ON-CHAIN CONTRACT INTERACTIONS (PredictionMarket)
 // ==========================================================================
 
+/** Lazy-loaded shared ABI for PredictionMarket contract. */
+let _predictionMarketAbi = null;
+async function getPredictionMarketAbi() {
+  if (_predictionMarketAbi) return _predictionMarketAbi;
+  const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
+  _predictionMarketAbi = [
+    { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    ...OP_NET_ABI,
+  ];
+  return _predictionMarketAbi;
+}
+
 /**
  * Create a market on-chain via PredictionMarket.createMarket(endBlock).
  * Called by server (deployer = admin) when syncing SQLite markets to chain.
@@ -353,18 +372,7 @@ async function createMarketOnChain(endBlock) {
   if (!acquireTxLock()) return { success: false, error: 'Server busy' };
   try {
     const { getContract } = await import('opnet');
-    const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
-    const PredictionMarketAbi = [
-      { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
-      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      ...OP_NET_ABI,
-    ];
+    const PredictionMarketAbi = await getPredictionMarketAbi();
 
     const contract = getContract(
       PREDICTION_MARKET_ADDRESS,
@@ -410,18 +418,7 @@ async function resolveMarketOnChain(onchainId, outcomeIsYes) {
   if (!acquireTxLock()) return { success: false, error: 'Server busy' };
   try {
     const { getContract } = await import('opnet');
-    const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
-    const PredictionMarketAbi = [
-      { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
-      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      ...OP_NET_ABI,
-    ];
+    const PredictionMarketAbi = await getPredictionMarketAbi();
 
     const contract = getContract(
       PREDICTION_MARKET_ADDRESS,
@@ -464,18 +461,7 @@ async function withdrawFeesOnChain() {
   if (!acquireTxLock()) return;
   try {
     const { getContract } = await import('opnet');
-    const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
-    const PredictionMarketAbi = [
-      { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
-      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
-      ...OP_NET_ABI,
-    ];
+    const PredictionMarketAbi = await getPredictionMarketAbi();
 
     const contract = getContract(
       PREDICTION_MARKET_ADDRESS,
@@ -531,34 +517,53 @@ async function syncMarketsToChain() {
   if (!deployerWallet || !PREDICTION_MARKET_ADDRESS) return;
   try {
     const now = Math.floor(Date.now() / 1000);
-    const unsynced = db.prepare(
-      "SELECT * FROM markets WHERE onchain_id IS NULL AND resolved = 0 AND end_time > ? AND market_type != 'polymarket' LIMIT 3"
-    ).all(now + 600); // at least 10 min remaining
+    // Only 1 market per cycle to avoid duplicate onchainId (simulation returns same ID if TX not confirmed)
+    const m = db.prepare(
+      "SELECT * FROM markets WHERE onchain_id IS NULL AND resolved = 0 AND end_time > ? AND market_type != 'polymarket' LIMIT 1"
+    ).get(now + 600); // at least 10 min remaining
 
-    if (!unsynced.length) return;
+    if (!m) return;
 
     const currentBlock = await getBlockHeightFromRPC();
     if (!currentBlock) return;
 
-    for (const m of unsynced) {
-      const remainingSecs = m.end_time - now;
-      const endBlock = currentBlock + Math.ceil(remainingSecs / 600); // 1 block ≈ 10 min
+    const remainingSecs = m.end_time - now;
+    const endBlock = currentBlock + Math.ceil(remainingSecs / 600); // 1 block ≈ 10 min
 
-      const result = await createMarketOnChain(endBlock);
-      if (result.success && result.onchainId != null) {
+    const result = await createMarketOnChain(endBlock);
+    if (result.success && result.onchainId != null && result.txHash) {
+      // Wait for TX confirmation before saving onchainId to prevent duplicates
+      const confirmed = await waitForTxConfirmation(result.txHash, 180);
+      if (confirmed) {
         db.prepare('UPDATE markets SET onchain_id = ? WHERE id = ?').run(result.onchainId, m.id);
-        console.log(`[syncMarketsToChain] ${m.id} → onchainId=${result.onchainId}`);
+        console.log(`[syncMarketsToChain] ${m.id} → onchainId=${result.onchainId} (confirmed)`);
       } else {
-        console.error(`[syncMarketsToChain] Failed for ${m.id}: ${result.error}`);
-        break; // stop on first failure to avoid burning gas
+        console.warn(`[syncMarketsToChain] TX ${result.txHash.slice(0,16)} not confirmed after 3min — skipping`);
       }
-
-      // Wait between TXes to avoid nonce issues
-      await new Promise(r => setTimeout(r, 3000));
+    } else {
+      console.error(`[syncMarketsToChain] Failed for ${m.id}: ${result.error}`);
     }
   } catch (e) {
     console.error('[syncMarketsToChain] Error:', e.message);
   }
+}
+
+/** Wait for a TX to be confirmed on-chain. Returns true if confirmed within maxSecs. */
+async function waitForTxConfirmation(txHash, maxSecs = 180) {
+  const RPC_URL = process.env.VITE_OPNET_RPC_URL || 'https://testnet.opnet.org';
+  for (let i = 0; i < maxSecs / 15; i++) {
+    await new Promise(r => setTimeout(r, 15000));
+    try {
+      const res = await fetch(`${RPC_URL}/api/v1/json-rpc`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [txHash], id: 1 }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+      if (data.result?.blockNumber) return true;
+    } catch(e) { /* retry */ }
+  }
+  return false;
 }
 
 // Init deployer wallet on startup
@@ -860,6 +865,19 @@ try {
   db.exec("DELETE FROM markets WHERE market_type = 'polymarket' AND outcome_label LIKE 'Individual %' AND LENGTH(outcome_label) < 15");
   db.exec("DELETE FROM markets WHERE market_type = 'polymarket' AND outcome_label LIKE 'Candidate %' AND LENGTH(outcome_label) < 15");
 } catch(e) {}
+
+// Fix duplicate onchain_ids: batch sync assigned the same simulated ID to multiple markets.
+// Keep only the first market per onchain_id (by rowid), reset others to NULL for re-sync.
+try {
+  const dupsFixed = db.prepare(`
+    UPDATE markets SET onchain_id = NULL
+    WHERE onchain_id IS NOT NULL
+      AND rowid NOT IN (
+        SELECT MIN(rowid) FROM markets WHERE onchain_id IS NOT NULL GROUP BY onchain_id
+      )
+  `).run().changes;
+  if (dupsFixed > 0) console.log(`[migration] Fixed ${dupsFixed} duplicate onchain_ids → NULL`);
+} catch(e) { /* ignore */ }
 
 // Sync nextOnchainMarketId from DB (max existing onchain_id + 1)
 try {
