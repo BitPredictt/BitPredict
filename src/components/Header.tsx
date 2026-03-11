@@ -1,4 +1,4 @@
-import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Trophy, HelpCircle, ExternalLink } from 'lucide-react';
+import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Award, Trophy, HelpCircle, ExternalLink, ChevronDown } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
 import { NotificationBell } from './NotificationBell';
@@ -12,9 +12,11 @@ interface HeaderProps {
   activeTab: Tab;
   onTabChange: (tab: Tab) => void;
   onChainBalance: number;
+  serverBalance: number;
+  onWalletClick?: () => void;
 }
 
-export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, onChainBalance }: HeaderProps) {
+export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, onChainBalance, serverBalance, onWalletClick }: HeaderProps) {
   const [mobileMenu, setMobileMenu] = useState(false);
 
   const formatAddress = (addr: string) =>
@@ -22,7 +24,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
 
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
     { id: 'markets', label: 'Markets', icon: <BarChart3 size={14} /> },
-    { id: 'vault', label: 'Vault', icon: <Lock size={14} /> },
+    { id: 'vault', label: 'Staking', icon: <Lock size={14} /> },
     { id: 'portfolio', label: 'Portfolio', icon: <Briefcase size={14} /> },
     { id: 'achievements', label: 'Quests', icon: <Award size={14} /> },
     { id: 'leaderboard', label: 'Ranks', icon: <Trophy size={14} /> },
@@ -70,11 +72,16 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
             {wallet.connected ? (
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500 status-breathing shrink-0" />
-                <div className="text-right">
+                <div
+                  className="text-right cursor-pointer group/wallet rounded-lg px-2 py-1 -mx-2 -my-1 hover:bg-white/5 transition-all"
+                  onClick={onWalletClick}
+                  title="Manage funds"
+                >
                   <div className="flex items-center gap-1.5 justify-end">
-                    <span className="text-[10px] font-bold text-btc">{formatBtc(Math.floor(onChainBalance))} WBTC</span>
+                    <span className="text-[10px] font-bold text-green-400">{formatBtc(serverBalance)}</span>
                     <span className="text-gray-600 text-[10px]">|</span>
                     <span className="text-[10px] font-bold text-orange-400">{(wallet.balanceSats / 1e8).toFixed(6)} BTC</span>
+                    <ChevronDown size={10} className="text-gray-500 group-hover/wallet:text-btc transition-colors" />
                   </div>
                   <div className="flex items-center gap-1 justify-end mt-0.5">
                     <div className="text-[9px] text-gray-500 font-mono">{formatAddress(wallet.address)}</div>
@@ -83,6 +90,7 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
                       href={OPNET_CONFIG.faucetUrl}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="text-[8px] px-1.5 py-0.5 rounded bg-btc/10 text-btc hover:bg-btc/20 transition-all flex items-center gap-0.5"
                       title="Get testnet BTC from OP_NET faucet"
                     >

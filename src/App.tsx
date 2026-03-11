@@ -5,7 +5,7 @@ import { CATEGORIES } from './data/markets';
 import { useWallet } from './hooks/useWallet';
 import { useAchievements } from './hooks/useAchievements';
 import * as api from './lib/api';
-import { signBetAmountProof, getOnChainWbtcBalance, OPNET_CONFIG, formatSats } from './lib/opnet';
+import { approveForMarket, placeBetOnChain, waitForTxConfirmation, getOnChainWbtcBalance, OPNET_CONFIG, formatBtc } from './lib/opnet';
 import { Header } from './components/Header';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
@@ -40,6 +40,7 @@ function App() {
   const [serverBalance, setServerBalance] = useState(0); // Total server balance
   const { toasts, addToast, removeToast } = useToasts();
   const [showCreateMarket, setShowCreateMarket] = useState(false);
+  const [showWalletModal, setShowWalletModal] = useState(false);
   const [opsRefreshKey, setOpsRefreshKey] = useState(0);
   const marketsLoaded = useRef(false);
 
@@ -268,6 +269,11 @@ function App() {
       throw new Error('Cannot place bet');
     }
 
+    if (!market.onchainId) {
+      addToast('Market not yet on-chain (display-only)', 'error');
+      throw new Error('Market not on-chain');
+    }
+
     const pendingId = `pending-${Date.now()}`;
     const pendingBet: Bet = {
       id: pendingId, marketId, side, amount,
@@ -278,24 +284,32 @@ function App() {
 
     let opId: number | null = null;
     try {
-      opId = await trackOp('buy', undefined, `${side.toUpperCase()} ${formatSats(amount)}`, marketId);
+      opId = await trackOp('buy', undefined, `${side.toUpperCase()} ${formatBtc(amount)}`, marketId);
 
-      // Parimutuel: single wallet popup — sign bet proof
-      addToast('Sign bet proof in OP_WALLET...', 'loading');
-      const proofResult = await signBetAmountProof(provider, walletNetwork, addressObj, wallet.address, amount);
-      if (!proofResult.success) throw new Error(proofResult.error || 'Bet proof signing failed');
-      const txHash = proofResult.txHash;
+      // Step 1/3: Approve WBTC for PredictionMarket contract
+      addToast('Step 1/3: Approving WBTC...', 'loading');
+      const approveResult = await approveForMarket(provider, walletNetwork, addressObj, wallet.address, amount);
+      if (!approveResult.success) throw new Error(approveResult.error || 'Approval failed');
 
-      addToast('TX signed! Recording bet...', 'loading');
+      // Wait for approval confirmation if a TX was sent (not skipped)
+      if (!approveResult.skipped && approveResult.txHash) {
+        addToast('Waiting for approval confirmation...', 'loading');
+        await waitForTxConfirmation(provider, approveResult.txHash, 120_000);
+      }
 
+      // Step 2/3: Place bet on-chain via contract
+      addToast('Step 2/3: Placing bet on-chain...', 'loading');
+      const betResult = await placeBetOnChain(provider, walletNetwork, addressObj, wallet.address, market.onchainId!, side === 'yes', amount);
+      if (!betResult.success) throw new Error(betResult.error || 'placeBet failed');
+      const txHash = betResult.txHash;
+
+      // Step 3/3: Report to server for UI/stats
+      addToast('Step 3/3: Recording bet...', 'loading');
       await ensureAuth();
+      const result = await api.reportBetTx(wallet.address, marketId, side, amount, txHash, market.onchainId!);
 
-      // Send txHash to server — server records parimutuel bet
-      const result = await api.placeOnChainBet(wallet.address, marketId, side, amount, txHash);
-
-      // Refresh on-chain WBTC balance
+      // Refresh on-chain balance
       getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
-      refreshBalance(wallet.address);
 
       const confirmedBet: Bet = {
         id: result.betId, marketId, side, amount,
@@ -331,6 +345,8 @@ function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onChainBalance={onChainBalance}
+        serverBalance={serverBalance}
+        onWalletClick={() => setShowWalletModal(true)}
       />
       <NetworkStats walletProvider={provider} marketCount={markets.filter(m => !m.resolved).length} />
 
@@ -370,6 +386,29 @@ function App() {
 
             <ProtocolStats />
             <HowItWorks />
+
+            {/* Quick Deposit Banner */}
+            {wallet.connected && (
+              <div className="mb-6 bg-surface-2/80 border border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-4">
+                  <div className="text-center sm:text-left">
+                    <div className="text-xs text-gray-400">Platform Balance</div>
+                    <div className="text-lg font-bold text-white">{formatBtc(serverBalance)}</div>
+                  </div>
+                  <div className="w-px h-8 bg-white/10 hidden sm:block" />
+                  <div className="text-center sm:text-left">
+                    <div className="text-xs text-btc">On-chain WBTC</div>
+                    <div className="text-lg font-bold text-btc">{formatBtc(onChainBalance)}</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowWalletModal(true)}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-green-600 to-green-500 text-white text-sm font-bold hover:from-green-500 hover:to-green-400 transition-all whitespace-nowrap"
+                >
+                  Deposit / Withdraw
+                </button>
+              </div>
+            )}
 
             {/* Search & filters */}
             <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -468,22 +507,6 @@ function App() {
 
         {activeTab === 'vault' && (
           <div className="space-y-6">
-          <WalletPanel
-            walletConnected={wallet.connected}
-            walletAddress={wallet.address}
-            balance={serverBalance}
-            backedBalance={backedBalance}
-            onChainBalance={onChainBalance}
-            onConnect={connectOPWallet}
-            onBalanceRefresh={() => {
-              getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
-              api.getBalance(wallet.address).then(b => { setServerBalance(b.balance); setBackedBalance(b.backedBalance); }).catch(() => {});
-            }}
-            onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
-            walletProvider={provider}
-            walletNetwork={walletNetwork}
-            walletAddressObj={addressObj}
-          />
           <VaultDashboard
             walletConnected={wallet.connected}
             walletAddress={wallet.address}
@@ -492,6 +515,7 @@ function App() {
             onConnect={connectOPWallet}
             onBalanceRefresh={() => getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
+            onEnsureAuth={ensureAuth}
             trackOp={trackOp}
             completeOp={completeOp}
             walletProvider={provider}
@@ -513,6 +537,7 @@ function App() {
             onBalanceRefresh={() => getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {})}
             onBetsUpdate={setBets}
             onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
+            onEnsureAuth={ensureAuth}
             trackOp={trackOp}
             completeOp={completeOp}
             walletProvider={provider}
@@ -551,7 +576,7 @@ function App() {
         <div className="flex">
           {([
             { id: 'markets' as Tab, icon: <BarChart3 size={18} />, label: 'Markets' },
-            { id: 'vault' as Tab, icon: <Lock size={18} />, label: 'Vault' },
+            { id: 'vault' as Tab, icon: <Lock size={18} />, label: 'Staking' },
             { id: 'portfolio' as Tab, icon: <Briefcase size={18} />, label: 'Portfolio' },
             { id: 'leaderboard' as Tab, icon: <Trophy size={18} />, label: 'Ranks' },
             { id: 'ai' as Tab, icon: <Bot size={18} />, label: 'AI' },
@@ -594,6 +619,34 @@ function App() {
             api.getMarkets().then(setMarkets).catch(() => {});
           }}
         />
+      )}
+
+      {/* Wallet Modal (Deposit / Withdraw) */}
+      {showWalletModal && wallet.connected && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowWalletModal(false)} />
+          <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
+            <WalletPanel
+              walletConnected={wallet.connected}
+              walletAddress={wallet.address}
+              balance={serverBalance}
+              backedBalance={backedBalance}
+              onChainBalance={onChainBalance}
+              walletBtcBalance={wallet.balanceSats}
+              onConnect={connectOPWallet}
+              onClose={() => setShowWalletModal(false)}
+              onBalanceRefresh={() => {
+                getOnChainWbtcBalance(provider, walletNetwork, addressObj).then(setOnChainBalance).catch(() => {});
+                api.getBalance(wallet.address).then(b => { setServerBalance(b.balance); setBackedBalance(b.backedBalance); }).catch(() => {});
+              }}
+              onToast={(msg, type, link, linkLabel) => addToast(msg, type as ToastType, link, linkLabel)}
+              onEnsureAuth={ensureAuth}
+              walletProvider={provider}
+              walletNetwork={walletNetwork}
+              walletAddressObj={addressObj}
+            />
+          </div>
+        </div>
       )}
 
       {/* Achievement unlock notification — centered on screen */}

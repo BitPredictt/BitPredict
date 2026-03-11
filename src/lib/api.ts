@@ -353,6 +353,30 @@ export async function getPortfolioPnl(address: string) {
   return apiFetch<PnlData>(`/api/portfolio/pnl/${address}`);
 }
 
+// --- On-chain bet/claim reporting ---
+export interface ReportBetResult {
+  success: boolean;
+  betId: string;
+  fee: number;
+  netAmount: number;
+  newYesPrice: number;
+  newNoPrice: number;
+}
+
+export async function reportBetTx(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string, onchainMarketId: number) {
+  return apiFetch<ReportBetResult>('/api/bet/report', {
+    method: 'POST',
+    body: JSON.stringify({ address, marketId, side, amount, txHash, onchainMarketId }),
+  });
+}
+
+export async function reportClaimTx(address: string, betId: string, txHash: string) {
+  return apiFetch<{ success: boolean; payout: number }>('/api/claim/report', {
+    method: 'POST',
+    body: JSON.stringify({ address, betId, txHash }),
+  });
+}
+
 // Sell endpoint removed — parimutuel bets are locked until resolution
 
 // --- User Market Creation (free, no initial liquidity) ---

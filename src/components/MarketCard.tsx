@@ -126,8 +126,8 @@ export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavori
       ) : (
         <div className="mb-3">
           <div className="flex justify-between mb-1.5">
-            <span className="text-xs font-bold text-green-400">Yes {yesPct}%</span>
-            <span className="text-xs font-bold text-red-400">No {noPct}%</span>
+            <span className="text-xs font-bold text-green-400">{market.yesLabel || 'Yes'} {yesPct}%</span>
+            <span className="text-xs font-bold text-red-400">{market.noLabel || 'No'} {noPct}%</span>
           </div>
           <div className="h-2 rounded-full bg-surface-3 overflow-hidden flex">
             <div

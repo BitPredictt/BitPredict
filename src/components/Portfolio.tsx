@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, signClaimProof, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc } from '../lib/opnet';
+import { getExplorerTxUrl, claimPayoutOnChain, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -16,6 +16,7 @@ interface PortfolioProps {
   onBalanceRefresh: () => void;
   onBetsUpdate: (bets: Bet[]) => void;
   onToast: (msg: string, type: 'success' | 'error' | 'loading', link?: string, linkLabel?: string) => void;
+  onEnsureAuth: () => Promise<void>;
   trackOp: (type: string, txHash?: string, details?: string, marketId?: string) => Promise<number | null>;
   completeOp: (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => Promise<void>;
   walletProvider: unknown;
@@ -23,7 +24,7 @@ interface PortfolioProps {
   walletAddressObj: unknown;
 }
 
-export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, onEnsureAuth, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<api.PortfolioMetrics | null>(null);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
@@ -39,19 +40,29 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
     if (claimingBetId || !walletAddress) return;
     const bet = bets.find(b => b.id === betId);
     if (!bet || !bet.payout) return;
+
+    // Find market to get onchainId
+    const market = markets.find(m => m.id === bet.marketId);
+    if (!market?.onchainId) {
+      onToast('Market not on-chain — cannot claim', 'error');
+      return;
+    }
+
     setClaimingBetId(betId);
     let opId: number | null = null;
     try {
+      await onEnsureAuth();
       opId = await trackOp('claim', undefined, `Claim ${formatBtc(bet.payout)} reward`, bet.marketId);
       onToast(`Claiming ${formatBtc(bet.payout)}... Sign in OP_WALLET`, 'loading');
 
-      // Sign claim proof for server verification
-      const r = await signClaimProof(walletProvider, walletNetwork, walletAddressObj, walletAddress, bet.payout);
-      if (!r.success) throw new Error(r.error || 'Claim proof signing failed');
+      // Claim payout on-chain via PredictionMarket.claimPayout
+      const r = await claimPayoutOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, market.onchainId);
+      if (!r.success) throw new Error(r.error || 'Claim failed');
 
-      const result = await api.claimPayout(walletAddress, betId, r.txHash);
+      // Report to server for UI update
+      await api.reportClaimTx(walletAddress, betId, r.txHash);
       onBalanceRefresh();
-      onToast(`+${formatBtc(result.payout)} claimed!`, 'success');
+      onToast(`+${formatBtc(r.payout || bet.payout)} claimed!`, 'success');
       completeOp(opId, 'confirmed', r.txHash);
     } catch (err) {
       onToast(err instanceof Error ? err.message : String(err), 'error');

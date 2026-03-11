@@ -24,6 +24,8 @@ export interface Market {
   yesPool?: number;
   noPool?: number;
   outcomes?: MarketOutcome[];
+  yesLabel?: string;
+  noLabel?: string;
   oracleResolved?: boolean;
   onchainId?: number | null;
 }

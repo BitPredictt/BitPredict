@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, ExternalLink, BarChart3, Zap, Clock, CheckCircle2, Link } from 'lucide-react';
+import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, BarChart3, Zap, Clock, CheckCircle2 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../lib/api';
 import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo, approveForVault, waitForTxConfirmation } from '../lib/opnet';
 import type { VaultInfo, VaultUserInfo, VaultRewardEntry, VaultVesting } from '../types';
-import { TopPredictors } from './TopPredictors';
 
 interface VaultDashboardProps {
   walletConnected: boolean;
@@ -14,6 +13,7 @@ interface VaultDashboardProps {
   onConnect: () => void;
   onBalanceRefresh: () => void;
   onToast: (msg: string, type: 'success' | 'error' | 'loading', link?: string, linkLabel?: string) => void;
+  onEnsureAuth: () => Promise<void>;
   trackOp: (type: string, txHash?: string, details?: string, marketId?: string) => Promise<number | null>;
   completeOp: (opId: number | null, status: 'confirmed' | 'failed', txHash?: string) => Promise<void>;
   walletProvider: unknown;
@@ -23,7 +23,7 @@ interface VaultDashboardProps {
 
 export function VaultDashboard({
   walletConnected, walletAddress, walletBtcBalance, onChainBalance,
-  onConnect, onBalanceRefresh, onToast, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj,
+  onConnect, onBalanceRefresh, onToast, onEnsureAuth, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj,
 }: VaultDashboardProps) {
   const [vaultInfo, setVaultInfo] = useState<VaultInfo | null>(null);
   const [userInfo, setUserInfo] = useState<VaultUserInfo | null>(null);
@@ -59,6 +59,8 @@ export function VaultDashboard({
     return () => clearInterval(iv);
   }, [loadData]);
 
+  const [step, setStep] = useState('');
+
   const handleStakeUnstake = async () => {
     const amtNum = Math.round((parseFloat(amount) || 0) * 1e8); // BTC → sats
     const max = mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0);
@@ -68,37 +70,46 @@ export function VaultDashboard({
     let opId: number | null = null;
 
     try {
+      await onEnsureAuth();
       let r: { txHash: string; success: boolean; error?: string };
       opId = await trackOp(mode, undefined, `${mode === 'stake' ? 'Stake' : 'Unstake'} ${formatBtc(amtNum)} WBTC`);
 
       if (mode === 'stake') {
-        onToast('Checking allowance...', 'loading');
+        // Step 1: Approve
+        setStep('Step 1/3: Approving WBTC...');
+        onToast('Step 1/3: Checking allowance...', 'loading');
         const approveResult = await approveForVault(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
         if (!approveResult.success) throw new Error(approveResult.error || 'WBTC approval failed');
 
         if (!approveResult.skipped) {
-          onToast('Waiting for approval confirmation...', 'loading');
+          // Step 2: Wait for confirm
+          setStep('Step 2/3: Waiting for approval...');
+          onToast('Step 2/3: Waiting for approval confirmation...', 'loading');
           const confirmed = await waitForTxConfirmation(walletProvider, approveResult.txHash);
           if (!confirmed.confirmed) throw new Error('Approval TX not confirmed in time. Please try again.');
         }
 
-        onToast(`${approveResult.skipped ? '' : 'Approved! '}Staking on-chain... Sign in OP_WALLET`, 'loading');
+        // Step 3: Stake
+        setStep('Step 3/3: Staking on-chain...');
+        onToast(`${approveResult.skipped ? 'Step 2/2' : 'Step 3/3'}: Staking... Sign in wallet`, 'loading');
         r = await stakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       } else {
-        onToast('Unstaking on-chain... Sign in OP_WALLET', 'loading');
+        setStep('Unstaking on-chain...');
+        onToast('Unstaking... Sign in wallet', 'loading');
         r = await unstakeOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, amtNum);
       }
 
       if (!r.success) throw new Error(r.error || 'TX failed');
 
-      // Optimistic update immediately after TX signed
+      // Optimistic update
       if (mode === 'stake') {
         setUserInfo(prev => prev ? { ...prev, staked: prev.staked + amtNum } : prev);
       } else {
         setUserInfo(prev => prev ? { ...prev, staked: prev.staked - amtNum } : prev);
       }
 
-      onToast('TX signed! Processing...', 'loading');
+      setStep('Confirming...');
+      onToast('TX signed! Syncing with server...', 'loading');
 
       if (mode === 'stake') {
         await api.stakeVault(walletAddress, amtNum, r.txHash);
@@ -118,23 +129,24 @@ export function VaultDashboard({
       loadData();
     } finally {
       setLoading(false);
+      setStep('');
     }
   };
 
   const handleClaim = async () => {
     if (claiming || !userInfo?.pendingRewards) return;
     setClaiming(true);
-    onToast('Claiming rewards... Sign in OP_WALLET', 'loading');
+    onToast('Claiming rewards... Sign in wallet', 'loading');
     let opId: number | null = null;
 
     try {
+      await onEnsureAuth();
       opId = await trackOp('vault_claim', undefined, `Claim ${formatBtc(userInfo.pendingRewards)} rewards`);
 
       const r = await claimVaultOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress);
       if (!r.success) throw new Error(r.error || 'Claim TX failed');
 
-      onToast('Processing...', 'loading');
-
+      onToast('Syncing with server...', 'loading');
       const result = await api.claimVaultRewards(walletAddress, r.txHash);
       onBalanceRefresh();
       const txLink = getExplorerTxUrl(r.txHash);
@@ -154,13 +166,15 @@ export function VaultDashboard({
     const newVal = !userInfo.autoCompound;
     setUserInfo({ ...userInfo, autoCompound: newVal }); // optimistic
     try {
+      await onEnsureAuth();
       await api.setAutoCompound(walletAddress, newVal);
     } catch {
       setUserInfo({ ...userInfo, autoCompound: !newVal }); // rollback
     }
   };
 
-  const maxAmount = mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0);
+  const maxSats = mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0);
+  const maxBtc = maxSats / 1e8;
 
   const formatNum = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -278,9 +292,9 @@ export function VaultDashboard({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-stretch">
         {/* Left column: Stake panel + Vesting */}
-        <div className="lg:col-span-3 space-y-6">
+        <div className="lg:col-span-3 flex flex-col gap-6">
           {/* Stake/Unstake Panel */}
           <div className="vault-card rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
@@ -333,11 +347,11 @@ export function VaultDashboard({
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="Amount in BTC (min 0.0001)"
                 min={10000}
-                max={maxAmount}
+                max={maxBtc}
                 className="w-full bg-surface-2 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none transition-colors"
               />
               <button
-                onClick={() => setAmount(String(maxAmount))}
+                onClick={() => setAmount(String(maxBtc))}
                 className="absolute right-2 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-purple-600/20 text-[10px] font-bold text-purple-300 hover:bg-purple-600/30 transition-all"
               >
                 MAX
@@ -345,7 +359,7 @@ export function VaultDashboard({
             </div>
 
             <div className="flex items-center justify-between mb-4 text-[10px] text-gray-500">
-              <span>Available: {formatBtc(mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0))}</span>
+              <span>Available: {formatBtc(mode === 'stake' ? Math.floor(onChainBalance) : (userInfo?.staked || 0))} {mode === 'stake' ? '(on-chain WBTC)' : '(staked)'}</span>
               <span>Fee: 0%</span>
             </div>
 
@@ -370,12 +384,12 @@ export function VaultDashboard({
             <div className="flex gap-2">
               <button
                 onClick={handleStakeUnstake}
-                disabled={loading || !Number(amount) || Number(amount) < 10000}
+                disabled={loading || !Number(amount) || Math.round(Number(amount) * 1e8) < 10000}
                 className="flex-1 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 bg-gradient-to-r from-purple-600/30 to-btc/30 border border-purple-500/30 text-white hover:border-purple-400/50"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
-                    <Loader2 size={14} className="animate-spin" /> Processing...
+                    <Loader2 size={14} className="animate-spin" /> {step || 'Processing...'}
                   </span>
                 ) : (
                   <span>{mode === 'stake' ? 'Stake' : 'Unstake'} WBTC</span>
@@ -494,8 +508,8 @@ export function VaultDashboard({
           )}
         </div>
 
-        {/* Right column: Stats + Social */}
-        <div className="lg:col-span-2 space-y-6">
+        {/* Right column: Stats */}
+        <div className="lg:col-span-2 flex flex-col gap-6">
           {/* How it works */}
           <div className="vault-card rounded-2xl p-5">
             <h3 className="text-sm font-bold text-white mb-3">How Vault Works</h3>
@@ -519,14 +533,12 @@ export function VaultDashboard({
           </div>
 
           {/* Total distributed */}
-          <div className="vault-card rounded-2xl p-5">
+          <div className="vault-card rounded-2xl p-5 flex-1 flex flex-col justify-center">
             <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Total Distributed</div>
             <div className="text-2xl font-black text-btc">{formatNum(vaultInfo?.totalRewards || 0)}</div>
             <div className="text-[10px] text-gray-500">sats from trading fees</div>
           </div>
 
-          {/* Top Predictors */}
-          <TopPredictors walletAddress={walletAddress} />
         </div>
       </div>
     </div>

@@ -180,6 +180,7 @@ export function Leaderboard({ userAddress }: LeaderboardProps) {
           </div>
         ))}
       </div>
+
     </div>
   );
 }

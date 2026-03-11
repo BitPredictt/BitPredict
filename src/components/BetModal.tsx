@@ -7,7 +7,7 @@ import * as api from '../lib/api';
 interface BetModalProps {
   market: Market;
   wallet: WalletState;
-  onChainBalance: number; // WBTC balance in sats
+  onChainBalance: number; // On-chain WBTC balance in sats
   onClose: () => void;
   onPlaceBet: (marketId: string, side: 'yes' | 'no', amount: number) => void;
 }
@@ -108,10 +108,11 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
   const isEmptyPool = totalPool === 0;
   const isOneSided = totalPool > 0 && (yesPool === 0 || noPool === 0);
 
+  const isDisplayOnly = !market.onchainId;
   const activeBalance = Math.floor(onChainBalance);
   const insufficientBalance = amountNum > activeBalance;
   const MIN_BET = 10000;
-  const canPlace = wallet.connected && amountNum >= MIN_BET && !placing && !insufficientBalance;
+  const canPlace = wallet.connected && amountNum >= MIN_BET && !placing && !insufficientBalance && !isDisplayOnly;
 
   const handlePlace = async () => {
     if (!canPlace) return;
@@ -210,7 +211,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                     : 'border-white/5 bg-surface-2 hover:border-white/10'
                 }`}
               >
-                <div className={`text-2xl font-black ${side === 'yes' ? 'text-green-400' : 'text-gray-500'}`}>YES</div>
+                <div className={`text-2xl font-black ${side === 'yes' ? 'text-green-400' : 'text-gray-500'}`}>{market.yesLabel || 'YES'}</div>
                 <div className="text-xs text-gray-400 mt-1">{yesPct}% odds</div>
               </button>
               <button
@@ -221,7 +222,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                     : 'border-white/5 bg-surface-2 hover:border-white/10'
                 }`}
               >
-                <div className={`text-2xl font-black ${side === 'no' ? 'text-red-400' : 'text-gray-500'}`}>NO</div>
+                <div className={`text-2xl font-black ${side === 'no' ? 'text-red-400' : 'text-gray-500'}`}>{market.noLabel || 'NO'}</div>
                 <div className="text-xs text-gray-400 mt-1">{noPct}% odds</div>
               </button>
             </div>
@@ -282,7 +283,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
               <span className="text-white font-bold">{formatBtc(amountNum)}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Fee (3%)</span>
+              <span className="text-gray-500">Fee (2%)</span>
               <span className="text-gray-400 font-medium">-{formatBtc(fee)}</span>
             </div>
             <div className="flex justify-between text-xs">
@@ -312,11 +313,11 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
             {showDetails && (
               <div className="space-y-1.5 pt-1 border-t border-white/5">
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600">YES pool</span>
+                  <span className="text-gray-600">{market.yesLabel || 'YES'} pool</span>
                   <span className="text-gray-400 font-medium">{formatBtc(yesPool)}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
-                  <span className="text-gray-600">NO pool</span>
+                  <span className="text-gray-600">{market.noLabel || 'NO'} pool</span>
                   <span className="text-gray-400 font-medium">{formatBtc(noPool)}</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
@@ -336,6 +337,14 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Display-only warning */}
+        {isDisplayOnly && (
+          <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
+            <Info size={16} className="text-blue-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-blue-300">This market is display-only (Polymarket mirror). On-chain betting is not available.</p>
           </div>
         )}
 
@@ -383,7 +392,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
               <Zap size={16} />
               {isMultiOutcome
                 ? `Bet on ${market.outcomes![selectedOutcome]?.label || 'outcome'} — ${formatBtc(amountNum)}`
-                : `Place ${side.toUpperCase()} — ${formatBtc(amountNum)}`}
+                : `Place ${side === 'yes' ? (market.yesLabel || 'YES') : (market.noLabel || 'NO')} — ${formatBtc(amountNum)}`}
             </>
           )}
         </button>
@@ -444,7 +453,7 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                     {item.type === 'bet' ? (
                       <span className="text-[10px] text-gray-400">
                         <span className="text-white font-bold">{item.address?.slice(0, 10)}...</span>
-                        {' '}bet {item.amount ? formatBtc(item.amount) : '?'} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side?.toUpperCase()}</span>
+                        {' '}bet {item.amount ? formatBtc(item.amount) : '?'} on <span className={item.side === 'yes' ? 'text-green-400' : 'text-red-400'}>{item.side === 'yes' ? (market.yesLabel || 'YES') : (market.noLabel || 'NO')}</span>
                       </span>
                     ) : (
                       <div>

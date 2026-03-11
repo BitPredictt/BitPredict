@@ -26,6 +26,8 @@ const WBTC_TOKEN = process.env.WBTC_TOKEN || '';
 const WBTC_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 const MIN_BET_SATS = 10000; // 10,000 sats minimum bet
+const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || '';
+let nextOnchainMarketId = 1;
 const GAS_SAT_FEE = BigInt(process.env.GAS_SAT_FEE || '10000');
 const PRIORITY_FEE = BigInt(process.env.PRIORITY_FEE || '1000');
 
@@ -336,6 +338,229 @@ async function sendBtcFromPool(toAddress, amountSats) {
   }
 }
 
+// ==========================================================================
+// ON-CHAIN CONTRACT INTERACTIONS (PredictionMarket)
+// ==========================================================================
+
+/**
+ * Create a market on-chain via PredictionMarket.createMarket(endBlock).
+ * Called by server (deployer = admin) when syncing SQLite markets to chain.
+ */
+async function createMarketOnChain(endBlock) {
+  if (!deployerWallet || !opnetRpcProvider || !PREDICTION_MARKET_ADDRESS) {
+    return { success: false, error: 'On-chain not ready or PREDICTION_MARKET_ADDRESS not set' };
+  }
+  if (!acquireTxLock()) return { success: false, error: 'Server busy' };
+  try {
+    const { getContract } = await import('opnet');
+    const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
+    const PredictionMarketAbi = [
+      { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
+      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      ...OP_NET_ABI,
+    ];
+
+    const contract = getContract(
+      PREDICTION_MARKET_ADDRESS,
+      PredictionMarketAbi,
+      opnetRpcProvider,
+      opnetNetwork,
+      deployerWallet.address,
+    );
+
+    const sim = await contract.createMarket(BigInt(endBlock));
+    if (sim.revert) throw new Error('createMarket revert: ' + sim.revert);
+
+    const feeRate = await getDynamicFeeRate();
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    const onchainId = sim?.properties?.marketId != null ? Number(sim.properties.marketId) : null;
+    console.log(`[createMarketOnChain] endBlock=${endBlock}, onchainId=${onchainId}, tx=${txHash}`);
+    return { success: true, onchainId, txHash };
+  } catch (e) {
+    console.error('[createMarketOnChain] Error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    releaseTxLock();
+  }
+}
+
+/**
+ * Resolve a market on-chain via PredictionMarket.resolveMarket(marketId, outcome).
+ * Called after SQLite resolve to update contract state.
+ */
+async function resolveMarketOnChain(onchainId, outcomeIsYes) {
+  if (!deployerWallet || !opnetRpcProvider || !PREDICTION_MARKET_ADDRESS) {
+    return { success: false, error: 'On-chain not ready' };
+  }
+  if (!acquireTxLock()) return { success: false, error: 'Server busy' };
+  try {
+    const { getContract } = await import('opnet');
+    const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
+    const PredictionMarketAbi = [
+      { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
+      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      ...OP_NET_ABI,
+    ];
+
+    const contract = getContract(
+      PREDICTION_MARKET_ADDRESS,
+      PredictionMarketAbi,
+      opnetRpcProvider,
+      opnetNetwork,
+      deployerWallet.address,
+    );
+
+    const sim = await contract.resolveMarket(BigInt(onchainId), outcomeIsYes);
+    if (sim.revert) throw new Error('resolveMarket revert: ' + sim.revert);
+
+    const feeRate = await getDynamicFeeRate();
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`[resolveMarketOnChain] onchainId=${onchainId}, outcome=${outcomeIsYes}, tx=${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    console.error('[resolveMarketOnChain] Error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    releaseTxLock();
+  }
+}
+
+/**
+ * Withdraw accumulated fees on-chain via PredictionMarket.withdrawFees().
+ * Server (deployer = admin) calls this periodically.
+ */
+async function withdrawFeesOnChain() {
+  if (!deployerWallet || !opnetRpcProvider || !PREDICTION_MARKET_ADDRESS) return;
+  if (!acquireTxLock()) return;
+  try {
+    const { getContract } = await import('opnet');
+    const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
+    const PredictionMarketAbi = [
+      { name: 'createMarket', inputs: [{ name: 'endBlock', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'placeBet', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'isYes', type: ABIDataTypes.BOOL }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
+      { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+      ...OP_NET_ABI,
+    ];
+
+    const contract = getContract(
+      PREDICTION_MARKET_ADDRESS,
+      PredictionMarketAbi,
+      opnetRpcProvider,
+      opnetNetwork,
+      deployerWallet.address,
+    );
+
+    const sim = await contract.withdrawFees();
+    if (sim.revert) {
+      // 'No fees to withdraw' is expected — not an error
+      if (sim.revert.includes('No fees')) return;
+      throw new Error('withdrawFees revert: ' + sim.revert);
+    }
+
+    const feeRate = await getDynamicFeeRate();
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    const amount = sim?.properties?.amount != null ? Number(sim.properties.amount) : 0;
+    console.log(`[withdrawFeesOnChain] Withdrew ${amount} sats fees, tx=${txHash}`);
+
+    // Distribute: 60% vault, 20% protocol, 20% creator (generic)
+    if (amount > 0) {
+      const vaultShare = Math.floor(amount * 0.60);
+      const protocolShare = Math.floor(amount * 0.20);
+      distributeToVault(vaultShare, 'fees-onchain');
+      if (protocolShare > 0) {
+        db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('onchain_fees', '', protocolShare);
+        ACCUMULATED_PROTOCOL_REVENUE += protocolShare;
+      }
+    }
+  } catch (e) {
+    console.error('[withdrawFeesOnChain] Error:', e.message);
+  } finally {
+    releaseTxLock();
+  }
+}
+
+/**
+ * Sync SQLite markets (without onchain_id) to on-chain contract.
+ * Only syncs non-polymarket, non-resolved markets that still have time left.
+ */
+async function syncMarketsToChain() {
+  if (!deployerWallet || !PREDICTION_MARKET_ADDRESS) return;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const unsynced = db.prepare(
+      "SELECT * FROM markets WHERE onchain_id IS NULL AND resolved = 0 AND end_time > ? AND market_type != 'polymarket' LIMIT 3"
+    ).all(now + 600); // at least 10 min remaining
+
+    if (!unsynced.length) return;
+
+    const currentBlock = await getBlockHeightFromRPC();
+    if (!currentBlock) return;
+
+    for (const m of unsynced) {
+      const remainingSecs = m.end_time - now;
+      const endBlock = currentBlock + Math.ceil(remainingSecs / 600); // 1 block ≈ 10 min
+
+      const result = await createMarketOnChain(endBlock);
+      if (result.success && result.onchainId != null) {
+        db.prepare('UPDATE markets SET onchain_id = ? WHERE id = ?').run(result.onchainId, m.id);
+        console.log(`[syncMarketsToChain] ${m.id} → onchainId=${result.onchainId}`);
+      } else {
+        console.error(`[syncMarketsToChain] Failed for ${m.id}: ${result.error}`);
+        break; // stop on first failure to avoid burning gas
+      }
+
+      // Wait between TXes to avoid nonce issues
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  } catch (e) {
+    console.error('[syncMarketsToChain] Error:', e.message);
+  }
+}
+
 // Init deployer wallet on startup
 initDeployerWallet();
 
@@ -422,7 +647,7 @@ function requireAuth(req, res, next) {
  * Verify a transaction hash on-chain via OPNet RPC.
  * Returns { valid, sender, events } or throws.
  */
-// Phase 1: Quick TX check via btc_getTransaction (works for confirmed AND unconfirmed).
+// Phase 1: Quick TX check via btc_getTransactionByHash (works for confirmed AND unconfirmed).
 // Bob docs: getTransaction finds TX even if pending; check blockNumber for confirmation.
 async function verifyTxExists(txHash, expectedSender) {
   if (!txHash || typeof txHash !== 'string' || txHash.length < 10) {
@@ -430,11 +655,11 @@ async function verifyTxExists(txHash, expectedSender) {
   }
 
   try {
-    // btc_getTransaction — returns TX whether confirmed or still in mempool
+    // btc_getTransactionByHash — returns TX whether confirmed or still in mempool
     const res = await fetch(OPNET_RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [txHash], id: 1 }),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [txHash], id: 1 }),
       signal: AbortSignal.timeout(10000),
     });
     const data = await res.json();
@@ -474,7 +699,7 @@ async function confirmPendingBets() {
         const res = await fetch(OPNET_RPC_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [bet.tx_hash], id: 1 }),
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [bet.tx_hash], id: 1 }),
           signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
@@ -502,7 +727,7 @@ async function confirmPendingOps() {
         const res = await fetch(OPNET_RPC_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [op.tx_hash], id: 1 }),
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [op.tx_hash], id: 1 }),
           signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
@@ -625,6 +850,7 @@ try { db.exec('ALTER TABLE markets ADD COLUMN event_id TEXT'); } catch(e) { /* a
 try { db.exec('ALTER TABLE markets ADD COLUMN event_title TEXT'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE markets ADD COLUMN outcome_label TEXT'); } catch(e) { /* already exists */ }
 try { db.exec('ALTER TABLE markets ADD COLUMN onchain_id INTEGER DEFAULT NULL'); } catch(e) { /* already exists */ }
+try { db.exec('ALTER TABLE markets ADD COLUMN poly_condition_id TEXT DEFAULT NULL'); } catch(e) { /* already exists */ }
 
 // Clear stale polymarket outcome labels (placeholder names + force re-sync with groupItemTitle)
 try {
@@ -1157,7 +1383,7 @@ async function resolveExpiredMarkets() {
     // 1. Polymarket markets: try to fetch resolution from Gamma API
     if (m.market_type === 'polymarket') {
       try {
-        const condId = m.id.replace('poly-', '');
+        const condId = m.poly_condition_id || m.id.replace('poly-', '');
         const res = await fetch(`${GAMMA_HOST}/markets?conditionIds=${condId}&limit=1`, {
           signal: AbortSignal.timeout(8000),
         });
@@ -1190,6 +1416,10 @@ async function resolveExpiredMarkets() {
       } else {
         db.prepare('UPDATE markets SET resolved = 1 WHERE id = ?').run(m.id);
       }
+      // Resolve on-chain if market has onchainId (even void — to decrement activeMarketCount)
+      if (m.onchain_id) {
+        resolveMarketOnChain(m.onchain_id, false).catch(e => console.error('On-chain resolve (void) error:', e.message));
+      }
     }
   }
 }
@@ -1215,7 +1445,13 @@ function mapPolyCategory(cat, question = '') {
     'wimbledon', 'olympics', 'grand prix', 'formula 1', 'f1', 'match', 'finals', 'playoff',
     'boxing', 'tennis', 'golf', 'cricket', 'rugby', 'epl', 'soccer', 'football', 'basketball',
     'baseball', 'hockey', 'racing', 'medal', 'ballon d\'or', 'mvp', 'touchdown', 'goal',
-    'manager', 'coach', 'transfer', 'relegated', 'promoted', 'seed', 'bracket'];
+    'manager', 'coach', 'transfer', 'relegated', 'promoted', 'seed', 'bracket',
+    ' vs. ', ' vs ', ' fc ', 'united ', 'rovers', 'warriors', 'lakers', 'celtics', 'bulls',
+    'penguins', 'bruins', 'rangers', 'flames', 'sharks', 'kings', 'panthers', 'lightning',
+    'hurricanes', 'canadiens', 'leafs', 'islanders', 'blues', 'stars', 'ducks', 'jets',
+    'red wings', 'golden knights', 'sabres', 'wild', 'blue jackets', 'serie a',
+    'la liga', 'eredivisie', 'ligue 1', 'copa libertadores', 'concacaf',
+    'esports', 'counter-strike', 'dota', 'league of legends', 'valorant', 'csgo', 'cs2'];
   if (sportsKw.some(kw => q.includes(kw)) || c.includes('sport') || c.includes('soccer') || c.includes('football') || c.includes('basketball')) {
     return 'Sports';
   }
@@ -1246,6 +1482,14 @@ function mapPolyCategory(cat, question = '') {
     return 'Crypto';
   }
 
+  // Economics → Politics
+  const econKw = ['inflation', 'gdp', 'fed ', 'federal reserve', 'interest rate', 'unemployment',
+    'cpi', 'ppi', 'earnings', 'stock', 'market cap', 's&p', 'dow jones', 'nasdaq',
+    'tariff', 'recession', 'debt ceiling', 'treasury', 'bond'];
+  if (econKw.some(kw => q.includes(kw)) || c.includes('economics') || c.includes('business') || c.includes('finance')) {
+    return 'Politics';
+  }
+
   // Default check original category
   const lower = c;
   for (const [key, val] of Object.entries(POLYMARKET_CATEGORY_MAP)) {
@@ -1256,14 +1500,43 @@ function mapPolyCategory(cat, question = '') {
 
 async function syncPolymarketEvents() {
   try {
-    const res = await fetch(`${GAMMA_HOST}/events?active=true&closed=false&order=volume&ascending=false&limit=30`, {
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return;
-    const events = await res.json();
+    // Build date range for "ending soon" batch (next 48h)
+    const nowIso = new Date().toISOString();
+    const in48h = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+
+    // Fetch multiple batches in parallel for better coverage
+    const fetches = [
+      // Batch 1: Top by volume (popular markets)
+      fetch(`${GAMMA_HOST}/events?active=true&closed=false&order=volume&ascending=false&limit=100`, {
+        signal: AbortSignal.timeout(15000),
+      }),
+      // Batch 2: Ending within 48h (sports, esports, short-term)
+      fetch(`${GAMMA_HOST}/events?active=true&closed=false&end_date_min=${nowIso}&end_date_max=${in48h}&limit=100`, {
+        signal: AbortSignal.timeout(15000),
+      }),
+      // Batch 3: Recently created (fresh markets)
+      fetch(`${GAMMA_HOST}/events?active=true&closed=false&order=createdAt&ascending=false&limit=50`, {
+        signal: AbortSignal.timeout(15000),
+      }),
+      // Batch 4: Ending within 7 days (medium-term)
+      fetch(`${GAMMA_HOST}/events?active=true&closed=false&end_date_min=${in48h}&end_date_max=${new Date(Date.now() + 7 * 86400000).toISOString()}&limit=50`, {
+        signal: AbortSignal.timeout(15000),
+      }),
+    ];
+
+    const results = await Promise.allSettled(fetches);
+    const allEvents = new Map(); // dedupe by event id/slug
+    for (const r of results) {
+      if (r.status !== 'fulfilled' || !r.value.ok) continue;
+      const events = await r.value.json();
+      for (const ev of events) {
+        const key = ev.slug || ev.id || JSON.stringify(ev.title);
+        if (!allEvents.has(key)) allEvents.set(key, ev);
+      }
+    }
 
     let synced = 0;
-    for (const ev of events) {
+    for (const ev of allEvents.values()) {
       const markets = ev.markets || [];
       if (!markets.length) continue;
 
@@ -1273,7 +1546,11 @@ async function syncPolymarketEvents() {
 
       for (const m of markets) {
         if (!m.question || m.question.length < 10) continue;
-        const polyId = `poly-${(m.conditionId || m.id || '').slice(0, 16)}`;
+        // Skip prop bet markets (More Markets, Spreads, O/U totals, player props)
+        const q_check = m.question || '';
+        if (q_check.includes('- More Markets') || /^Spread:/i.test(q_check)) continue;
+        const fullConditionId = m.conditionId || m.id || '';
+        const polyId = `poly-${fullConditionId.slice(0, 16)}`;
         if (!polyId || polyId === 'poly-') continue;
 
         // Extract outcome label — prefer groupItemTitle from Polymarket API
@@ -1287,10 +1564,25 @@ async function syncPolymarketEvents() {
         if (groupTitle === 'Other') continue;
         // Skip very short codes (aa, ac, ae — anonymized placeholders)
         if (/^[a-z]{1,2}$/i.test(groupTitle)) continue;
+        // Skip prop bet markets (O/U, Spread, player stats) — they clutter multi-outcome groups
+        if (/^O\/U\s|^Spread\s|^Both Teams|Rebounds O\/U|Points O\/U|Assists O\/U/i.test(groupTitle)) continue;
+        // Fix "vs." label → derive from event title (first team)
+        if (groupTitle === 'vs.' && eventTitle) {
+          const vsMatch = eventTitle.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
+          if (vsMatch) {
+            outcomeLabel = vsMatch[1].trim(); // First team = "Yes" side
+          } else {
+            outcomeLabel = 'Winner';
+          }
+        }
 
-        if (groupTitle && groupTitle.length >= 2) {
+        if (groupTitle && groupTitle.length >= 2 && !outcomeLabel) {
           // Best source: Polymarket's own groupItemTitle (always correct)
-          outcomeLabel = groupTitle.length > 50 ? groupTitle.slice(0, 50) + '…' : groupTitle;
+          // Clean up "Draw (Team A vs. Team B)" → just "Draw"
+          let cleanLabel = groupTitle;
+          const drawMatch = cleanLabel.match(/^Draw\s*\(/i);
+          if (drawMatch) cleanLabel = 'Draw';
+          outcomeLabel = cleanLabel.length > 50 ? cleanLabel.slice(0, 50) + '…' : cleanLabel;
         } else if (isMultiOutcome && eventTitle) {
           // Fallback: extract from question text
           let q = (m.question || '').replace(/\?$/g, '').trim();
@@ -1351,11 +1643,11 @@ async function syncPolymarketEvents() {
           const vol = Math.round(parseFloat(m.volume || 0));
           const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
           db.prepare(`UPDATE markets SET yes_price = ?, no_price = ?, volume = ?, liquidity = ?,
-            event_id = ?, event_title = ?, outcome_label = ?
+            event_id = ?, event_title = ?, outcome_label = ?, poly_condition_id = ?
             WHERE id = ? AND market_type = ?`)
             .run(Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000, vol, liq,
               isMultiOutcome ? eventId : null, isMultiOutcome ? eventTitle : null, outcomeLabel,
-              polyId, 'polymarket');
+              fullConditionId, polyId, 'polymarket');
           continue;
         }
 
@@ -1399,15 +1691,16 @@ async function syncPolymarketEvents() {
         try {
           db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price,
             yes_pool, no_pool, volume, liquidity, end_time, tags, market_type, image_url,
-            event_id, event_title, outcome_label)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'polymarket', ?, ?, ?, ?)`).run(
+            event_id, event_title, outcome_label, poly_condition_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'polymarket', ?, ?, ?, ?, ?)`).run(
             polyId, m.question, category,
             Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000,
             yesPool, noPool, scaledVol, scaledLiq, endTime, tags,
             m.image || ev.image || null,
             isMultiOutcome ? eventId : null,
             isMultiOutcome ? eventTitle : null,
-            outcomeLabel
+            outcomeLabel,
+            fullConditionId
           );
           synced++;
         } catch (e) { /* duplicate or constraint error, skip */ }
@@ -1433,7 +1726,7 @@ function safeBigMul(a, b) { return BigInt(a) * BigInt(b); }
 function safeBigDiv(a, b) { if (BigInt(b) === 0n) return 0n; return BigInt(a) / BigInt(b); }
 
 // --- Parimutuel fee config ---
-const FEE_PCT = 0.03;            // 3% of bet amount
+const FEE_PCT = 0.02;            // 2% of bet amount (synced with contract 200 BPS)
 const FEE_VAULT_PCT = 0.60;      // 60% of fees → vault stakers
 const FEE_PROTOCOL_PCT = 0.20;   // 20% of fees → protocol
 const FEE_CREATOR_PCT = 0.20;    // 20% of fees → market creator
@@ -1623,6 +1916,8 @@ app.get('/api/markets', (req, res) => {
 
   for (const m of markets) {
     if (mergedIds.has(m.id)) continue;
+    // Skip prop bet markets (More Markets, Spreads)
+    if ((m.question || '').includes('- More Markets') || /^Spread:/i.test(m.question || '')) continue;
 
     let tags = [];
     try { tags = JSON.parse(m.tags || '[]'); } catch(e) { tags = []; }
@@ -1631,6 +1926,15 @@ app.get('/api/markets', (req, res) => {
     const priceSum = m.yes_price + m.no_price;
     const normYes = priceSum > 0 ? Math.round((m.yes_price / priceSum) * 10000) / 10000 : 0.5;
     const normNo = Math.round((1 - normYes) * 10000) / 10000;
+    // For binary "X vs. Y" matches, extract team names as labels
+    let yesLabel = undefined;
+    let noLabel = undefined;
+    const vsMatch = (m.question || '').match(/^(.+?)\s+vs\.?\s+(.+?)(\s*[-–—]|$)/i);
+    if (vsMatch) {
+      yesLabel = vsMatch[1].trim();
+      noLabel = vsMatch[2].trim();
+    }
+
     const base = {
       id: m.id,
       question: m.question,
@@ -1651,6 +1955,8 @@ app.get('/api/markets', (req, res) => {
       oracleResolved: !!m.resolved && (m.market_type === 'price_5min' || m.market_type === 'polymarket'),
       onchainId: m.onchain_id || null,
       totalPool: (m.yes_pool || 0) + (m.no_pool || 0),
+      yesLabel,
+      noLabel,
     };
 
     // Multi-outcome: group sibling markets into outcomes array
@@ -1661,13 +1967,23 @@ app.get('/api/markets', (req, res) => {
         base.question = m.event_title || m.question;
         base.eventId = m.event_id;
 
-        // Build outcomes sorted by price descending
-        const outcomes = siblings.map(s => ({
-          marketId: s.id,
-          label: s.outcome_label || s.question,
-          price: s.yes_price,
-          volume: s.volume,
-        })).sort((a, b) => b.price - a.price);
+        // Build outcomes sorted by price descending, filtering out prop bets
+        const propRe = /^O\/U\s|^Spread\s|^Both Teams|Rebounds O\/U|Points O\/U|Assists O\/U|^vs\.$/i;
+        const outcomes = siblings
+          .map(s => ({
+            marketId: s.id,
+            label: s.outcome_label || s.question,
+            price: s.yes_price,
+            volume: s.volume,
+          }))
+          .filter(o => !propRe.test(o.label)) // exclude prop bets from multi-outcome display
+          .sort((a, b) => b.price - a.price);
+
+        // If filtering removed all/most outcomes, show as individual binary markets instead
+        if (outcomes.length < 2) {
+          // Don't merge — each sibling stays as standalone binary market
+          continue;
+        }
 
         base.outcomes = outcomes;
 
@@ -2146,6 +2462,7 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
 
     const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
     if (!user) return res.status(404).json({ error: 'user not found' });
+    if ((user.balance || 0) < onchainAmt) return res.status(400).json({ error: `Insufficient balance: ${user.balance || 0} < ${onchainAmt}` });
 
     const feeInfo = calculateParimutuelFee(onchainAmt);
     const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2163,7 +2480,8 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
       const newNoPool = side === 'no' ? (market.no_pool || 0) + feeInfo.netBet : (market.no_pool || 0);
       const prices = calcParimutuelPrices(newYesPool, newNoPool);
 
-      // On-chain bet: txHash IS the proof of payment — no server balance deduction
+      // Deduct bet amount from server balance (backed_balance stays — it's for withdrawals)
+      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(onchainAmt, address);
       db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, net_amount, price, shares, tx_hash, currency, tx_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)').run(
         betId, address, marketId, side, onchainAmt, feeInfo.netBet, prices.yes_price, txHash, 'wbtc', txConfirmed
       );
@@ -2210,6 +2528,139 @@ app.post('/api/bet/onchain', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('On-chain bet error:', e.message);
     res.status(500).json({ error: 'Bet error: ' + e.message });
+  }
+});
+
+// ==========================================================================
+// ON-CHAIN BET REPORT (real on-chain parimutuel — WBTC locked in contract)
+// ==========================================================================
+// Frontend calls: approve → contract.placeBet → POST /api/bet/report
+// Server records for UI/statistics only — does NOT deduct server balance
+app.post('/api/bet/report', requireAuth, async (req, res) => {
+  const { address, marketId, side, amount, txHash, onchainMarketId } = req.body;
+  if (address && rateLimit('bet-report:' + address, 10, 60000)) return res.status(429).json({ error: 'Too many bets. Try again in a minute.' });
+
+  if (!address || !marketId || !side || !amount || !txHash) {
+    return res.status(400).json({ error: 'address, marketId, side, amount, txHash required' });
+  }
+  if (typeof address !== 'string' || !address.startsWith(OPNET_ADDRESS_PREFIX) || address.length > 120) {
+    return res.status(400).json({ error: 'Invalid address format' });
+  }
+  if (side !== 'yes' && side !== 'no') return res.status(400).json({ error: 'side must be yes or no' });
+  const onchainAmt = Math.floor(Number(amount));
+  if (!Number.isFinite(onchainAmt) || onchainAmt < MIN_BET_SATS) return res.status(400).json({ error: `minimum bet is ${MIN_BET_SATS} sats` });
+
+  try {
+    // Verify TX exists on-chain (mempool or confirmed)
+    const txVerify = await verifyTxExists(txHash, address);
+    if (!txVerify.valid) {
+      return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
+    }
+    const txConfirmed = txVerify.confirmed ? 1 : 0;
+
+    // Prevent replay (tx_hash unique)
+    const existingTx = db.prepare('SELECT id FROM bets WHERE tx_hash = ? AND length(tx_hash) > 0').get(txHash);
+    if (existingTx) return res.status(400).json({ error: 'txHash already used — replay detected' });
+
+    const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+
+    const feeInfo = calculateParimutuelFee(onchainAmt);
+    const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const txn = db.transaction(() => {
+      const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+      if (!market) throw new Error('market not found');
+      if (market.resolved) throw new Error('market already resolved');
+
+      const now = Math.floor(Date.now() / 1000);
+      if (market.end_time <= now) throw new Error('market has ended');
+
+      // Parimutuel: netBet goes to the side pool
+      const newYesPool = side === 'yes' ? (market.yes_pool || 0) + feeInfo.netBet : (market.yes_pool || 0);
+      const newNoPool = side === 'no' ? (market.no_pool || 0) + feeInfo.netBet : (market.no_pool || 0);
+      const prices = calcParimutuelPrices(newYesPool, newNoPool);
+
+      // NOTE: Do NOT deduct server balance — WBTC is locked on-chain in contract
+      db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, net_amount, price, shares, tx_hash, currency, tx_confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)').run(
+        betId, address, marketId, side, onchainAmt, feeInfo.netBet, prices.yes_price, txHash, 'wbtc', txConfirmed
+      );
+      db.prepare('UPDATE markets SET yes_pool = ?, no_pool = ?, yes_price = ?, no_price = ?, volume = volume + ?, liquidity = ? WHERE id = ?').run(
+        newYesPool, newNoPool, prices.yes_price, prices.no_price, onchainAmt, newYesPool + newNoPool, marketId
+      );
+      db.prepare('INSERT INTO market_price_history (market_id, yes_price, no_price, volume) VALUES (?, ?, ?, ?)').run(
+        marketId, prices.yes_price, prices.no_price, onchainAmt
+      );
+      db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+        address, 'bet', 'Bet Placed', `${side.toUpperCase()} ${onchainAmt} sats (on-chain)`, marketId
+      );
+      return { prices };
+    });
+    const txnResult = txn();
+    distributeRevenue(feeInfo, marketId);
+
+    // Referral bonus
+    try {
+      const u = db.prepare('SELECT referrer FROM users WHERE address = ?').get(address);
+      if (u?.referrer) {
+        const refBonus = Math.max(1, Math.floor(feeInfo.fee * 0.5));
+        db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(refBonus, u.referrer);
+      }
+    } catch(e) { /* non-critical */ }
+
+    const updatedMarket = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+
+    res.json({
+      success: true,
+      betId,
+      fee: feeInfo.fee,
+      netAmount: feeInfo.netBet,
+      newYesPrice: updatedMarket.yes_price,
+      newNoPrice: updatedMarket.no_price,
+    });
+  } catch (e) {
+    console.error('Bet report error:', e.message);
+    res.status(500).json({ error: 'Bet report error: ' + e.message });
+  }
+});
+
+// ==========================================================================
+// ON-CHAIN CLAIM REPORT (user claimed payout via contract)
+// ==========================================================================
+app.post('/api/claim/report', requireAuth, async (req, res) => {
+  const { address, betId, txHash } = req.body;
+  if (!address || !betId || !txHash) return res.status(400).json({ error: 'address, betId, txHash required' });
+
+  try {
+    // Verify TX on-chain
+    const txVerify = await verifyTxExists(txHash, address);
+    if (!txVerify.valid && !txVerify.rpcDown) {
+      return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
+    }
+
+    const bet = db.prepare('SELECT * FROM bets WHERE id = ? AND user_address = ?').get(betId, address);
+    if (!bet) return res.status(404).json({ error: 'Bet not found' });
+    if (bet.status === 'won') return res.json({ success: true, payout: bet.payout || 0 }); // already claimed
+
+    const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(bet.market_id);
+    if (!market || !market.resolved) return res.status(400).json({ error: 'Market not resolved' });
+
+    // Calculate payout (same as contract: userBet * totalPool / winningPool)
+    const totalPool = (market.yes_pool || 0) + (market.no_pool || 0);
+    const winningPool = market.outcome === 'yes' ? (market.yes_pool || 0) : (market.no_pool || 0);
+    const payout = winningPool > 0 ? Math.floor((bet.net_amount / winningPool) * totalPool) : 0;
+
+    // Update bet status
+    db.prepare("UPDATE bets SET status = 'won', payout = ?, claim_tx_hash = ? WHERE id = ?").run(payout, txHash, betId);
+
+    db.prepare('INSERT INTO notifications (address, type, title, body, market_id) VALUES (?, ?, ?, ?, ?)').run(
+      address, 'claim', 'Payout Claimed', `+${payout} sats claimed on-chain`, bet.market_id
+    );
+
+    res.json({ success: true, payout });
+  } catch (e) {
+    console.error('Claim report error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -2945,15 +3396,14 @@ app.post('/api/vault/stake', requireAuth, async (req, res) => {
   const amountInt = Math.floor(Number(amount));
   if (amountInt < 10000) return res.status(400).json({ error: 'minimum stake is 10,000 sats' });
 
-  // Verify TX on-chain
+  // Verify TX on-chain (non-blocking if RPC down)
   const txVerify = await verifyTxOnChain(txHash, address, 'Staked');
   if (!txVerify.valid && !txVerify.rpcDown) {
     return res.status(400).json({ error: 'TX verification failed: ' + txVerify.error });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
-  if (!user) return res.status(404).json({ error: 'user not found' });
-  if (user.balance < amountInt) return res.status(400).json({ error: 'insufficient balance' });
+  // Ensure user exists
+  db.prepare('INSERT OR IGNORE INTO users (address, balance) VALUES (?, 0)').run(address);
 
   try {
     const stakeTransaction = db.transaction(() => {
@@ -2963,15 +3413,12 @@ app.post('/api/vault/stake', requireAuth, async (req, res) => {
       if (existing && existing.staked_amount > 0) {
         const pending = getVaultPendingRewards(address);
         if (pending > 0 && existing.auto_compound) {
-          // Auto-compound
           db.prepare('UPDATE vault_stakes SET staked_amount = staked_amount + ? WHERE address = ?').run(pending, address);
           VAULT_TOTAL_STAKED += pending;
         } else if (pending > 0) {
           db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(pending, address);
         }
       }
-
-      db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amountInt, address);
 
       if (existing) {
         const newStaked = existing.staked_amount + amountInt;
@@ -3032,10 +3479,10 @@ app.post('/api/vault/unstake', requireAuth, async (req, res) => {
       const newStaked = stake.staked_amount - amountInt;
       const newDebt = Math.floor((newStaked * VAULT_REWARDS_PER_SHARE) / VAULT_PRECISION);
       db.prepare('UPDATE vault_stakes SET staked_amount = ?, reward_debt = ? WHERE address = ?').run(newStaked, newDebt, address);
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amountInt, address);
+      // Note: unstake returns WBTC to user's wallet on-chain, not to platform balance
 
       VAULT_TOTAL_STAKED -= amountInt;
-      const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address).balance;
+      const newBalance = db.prepare('SELECT balance FROM users WHERE address = ?').get(address)?.balance || 0;
       return { newStaked, newBalance };
     });
 
@@ -3089,9 +3536,12 @@ app.post('/api/vault/autocompound', requireAuth, (req, res) => {
   if (!address) return res.status(400).json({ error: 'address required' });
 
   const stake = db.prepare('SELECT * FROM vault_stakes WHERE address = ?').get(address);
-  if (!stake) return res.status(404).json({ error: 'no vault position' });
-
-  db.prepare('UPDATE vault_stakes SET auto_compound = ? WHERE address = ?').run(enabled ? 1 : 0, address);
+  if (!stake) {
+    // Auto-create vault entry with auto_compound preference
+    db.prepare('INSERT OR IGNORE INTO vault_stakes (address, staked_amount, auto_compound) VALUES (?, 0, ?)').run(address, enabled ? 1 : 0);
+  } else {
+    db.prepare('UPDATE vault_stakes SET auto_compound = ? WHERE address = ?').run(enabled ? 1 : 0, address);
+  }
   res.json({ success: true });
 });
 
@@ -3231,7 +3681,7 @@ app.get('/api/portfolio/pnl/:addr', (req, res) => {
 setInterval(() => resolveExpiredMarkets(), 15000);
 
 // Sync Polymarket events every 5 min
-setInterval(() => syncPolymarketEvents(), 5 * 60 * 1000);
+setInterval(() => syncPolymarketEvents(), 2 * 60 * 1000); // every 2 min for fresh sports/esports
 
 // Phase 2: Confirm pending bet TXes every 30 seconds
 setInterval(() => confirmPendingBets(), 30_000);
@@ -3539,7 +3989,7 @@ async function confirmPendingDeposits() {
         const res = await fetch(OPNET_RPC_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransaction', params: [dep.tx_hash], id: 1 }),
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [dep.tx_hash], id: 1 }),
           signal: AbortSignal.timeout(10000),
         });
         const data = await res.json();
@@ -3690,6 +4140,10 @@ setInterval(() => reconcileBalances(), 30 * 60 * 1000);
 setInterval(() => flushProtocolRevenue(), 6 * 60 * 60 * 1000);
 setInterval(() => checkPoolBalance(), 10 * 60 * 1000);
 setInterval(() => processQueuedUnwraps(), 60_000);
+// Sync unlinked markets to on-chain contract every 5 min
+setInterval(() => syncMarketsToChain(), 5 * 60 * 1000);
+// Withdraw accumulated on-chain fees every 6 hours
+setInterval(() => withdrawFeesOnChain(), 6 * 60 * 60 * 1000);
 
 // --- Graceful shutdown ---
 function gracefulShutdown(signal) {

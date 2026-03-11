@@ -10,14 +10,13 @@ export const PredictionMarketAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
-        name: 'buyShares',
+        name: 'placeBet',
         inputs: [
             { name: 'marketId', type: ABIDataTypes.UINT256 },
             { name: 'isYes', type: ABIDataTypes.BOOL },
             { name: 'amount', type: ABIDataTypes.UINT256 },
-            { name: 'minSharesOut', type: ABIDataTypes.UINT256 },
         ],
-        outputs: [{ name: 'shares', type: ABIDataTypes.UINT256 }],
+        outputs: [{ name: 'netAmount', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
     {
@@ -32,17 +31,6 @@ export const PredictionMarketAbi = [
     {
         name: 'claimPayout',
         inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }],
-        type: BitcoinAbiTypes.Function,
-    },
-    {
-        name: 'sellShares',
-        inputs: [
-            { name: 'marketId', type: ABIDataTypes.UINT256 },
-            { name: 'isYes', type: ABIDataTypes.BOOL },
-            { name: 'shares', type: ABIDataTypes.UINT256 },
-            { name: 'minPayoutOut', type: ABIDataTypes.UINT256 },
-        ],
         outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
@@ -85,16 +73,16 @@ export const PredictionMarketAbi = [
     {
         name: 'getMarketInfo',
         inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'yesReserve', type: ABIDataTypes.UINT256 }],
+        outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
     {
-        name: 'getUserShares',
+        name: 'getUserBets',
         inputs: [
             { name: 'marketId', type: ABIDataTypes.UINT256 },
             { name: 'user', type: ABIDataTypes.ADDRESS },
         ],
-        outputs: [{ name: 'yesShares', type: ABIDataTypes.UINT256 }],
+        outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }],
         type: BitcoinAbiTypes.Function,
     },
     {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Wallet, ArrowDownToLine, ArrowUpFromLine, Clock, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react';
+import { Wallet, ArrowDownToLine, ArrowUpFromLine, Clock, CheckCircle2, XCircle, Loader2, RefreshCw, X } from 'lucide-react';
 import * as api from '../lib/api';
 import { depositToTreasury, wrapBTC, unwrapWBTC, getExplorerTxUrl, OPNET_CONFIG, truncateAddress, waitForTxConfirmation, formatBtc } from '../lib/opnet';
 import type { TreasuryDeposit, WithdrawalRequest } from '../types';
@@ -10,17 +10,20 @@ interface WalletPanelProps {
   balance: number;
   backedBalance: number;
   onChainBalance: number;
+  walletBtcBalance?: number;
   onConnect: () => void;
+  onClose?: () => void;
   onBalanceRefresh: () => void;
   onToast: (msg: string, type: 'success' | 'error' | 'loading', link?: string, linkLabel?: string) => void;
+  onEnsureAuth: () => Promise<void>;
   walletProvider: unknown;
   walletNetwork: unknown;
   walletAddressObj: unknown;
 }
 
 export function WalletPanel({
-  walletConnected, walletAddress, balance, backedBalance, onChainBalance,
-  onConnect, onBalanceRefresh, onToast,
+  walletConnected, walletAddress, balance, backedBalance, onChainBalance, walletBtcBalance,
+  onConnect, onClose, onBalanceRefresh, onToast, onEnsureAuth,
   walletProvider, walletNetwork, walletAddressObj,
 }: WalletPanelProps) {
   const [mode, setMode] = useState<'deposit' | 'withdraw'>('deposit');
@@ -58,6 +61,9 @@ export function WalletPanel({
 
     setLoading(true);
     try {
+      // Ensure JWT auth before server API calls
+      await onEnsureAuth();
+
       // Check if user has enough WBTC on-chain, if not — wrap first
       if (onChainBalance < amt) {
         const deficit = amt - onChainBalance;
@@ -118,6 +124,7 @@ export function WalletPanel({
 
     setLoading(true);
     try {
+      await onEnsureAuth();
       setStep('Processing withdrawal...');
       const result = await api.withdrawRequest(walletAddress, amt);
       if (result.success) {
@@ -167,13 +174,20 @@ export function WalletPanel({
         <h3 className="text-lg font-semibold flex items-center gap-2">
           <Wallet size={20} /> Wallet
         </h3>
-        <button onClick={() => { onBalanceRefresh(); loadHistory(); }} className="text-gray-400 hover:text-white">
-          <RefreshCw size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { onBalanceRefresh(); loadHistory(); }} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all" title="Refresh">
+            <RefreshCw size={16} />
+          </button>
+          {onClose && (
+            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all" title="Close">
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Balance breakdown */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-gray-400">Platform</div>
           <div className="text-lg font-bold text-white">{formatBtc(balance)}</div>
@@ -181,12 +195,15 @@ export function WalletPanel({
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
           <div className="text-xs text-green-400">Backed</div>
           <div className="text-lg font-bold text-green-400">{formatBtc(backedBalance)}</div>
-          <div className="text-xs text-gray-500">Withdrawable</div>
+          <div className="text-[10px] text-gray-500">Withdrawable</div>
         </div>
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-          <div className="text-xs text-btc">On-chain</div>
+          <div className="text-xs text-btc">On-chain WBTC</div>
           <div className="text-lg font-bold text-btc">{formatBtc(onChainBalance)}</div>
-          <div className="text-xs text-gray-500">WBTC</div>
+        </div>
+        <div className="bg-gray-800/50 rounded-xl p-3 text-center">
+          <div className="text-xs text-orange-400">Wallet BTC</div>
+          <div className="text-lg font-bold text-orange-400">{walletBtcBalance != null ? (walletBtcBalance / 1e8).toFixed(6) : '—'}</div>
         </div>
       </div>
 
@@ -284,7 +301,7 @@ export function WalletPanel({
                 <div className="flex items-center gap-2">
                   {statusIcon(d.status)}
                   <ArrowDownToLine size={12} className="text-green-400" />
-                  <span className="text-green-400">+{(d as any).amount || (d as any).amount_bpusd || 0}</span>
+                  <span className="text-green-400">+{formatBtc((d as any).amount || (d as any).amount_bpusd || 0)}</span>
                 </div>
                 <span className="text-gray-500">{formatTime(d.created_at)}</span>
               </div>
@@ -294,9 +311,9 @@ export function WalletPanel({
                 <div className="flex items-center gap-2">
                   {statusIcon(w.status)}
                   <ArrowUpFromLine size={12} className="text-orange-400" />
-                  <span className="text-orange-400">-{(w as any).amount || (w as any).amount_bpusd || 0}</span>
+                  <span className="text-orange-400">-{formatBtc((w as any).amount || (w as any).amount_bpusd || 0)}</span>
                   {((w as any).fee || (w as any).fee_bpusd || 0) > 0 && (
-                    <span className="text-gray-600">(fee: {(w as any).fee || (w as any).fee_bpusd})</span>
+                    <span className="text-gray-600">(fee: {formatBtc((w as any).fee || (w as any).fee_bpusd)})</span>
                   )}
                 </div>
                 <span className="text-gray-500">{formatTime(w.created_at)}</span>
