@@ -22,28 +22,28 @@
 - Все важные решения и текущее состояние проекта — в memory/bitpredict.md
 - При завершении крупной задачи — обновляй bitpredict.md
 
-## Project State (Mar 5, 2026)
-- **Full Bob mainnet audit completed** — 13 critical + 12 high + 10 medium issues fixed
-- **Contracts require redeployment** — tx.origin→tx.sender, while→for, approve override, CEI fix, shares guard
-- **Server/Frontend now env-driven** — OPNET_NETWORK, addresses, RPC all via env vars
-- **Server requires env vars** — JWT_SECRET, OPNET_NETWORK, PRED_TOKEN, PREDICTION_MARKET_ADDRESS, ALLOWED_ORIGIN
-- **Frontend requires VITE_* env vars** — VITE_OPNET_NETWORK, VITE_CONTRACT_ADDRESS, etc.
-- **Auth hardened** — HMAC challenges, no fallback signature, rate limits on all financial endpoints
+## Project State (Mar 11, 2026)
+- **On-chain parimutuel implemented** — contract handles bets/claims, server = oracle/indexer
+- **AMM removed** — no reserves, no sellShares, no virtual liquidity
+- **Fee synced at 2%** — contract 200 BPS, server FEE_PCT=0.02, frontend BET_FEE_PCT=0.02
+- **3-step bet flow** — approve → placeBet on-chain → reportBetTx to server
+- **Contracts need rebuild + redeploy** — PredictionMarket.ts refactored
+- **Server requires env vars** — JWT_SECRET, OPNET_NETWORK, PREDICTION_MARKET_ADDRESS, ALLOWED_ORIGIN
+- **Frontend requires VITE_* env vars** — VITE_OPNET_NETWORK, VITE_CONTRACT_ADDRESS, VITE_CONTRACT_PUBKEY, etc.
 
 ## Key Files
-- `contracts/PredictionMarket.ts` — основной контракт (buyShares, sellShares, claimPayout, createMarket, resolveMarket)
+- `contracts/PredictionMarket.ts` — on-chain parimutuel (placeBet, claimPayout, createMarket, resolveMarket, withdrawFees)
+- `contracts/abis/PredictionMarket.abi.ts` — ABI (placeBet, getUserBets, getMarketInfo, getPrice)
 - `contracts/StakingVault.ts` — стейкинг vault с CSV timelocks
-- `contracts/PriceOracle.ts` — multi-sig oracle (3-of-5 median)
-- `contracts/PredToken.ts` — DEPRECATED (replaced by WBTC)
-- `contracts/Treasury.ts` — Treasury (deposit/withdraw, ML-DSA auth, emergency timelock)
-- `server/index.js` — Express сервер (~3100 строк, +treasury endpoints)
-- `src/lib/api.ts` — фронтенд API клиент с JWT
-- `src/lib/opnet.ts` — on-chain взаимодействие
-- `src/components/WalletPanel.tsx` — Deposit/Withdraw/Wrap/Unwrap UI
-- `src/hooks/useWallet.ts` — wallet hook (@btc-vision/walletconnect)
+- `contracts/Treasury.ts` — Treasury (deposit/withdraw, ML-DSA auth)
 - `contracts/WBTC.ts` — NativeSwap WBTC token (wrap/unwrap BTC↔WBTC)
-- `contracts/abis/WBTC.abi.ts` — WBTC ABI for frontend
-- `deploy/deploy-wbtc.mjs` — WBTC deploy script
+- `server/index.js` — Express сервер (~3800 строк, oracle + indexer)
+- `src/lib/api.ts` — фронтенд API клиент с JWT + reportBetTx/reportClaimTx
+- `src/lib/opnet.ts` — on-chain: approveForMarket, placeBetOnChain, claimPayoutOnChain
+- `src/App.tsx` — 3-step handlePlaceBet, handleClaim
+- `src/components/BetModal.tsx` — on-chain balance, 2% fee, display-only check
+- `src/components/Portfolio.tsx` — on-chain claimPayout
+- `src/hooks/useWallet.ts` — wallet hook (@btc-vision/walletconnect)
 
 ## Build Commands
 - Contracts: `cd contracts && npm run build`

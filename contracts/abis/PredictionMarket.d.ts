@@ -20,11 +20,11 @@ export type CreateMarket = CallResult<
 >;
 
 /**
- * @description Represents the result of the buyShares function call.
+ * @description Represents the result of the placeBet function call.
  */
-export type BuyShares = CallResult<
+export type PlaceBet = CallResult<
     {
-        shares: bigint;
+        netAmount: bigint;
     },
     OPNetEvent<never>[]
 >;
@@ -38,16 +38,6 @@ export type ResolveMarket = CallResult<{}, OPNetEvent<never>[]>;
  * @description Represents the result of the claimPayout function call.
  */
 export type ClaimPayout = CallResult<
-    {
-        payout: bigint;
-    },
-    OPNetEvent<never>[]
->;
-
-/**
- * @description Represents the result of the sellShares function call.
- */
-export type SellShares = CallResult<
     {
         payout: bigint;
     },
@@ -94,17 +84,17 @@ export type Unpause = CallResult<{}, OPNetEvent<never>[]>;
  */
 export type GetMarketInfo = CallResult<
     {
-        yesReserve: bigint;
+        yesPool: bigint;
     },
     OPNetEvent<never>[]
 >;
 
 /**
- * @description Represents the result of the getUserShares function call.
+ * @description Represents the result of the getUserBets function call.
  */
-export type GetUserShares = CallResult<
+export type GetUserBets = CallResult<
     {
-        yesShares: bigint;
+        yesBet: bigint;
     },
     OPNetEvent<never>[]
 >;
@@ -124,10 +114,9 @@ export type GetPrice = CallResult<
 // ------------------------------------------------------------------
 export interface IPredictionMarket extends IOP_NETContract {
     createMarket(endBlock: bigint): Promise<CreateMarket>;
-    buyShares(marketId: bigint, isYes: boolean, amount: bigint, minSharesOut: bigint): Promise<BuyShares>;
+    placeBet(marketId: bigint, isYes: boolean, amount: bigint): Promise<PlaceBet>;
     resolveMarket(marketId: bigint, outcome: boolean): Promise<ResolveMarket>;
     claimPayout(marketId: bigint): Promise<ClaimPayout>;
-    sellShares(marketId: bigint, isYes: boolean, shares: bigint, minPayoutOut: bigint): Promise<SellShares>;
     setAdmin(newAdmin: Address): Promise<SetAdmin>;
     setFee(newFeeBps: bigint): Promise<SetFee>;
     withdrawFees(): Promise<WithdrawFees>;
@@ -135,6 +124,6 @@ export interface IPredictionMarket extends IOP_NETContract {
     pause(): Promise<Pause>;
     unpause(): Promise<Unpause>;
     getMarketInfo(marketId: bigint): Promise<GetMarketInfo>;
-    getUserShares(marketId: bigint, user: Address): Promise<GetUserShares>;
+    getUserBets(marketId: bigint, user: Address): Promise<GetUserBets>;
     getPrice(marketId: bigint): Promise<GetPrice>;
 }

@@ -19,7 +19,7 @@
             ]
         },
         {
-            "name": "buyShares",
+            "name": "placeBet",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
@@ -35,15 +35,11 @@
                 {
                     "name": "amount",
                     "type": "UINT256"
-                },
-                {
-                    "name": "minSharesOut",
-                    "type": "UINT256"
                 }
             ],
             "outputs": [
                 {
-                    "name": "shares",
+                    "name": "netAmount",
                     "type": "UINT256"
                 }
             ]
@@ -73,36 +69,6 @@
             "inputs": [
                 {
                     "name": "marketId",
-                    "type": "UINT256"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "payout",
-                    "type": "UINT256"
-                }
-            ]
-        },
-        {
-            "name": "sellShares",
-            "type": "Function",
-            "payable": false,
-            "onlyOwner": false,
-            "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                },
-                {
-                    "name": "isYes",
-                    "type": "BOOL"
-                },
-                {
-                    "name": "shares",
-                    "type": "UINT256"
-                },
-                {
-                    "name": "minPayoutOut",
                     "type": "UINT256"
                 }
             ],
@@ -194,13 +160,13 @@
             ],
             "outputs": [
                 {
-                    "name": "yesReserve",
+                    "name": "yesPool",
                     "type": "UINT256"
                 }
             ]
         },
         {
-            "name": "getUserShares",
+            "name": "getUserBets",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
@@ -216,7 +182,7 @@
             ],
             "outputs": [
                 {
-                    "name": "yesShares",
+                    "name": "yesBet",
                     "type": "UINT256"
                 }
             ]

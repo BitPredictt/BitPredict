@@ -40,7 +40,6 @@
  (global $~lib/@btc-vision/btc-runtime/runtime/contracts/ReentrancyGuard/statusPointer (mut i32) (i32.const 0))
  (global $~lib/@btc-vision/btc-runtime/runtime/contracts/ReentrancyGuard/depthPointer (mut i32) (i32.const 0))
  (global $PredictionMarket/MIN_TRADE_AMOUNT (mut i32) (i32.const 0))
- (global $PredictionMarket/INITIAL_LIQUIDITY (mut i32) (i32.const 0))
  (global $~lib/@btc-vision/as-bignum/assembly/globals/__u256carry (mut i64) (i64.const 0))
  (global $~lib/@btc-vision/as-bignum/assembly/globals/__res128_hi (mut i64) (i64.const 0))
  (global $~lib/@btc-vision/as-bignum/assembly/globals/__u256carrySub (mut i64) (i64.const 0))
@@ -326,68 +325,54 @@
  (data $140.1 (i32.const 11928) "\02\00\00\004\00\00\00S\00a\00f\00e\00M\00a\00t\00h\00:\00 \00d\00i\00v\00i\00s\00i\00o\00n\00 \00b\00y\00 \00z\00e\00r\00o")
  (data $141 (i32.const 11996) "\\")
  (data $141.1 (i32.const 12008) "\02\00\00\00>\00\00\00S\00a\00f\00e\00M\00a\00t\00h\00:\00 \00s\00u\00b\00t\00r\00a\00c\00t\00i\00o\00n\00 \00u\00n\00d\00e\00r\00f\00l\00o\00w")
- (data $142 (i32.const 12092) "<")
- (data $142.1 (i32.const 12104) "\02\00\00\00*\00\00\00S\00l\00i\00p\00p\00a\00g\00e\00:\00 \00z\00e\00r\00o\00 \00s\00h\00a\00r\00e\00s")
- (data $143 (i32.const 12156) "L")
- (data $143.1 (i32.const 12168) "\02\00\00\00<\00\00\00S\00l\00i\00p\00p\00a\00g\00e\00:\00 \00s\00h\00a\00r\00e\00s\00 \00b\00e\00l\00o\00w\00 \00m\00i\00n\00i\00m\00u\00m")
- (data $144 (i32.const 12236) "L")
- (data $144.1 (i32.const 12248) "\02\00\00\008\00\00\00C\00o\00n\00t\00r\00a\00c\00t\00 \00a\00d\00d\00r\00e\00s\00s\00 \00i\00s\00 \00r\00e\00q\00u\00i\00r\00e\00d")
- (data $145 (i32.const 12316) "\\")
- (data $145.1 (i32.const 12328) "\02\00\00\00@\00\00\00D\00e\00s\00t\00i\00n\00a\00t\00i\00o\00n\00 \00c\00o\00n\00t\00r\00a\00c\00t\00 \00i\00s\00 \00r\00e\00q\00u\00i\00r\00e\00d")
- (data $146 (i32.const 12412) "<")
- (data $146.1 (i32.const 12424) "\02\00\00\00&\00\00\00T\00r\00a\00n\00s\00f\00e\00r\00F\00r\00o\00m\00 \00f\00a\00i\00l\00e\00d")
- (data $147 (i32.const 12476) "<")
- (data $147.1 (i32.const 12488) "\02\00\00\00\1e\00\00\00S\00h\00a\00r\00e\00s\00P\00u\00r\00c\00h\00a\00s\00e\00d")
- (data $148 (i32.const 12540) "<")
- (data $148.1 (i32.const 12552) "\02\00\00\00 \00\00\00A\00l\00r\00e\00a\00d\00y\00 \00r\00e\00s\00o\00l\00v\00e\00d")
- (data $149 (i32.const 12604) "L")
- (data $149.1 (i32.const 12616) "\02\00\00\000\00\00\00M\00a\00r\00k\00e\00t\00 \00h\00a\00s\00 \00n\00o\00t\00 \00e\00n\00d\00e\00d\00 \00y\00e\00t")
- (data $150 (i32.const 12684) ",")
- (data $150.1 (i32.const 12696) "\02\00\00\00\1c\00\00\00M\00a\00r\00k\00e\00t\00R\00e\00s\00o\00l\00v\00e\00d")
- (data $151 (i32.const 12732) "<")
- (data $151.1 (i32.const 12744) "\02\00\00\00&\00\00\00M\00a\00r\00k\00e\00t\00 \00n\00o\00t\00 \00r\00e\00s\00o\00l\00v\00e\00d")
- (data $152 (i32.const 12796) "<")
- (data $152.1 (i32.const 12808) "\02\00\00\00\1e\00\00\00A\00l\00r\00e\00a\00d\00y\00 \00c\00l\00a\00i\00m\00e\00d")
- (data $153 (i32.const 12860) "<")
- (data $153.1 (i32.const 12872) "\02\00\00\00\"\00\00\00N\00o\00 \00w\00i\00n\00n\00i\00n\00g\00 \00s\00h\00a\00r\00e\00s")
- (data $154 (i32.const 12924) "L")
- (data $154.1 (i32.const 12936) "\02\00\00\002\00\00\00N\00o\00 \00w\00i\00n\00n\00i\00n\00g\00 \00s\00h\00a\00r\00e\00s\00 \00i\00n\00 \00p\00o\00o\00l")
- (data $155 (i32.const 13004) "<")
- (data $155.1 (i32.const 13016) "\02\00\00\00 \00\00\00N\00o\00t\00h\00i\00n\00g\00 \00t\00o\00 \00c\00l\00a\00i\00m")
- (data $156 (i32.const 13068) "<")
- (data $156.1 (i32.const 13080) "\02\00\00\00\1e\00\00\00T\00r\00a\00n\00s\00f\00e\00r\00 \00f\00a\00i\00l\00e\00d")
- (data $157 (i32.const 13132) ",")
- (data $157.1 (i32.const 13144) "\02\00\00\00\1a\00\00\00P\00a\00y\00o\00u\00t\00C\00l\00a\00i\00m\00e\00d")
- (data $158 (i32.const 13180) "<")
- (data $158.1 (i32.const 13192) "\02\00\00\00$\00\00\00S\00h\00a\00r\00e\00s\00 \00m\00u\00s\00t\00 \00b\00e\00 \00>\00 \000")
- (data $159 (i32.const 13244) "<")
- (data $159.1 (i32.const 13256) "\02\00\00\00&\00\00\00I\00n\00s\00u\00f\00f\00i\00c\00i\00e\00n\00t\00 \00s\00h\00a\00r\00e\00s")
- (data $160 (i32.const 13308) "L")
- (data $160.1 (i32.const 13320) "\02\00\00\004\00\00\00P\00a\00y\00o\00u\00t\00 \00t\00o\00o\00 \00s\00m\00a\00l\00l\00 \00a\00f\00t\00e\00r\00 \00f\00e\00e")
- (data $161 (i32.const 13388) "L")
- (data $161.1 (i32.const 13400) "\02\00\00\00<\00\00\00S\00l\00i\00p\00p\00a\00g\00e\00:\00 \00p\00a\00y\00o\00u\00t\00 \00b\00e\00l\00o\00w\00 \00m\00i\00n\00i\00m\00u\00m")
- (data $162 (i32.const 13468) "<")
- (data $162.1 (i32.const 13480) "\02\00\00\00\1e\00\00\00A\00d\00m\00i\00n\00 \00u\00n\00c\00h\00a\00n\00g\00e\00d")
- (data $163 (i32.const 13532) "\\")
- (data $163.1 (i32.const 13544) "\02\00\00\00@\00\00\00N\00e\00w\00 \00a\00d\00m\00i\00n\00 \00c\00a\00n\00n\00o\00t\00 \00b\00e\00 \00z\00e\00r\00o\00 \00a\00d\00d\00r\00e\00s\00s")
- (data $164 (i32.const 13628) ",")
- (data $164.1 (i32.const 13640) "\02\00\00\00\18\00\00\00A\00d\00m\00i\00n\00C\00h\00a\00n\00g\00e\00d")
- (data $165 (i32.const 13676) "L")
- (data $165.1 (i32.const 13688) "\02\00\00\000\00\00\00F\00e\00e\00 \00e\00x\00c\00e\00e\00d\00s\00 \00m\00a\00x\00i\00m\00u\00m\00 \00(\005\00%\00)")
- (data $166 (i32.const 13756) ",")
- (data $166.1 (i32.const 13768) "\02\00\00\00\14\00\00\00F\00e\00e\00C\00h\00a\00n\00g\00e\00d")
- (data $167 (i32.const 13804) "l")
- (data $167.1 (i32.const 13816) "\02\00\00\00Z\00\00\00C\00a\00n\00n\00o\00t\00 \00w\00i\00t\00h\00d\00r\00a\00w\00 \00f\00e\00e\00s\00 \00w\00h\00i\00l\00e\00 \00m\00a\00r\00k\00e\00t\00s\00 \00a\00r\00e\00 \00a\00c\00t\00i\00v\00e")
- (data $168 (i32.const 13916) "<")
- (data $168.1 (i32.const 13928) "\02\00\00\00&\00\00\00N\00o\00 \00f\00e\00e\00s\00 \00t\00o\00 \00w\00i\00t\00h\00d\00r\00a\00w")
- (data $169 (i32.const 13980) "<")
- (data $169.1 (i32.const 13992) "\02\00\00\00&\00\00\00F\00e\00e\00R\00e\00c\00i\00p\00i\00e\00n\00t\00C\00h\00a\00n\00g\00e\00d")
- (data $170 (i32.const 14044) "\1c")
- (data $170.1 (i32.const 14056) "\02\00\00\00\0c\00\00\00P\00a\00u\00s\00e\00d")
- (data $171 (i32.const 14076) ",")
- (data $171.1 (i32.const 14088) "\02\00\00\00\10\00\00\00U\00n\00p\00a\00u\00s\00e\00d")
- (data $172 (i32.const 14124) "\\")
- (data $172.1 (i32.const 14136) "\02\00\00\00@\00\00\00R\00e\00e\00n\00t\00r\00a\00n\00c\00y\00G\00u\00a\00r\00d\00:\00 \00D\00e\00p\00t\00h\00 \00u\00n\00d\00e\00r\00f\00l\00o\00w")
+ (data $142 (i32.const 12092) "L")
+ (data $142.1 (i32.const 12104) "\02\00\00\008\00\00\00C\00o\00n\00t\00r\00a\00c\00t\00 \00a\00d\00d\00r\00e\00s\00s\00 \00i\00s\00 \00r\00e\00q\00u\00i\00r\00e\00d")
+ (data $143 (i32.const 12172) "\\")
+ (data $143.1 (i32.const 12184) "\02\00\00\00@\00\00\00D\00e\00s\00t\00i\00n\00a\00t\00i\00o\00n\00 \00c\00o\00n\00t\00r\00a\00c\00t\00 \00i\00s\00 \00r\00e\00q\00u\00i\00r\00e\00d")
+ (data $144 (i32.const 12268) "<")
+ (data $144.1 (i32.const 12280) "\02\00\00\00&\00\00\00T\00r\00a\00n\00s\00f\00e\00r\00F\00r\00o\00m\00 \00f\00a\00i\00l\00e\00d")
+ (data $145 (i32.const 12332) ",")
+ (data $145.1 (i32.const 12344) "\02\00\00\00\12\00\00\00B\00e\00t\00P\00l\00a\00c\00e\00d")
+ (data $146 (i32.const 12380) "<")
+ (data $146.1 (i32.const 12392) "\02\00\00\00 \00\00\00A\00l\00r\00e\00a\00d\00y\00 \00r\00e\00s\00o\00l\00v\00e\00d")
+ (data $147 (i32.const 12444) "L")
+ (data $147.1 (i32.const 12456) "\02\00\00\000\00\00\00M\00a\00r\00k\00e\00t\00 \00h\00a\00s\00 \00n\00o\00t\00 \00e\00n\00d\00e\00d\00 \00y\00e\00t")
+ (data $148 (i32.const 12524) ",")
+ (data $148.1 (i32.const 12536) "\02\00\00\00\1c\00\00\00M\00a\00r\00k\00e\00t\00R\00e\00s\00o\00l\00v\00e\00d")
+ (data $149 (i32.const 12572) "<")
+ (data $149.1 (i32.const 12584) "\02\00\00\00&\00\00\00M\00a\00r\00k\00e\00t\00 \00n\00o\00t\00 \00r\00e\00s\00o\00l\00v\00e\00d")
+ (data $150 (i32.const 12636) "<")
+ (data $150.1 (i32.const 12648) "\02\00\00\00\1e\00\00\00A\00l\00r\00e\00a\00d\00y\00 \00c\00l\00a\00i\00m\00e\00d")
+ (data $151 (i32.const 12700) "<")
+ (data $151.1 (i32.const 12712) "\02\00\00\00\"\00\00\00N\00o\00 \00w\00i\00n\00n\00i\00n\00g\00 \00s\00h\00a\00r\00e\00s")
+ (data $152 (i32.const 12764) "L")
+ (data $152.1 (i32.const 12776) "\02\00\00\002\00\00\00N\00o\00 \00w\00i\00n\00n\00i\00n\00g\00 \00s\00h\00a\00r\00e\00s\00 \00i\00n\00 \00p\00o\00o\00l")
+ (data $153 (i32.const 12844) "<")
+ (data $153.1 (i32.const 12856) "\02\00\00\00 \00\00\00N\00o\00t\00h\00i\00n\00g\00 \00t\00o\00 \00c\00l\00a\00i\00m")
+ (data $154 (i32.const 12908) "<")
+ (data $154.1 (i32.const 12920) "\02\00\00\00\1e\00\00\00T\00r\00a\00n\00s\00f\00e\00r\00 \00f\00a\00i\00l\00e\00d")
+ (data $155 (i32.const 12972) ",")
+ (data $155.1 (i32.const 12984) "\02\00\00\00\1a\00\00\00P\00a\00y\00o\00u\00t\00C\00l\00a\00i\00m\00e\00d")
+ (data $156 (i32.const 13020) "<")
+ (data $156.1 (i32.const 13032) "\02\00\00\00\1e\00\00\00A\00d\00m\00i\00n\00 \00u\00n\00c\00h\00a\00n\00g\00e\00d")
+ (data $157 (i32.const 13084) "\\")
+ (data $157.1 (i32.const 13096) "\02\00\00\00@\00\00\00N\00e\00w\00 \00a\00d\00m\00i\00n\00 \00c\00a\00n\00n\00o\00t\00 \00b\00e\00 \00z\00e\00r\00o\00 \00a\00d\00d\00r\00e\00s\00s")
+ (data $158 (i32.const 13180) ",")
+ (data $158.1 (i32.const 13192) "\02\00\00\00\18\00\00\00A\00d\00m\00i\00n\00C\00h\00a\00n\00g\00e\00d")
+ (data $159 (i32.const 13228) "L")
+ (data $159.1 (i32.const 13240) "\02\00\00\000\00\00\00F\00e\00e\00 \00e\00x\00c\00e\00e\00d\00s\00 \00m\00a\00x\00i\00m\00u\00m\00 \00(\005\00%\00)")
+ (data $160 (i32.const 13308) ",")
+ (data $160.1 (i32.const 13320) "\02\00\00\00\14\00\00\00F\00e\00e\00C\00h\00a\00n\00g\00e\00d")
+ (data $161 (i32.const 13356) "<")
+ (data $161.1 (i32.const 13368) "\02\00\00\00&\00\00\00N\00o\00 \00f\00e\00e\00s\00 \00t\00o\00 \00w\00i\00t\00h\00d\00r\00a\00w")
+ (data $162 (i32.const 13420) "<")
+ (data $162.1 (i32.const 13432) "\02\00\00\00&\00\00\00F\00e\00e\00R\00e\00c\00i\00p\00i\00e\00n\00t\00C\00h\00a\00n\00g\00e\00d")
+ (data $163 (i32.const 13484) "\1c")
+ (data $163.1 (i32.const 13496) "\02\00\00\00\0c\00\00\00P\00a\00u\00s\00e\00d")
+ (data $164 (i32.const 13516) ",")
+ (data $164.1 (i32.const 13528) "\02\00\00\00\10\00\00\00U\00n\00p\00a\00u\00s\00e\00d")
+ (data $165 (i32.const 13564) "\\")
+ (data $165.1 (i32.const 13576) "\02\00\00\00@\00\00\00R\00e\00e\00n\00t\00r\00a\00n\00c\00y\00G\00u\00a\00r\00d\00:\00 \00D\00e\00p\00t\00h\00 \00u\00n\00d\00e\00r\00f\00l\00o\00w")
  (table $0 2 2 funcref)
  (elem $0 (i32.const 1) $start:src/index~anonymous|0)
  (export "abort" (func $src/index/abort))
@@ -2155,7 +2140,7 @@
   (local $2 i32)
   (local $3 i32)
   (local $4 i32)
-  i32.const 14220
+  i32.const 13660
   global.set $~lib/rt/stub/offset
   i64.const 0
   i64.const 0
@@ -3533,33 +3518,33 @@
   local.set $1
   i32.const 0
   local.set $0
-  block $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$115
+  block $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$114
    local.get $6
    local.get $2
    i32.load
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$115
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$114
    i32.const 1
    local.set $0
    local.get $6
    local.get $2
    i32.load offset=4
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$115
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$114
    i32.const 3
    local.set $0
    local.get $6
    local.get $2
    i32.load offset=12
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$115
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$114
    i32.const 2
    local.set $0
    local.get $6
    local.get $2
    i32.load offset=8
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$115
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$114
    i32.const 8336
    i32.const 8192
    i32.const 97
@@ -3586,7 +3571,7 @@
   i32.const 0
   i32.store
   local.get $0
-  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.2 (result i32)
+  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.1 (result i32)
    local.get $3
    i64.eqz
    if
@@ -3595,7 +3580,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.2
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.1
    end
    local.get $3
    i64.const 1
@@ -3606,7 +3591,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.2
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.1
    end
    local.get $3
    i64.const 0
@@ -4093,7 +4078,7 @@
       i64.or
       i64.eqz
       if
-       i32.const 14144
+       i32.const 13584
        i32.const 10000
        i32.const 100
        i32.const 17
@@ -5569,7 +5554,7 @@
   if
    i32.const 10544
    i32.const 10592
-   i32.const 797
+   i32.const 653
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -5593,7 +5578,7 @@
   if
    i32.const 10656
    i32.const 10592
-   i32.const 790
+   i32.const 646
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -5746,7 +5731,7 @@
   i32.const 10992
   call $~lib/@btc-vision/btc-runtime/runtime/math/abi/encodePointer
  )
- (func $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set (param $0 i32) (param $1 i32) (param $2 i32) (result i32)
+ (func $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set (param $0 i32) (param $1 i32) (param $2 i32)
   (local $3 i32)
   (local $4 i32)
   i32.const 0
@@ -5777,12 +5762,11 @@
   local.get $0
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#encodePointer
-  local.set $1
+  local.set $0
   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-  local.get $1
+  local.get $0
   local.get $4
   call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#_internalSetStorageAt
-  local.get $0
  )
  (func $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256 (param $0 i32) (param $1 i32)
   (local $2 i32)
@@ -5987,7 +5971,7 @@
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
   local.set $1
-  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.3 (result i32)
+  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.2 (result i32)
    global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
    local.tee $3
    i32.load offset=24
@@ -6022,7 +6006,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.3
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.2
    end
    local.get $2
    i64.const 1
@@ -6033,7 +6017,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.3
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.2
    end
    local.get $2
    i64.const 0
@@ -6048,7 +6032,7 @@
   if
    i32.const 10784
    i32.const 10592
-   i32.const 227
+   i32.const 237
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -6065,7 +6049,7 @@
   if
    i32.const 10880
    i32.const 10592
-   i32.const 233
+   i32.const 243
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -6077,18 +6061,6 @@
   call $PredictionMarket/PredictionMarket#marketKey
   local.set $4
   local.get $0
-  i32.load offset=44
-  local.get $4
-  global.get $PredictionMarket/INITIAL_LIQUIDITY
-  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
-  local.get $0
-  i32.load offset=48
-  local.get $4
-  global.get $PredictionMarket/INITIAL_LIQUIDITY
-  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
-  local.get $0
   i32.load offset=52
   local.get $4
   i64.const 0
@@ -6097,7 +6069,6 @@
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=56
   local.get $4
@@ -6107,13 +6078,11 @@
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=60
   local.get $4
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=64
   local.get $4
@@ -6123,7 +6092,6 @@
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=68
   local.get $4
@@ -6133,7 +6101,6 @@
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=72
   local.get $4
@@ -6143,7 +6110,6 @@
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=12
   local.get $3
@@ -7281,50 +7247,6 @@
   local.get $7
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
  )
- (func $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mod (param $0 i32) (param $1 i32) (result i32)
-  local.get $1
-  i64.load offset=24
-  local.get $1
-  i64.load offset=16
-  local.get $1
-  i64.load
-  local.get $1
-  i64.load offset=8
-  i64.or
-  i64.or
-  i64.or
-  i64.eqz
-  if
-   i32.const 11856
-   i32.const 10336
-   i32.const 354
-   i32.const 13
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  local.get $0
-  local.get $0
-  local.get $1
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.div
-  local.tee $0
-  i64.load
-  local.get $0
-  i64.load offset=8
-  local.get $0
-  i64.load offset=16
-  local.get $0
-  i64.load offset=24
-  local.get $1
-  i64.load
-  local.get $1
-  i64.load offset=8
-  local.get $1
-  i64.load offset=16
-  local.get $1
-  i64.load offset=24
-  call $~lib/@btc-vision/as-bignum/assembly/globals/__mul256
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.sub
- )
  (func $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div (param $0 i32) (param $1 i32) (result i32)
   local.get $1
   i64.load offset=24
@@ -7510,7 +7432,7 @@
   local.get $0
   i32.eqz
   if
-   i32.const 12336
+   i32.const 12192
    i32.const 5456
    i32.const 412
    i32.const 13
@@ -7565,52 +7487,45 @@
   i32.store offset=4
   local.get $2
  )
- (func $PredictionMarket/PredictionMarket#buyShares (param $0 i32) (param $1 i32) (result i32)
+ (func $PredictionMarket/PredictionMarket#placeBet (param $0 i32) (param $1 i32) (result i32)
   (local $2 i32)
   (local $3 i32)
   (local $4 i32)
-  (local $5 i32)
-  (local $6 i64)
+  (local $5 i64)
+  (local $6 i32)
   (local $7 i32)
   (local $8 i32)
   (local $9 i32)
   (local $10 i32)
-  (local $11 i32)
-  (local $12 i32)
-  (local $13 i32)
   local.get $0
   call $PredictionMarket/PredictionMarket#whenNotPaused
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-  local.set $4
+  local.set $3
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU8
   i32.const 0
   i32.ne
-  local.set $5
+  local.set $4
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-  local.set $2
-  local.get $1
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-  local.set $8
-  local.get $2
+  local.tee $2
   global.get $PredictionMarket/MIN_TRADE_AMOUNT
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
   if
    i32.const 11424
    i32.const 10592
-   i32.const 278
+   i32.const 286
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
   end
-  local.get $4
+  local.get $3
   call $PredictionMarket/PredictionMarket#marketKey
-  local.set $9
+  local.set $6
   local.get $0
   i32.load offset=60
-  local.get $9
+  local.get $6
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
   local.set $1
   i64.const 0
@@ -7618,16 +7533,16 @@
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $3
+  local.set $7
   local.get $1
   i64.load
-  local.get $3
+  local.get $7
   i64.load
   i64.eq
   if (result i32)
    local.get $1
    i64.load offset=8
-   local.get $3
+   local.get $7
    i64.load offset=8
    i64.eq
   else
@@ -7636,7 +7551,7 @@
   if (result i32)
    local.get $1
    i64.load offset=16
-   local.get $3
+   local.get $7
    i64.load offset=16
    i64.eq
   else
@@ -7645,7 +7560,7 @@
   if (result i32)
    local.get $1
    i64.load offset=24
-   local.get $3
+   local.get $7
    i64.load offset=24
    i64.eq
   else
@@ -7654,14 +7569,14 @@
   if
    i32.const 11488
    i32.const 10592
-   i32.const 285
+   i32.const 293
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
   end
-  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.5 (result i32)
+  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.4 (result i32)
    global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-   local.tee $3
+   local.tee $7
    i32.load offset=24
    i32.eqz
    if
@@ -7672,9 +7587,9 @@
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
    end
-   local.get $3
+   local.get $7
    i32.load offset=24
-   local.tee $3
+   local.tee $7
    i32.eqz
    if
     i32.const 7984
@@ -7684,9 +7599,9 @@
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
    end
-   local.get $3
+   local.get $7
    i64.load offset=8
-   local.tee $6
+   local.tee $5
    i64.eqz
    if
     i64.const 0
@@ -7694,9 +7609,9 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.5
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.4
    end
-   local.get $6
+   local.get $5
    i64.const 1
    i64.eq
    if
@@ -7705,9 +7620,9 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.5
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.4
    end
-   local.get $6
+   local.get $5
    i64.const 0
    i64.const 0
    i64.const 0
@@ -7719,14 +7634,14 @@
   if
    i32.const 11552
    i32.const 10592
-   i32.const 290
+   i32.const 298
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
   end
   local.get $0
   i32.load offset=64
-  local.get $9
+  local.get $6
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
   local.set $1
   i64.const 1
@@ -7734,16 +7649,16 @@
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $3
+  local.set $7
   local.get $1
   i64.load
-  local.get $3
+  local.get $7
   i64.load
   i64.eq
   if (result i32)
    local.get $1
    i64.load offset=8
-   local.get $3
+   local.get $7
    i64.load offset=8
    i64.eq
   else
@@ -7752,7 +7667,7 @@
   if (result i32)
    local.get $1
    i64.load offset=16
-   local.get $3
+   local.get $7
    i64.load offset=16
    i64.eq
   else
@@ -7761,7 +7676,7 @@
   if (result i32)
    local.get $1
    i64.load offset=24
-   local.get $3
+   local.get $7
    i64.load offset=24
    i64.eq
   else
@@ -7770,7 +7685,7 @@
   if
    i32.const 11616
    i32.const 10592
-   i32.const 294
+   i32.const 302
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -7780,17 +7695,57 @@
   i32.load offset=28
   call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#get:value
   call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
-  local.tee $1
+  local.set $1
   i64.const 10000
   i64.const 0
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.tee $3
-  call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mod
-  local.set $7
+  local.tee $7
+  i64.load offset=24
+  local.get $7
+  i64.load offset=16
+  local.get $7
+  i64.load
+  local.get $7
+  i64.load offset=8
+  i64.or
+  i64.or
+  i64.or
+  i64.eqz
+  if
+   i32.const 11856
+   i32.const 10336
+   i32.const 354
+   i32.const 13
+   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
+   unreachable
+  end
   local.get $1
-  local.get $3
+  local.get $1
+  local.get $7
+  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.div
+  local.tee $8
+  i64.load
+  local.get $8
+  i64.load offset=8
+  local.get $8
+  i64.load offset=16
+  local.get $8
+  i64.load offset=24
+  local.get $7
+  i64.load
+  local.get $7
+  i64.load offset=8
+  local.get $7
+  i64.load offset=16
+  local.get $7
+  i64.load offset=24
+  call $~lib/@btc-vision/as-bignum/assembly/globals/__mul256
+  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.sub
+  local.set $8
+  local.get $1
+  local.get $7
   call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
   local.set $1
   i64.const 0
@@ -7798,34 +7753,34 @@
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $3
-  local.get $7
+  local.set $7
+  local.get $8
   i64.load
-  local.get $3
+  local.get $7
   i64.load
   i64.eq
   if (result i32)
-   local.get $7
+   local.get $8
    i64.load offset=8
-   local.get $3
+   local.get $7
    i64.load offset=8
    i64.eq
   else
    i32.const 0
   end
   if (result i32)
-   local.get $7
+   local.get $8
    i64.load offset=16
-   local.get $3
+   local.get $7
    i64.load offset=16
    i64.eq
   else
    i32.const 0
   end
   if (result i32)
-   local.get $7
+   local.get $8
    i64.load offset=24
-   local.get $3
+   local.get $7
    i64.load offset=24
    i64.eq
   else
@@ -7845,243 +7800,75 @@
   local.get $2
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-  local.set $10
-  local.get $0
-  i32.load offset=44
-  local.get $9
-  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-  local.tee $3
-  local.get $0
-  i32.load offset=48
-  local.get $9
-  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-  local.tee $7
-  call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
-  local.set $11
+  local.set $7
   block $folding-inner1
    block $folding-inner0
     global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-    local.tee $12
+    local.tee $8
     i32.load offset=28
     i32.eqz
     br_if $folding-inner0
-    local.get $12
+    local.get $8
     i32.load offset=28
-    local.tee $12
+    local.tee $8
     i32.eqz
     br_if $folding-inner1
-    local.get $4
-    local.get $12
+    local.get $3
+    local.get $8
     i32.load offset=4
     call $PredictionMarket/PredictionMarket#userKey
-    local.set $12
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    drop
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    drop
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    drop
-    local.get $5
-    if (result i32)
-     local.get $3
-     local.get $11
-     local.get $7
-     local.get $10
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.tee $3
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
-     local.tee $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-    else
-     local.get $7
-     local.get $11
-     local.get $3
-     local.get $10
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.tee $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
-     local.tee $3
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-    end
-    local.set $11
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    local.set $13
-    local.get $11
-    i64.load
-    local.get $13
-    i64.load
-    i64.eq
-    if (result i32)
-     local.get $11
-     i64.load offset=8
-     local.get $13
-     i64.load offset=8
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $11
-     i64.load offset=16
-     local.get $13
-     i64.load offset=16
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $11
-     i64.load offset=24
-     local.get $13
-     i64.load offset=24
-     i64.eq
-    else
-     i32.const 0
-    end
-    if
-     i32.const 12112
-     i32.const 10592
-     i32.const 330
-     i32.const 7
-     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-     unreachable
-    end
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    local.set $13
-    local.get $8
-    i64.load
-    local.get $13
-    i64.load
-    i64.eq
-    if (result i32)
-     local.get $8
-     i64.load offset=8
-     local.get $13
-     i64.load offset=8
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $8
-     i64.load offset=16
-     local.get $13
-     i64.load offset=16
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $8
-     i64.load offset=24
-     local.get $13
-     i64.load offset=24
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     i32.const 0
-    else
-     local.get $11
-     local.get $8
-     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
-    end
-    if
-     i32.const 12176
-     i32.const 10592
-     i32.const 335
-     i32.const 7
-     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-     unreachable
-    end
-    local.get $0
-    i32.load offset=44
-    local.get $9
-    local.get $7
-    call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-    drop
-    local.get $0
-    i32.load offset=48
-    local.get $9
-    local.get $3
-    call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-    drop
-    local.get $5
+    local.set $8
+    local.get $4
     if
      local.get $0
      i32.load offset=76
-     local.get $12
+     local.get $8
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-     local.set $3
+     local.set $9
      local.get $0
      i32.load offset=76
-     local.get $12
-     local.get $3
-     local.get $11
+     local.get $8
+     local.get $9
+     local.get $7
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
      local.get $0
      i32.load offset=52
-     local.get $9
+     local.get $6
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-     local.set $3
+     local.set $8
      local.get $0
      i32.load offset=52
-     local.get $9
-     local.get $3
-     local.get $11
+     local.get $6
+     local.get $8
+     local.get $7
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
     else
      local.get $0
      i32.load offset=80
-     local.get $12
+     local.get $8
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-     local.set $3
+     local.set $9
      local.get $0
      i32.load offset=80
-     local.get $12
-     local.get $3
-     local.get $11
+     local.get $8
+     local.get $9
+     local.get $7
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
      local.get $0
      i32.load offset=56
-     local.get $9
+     local.get $6
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-     local.set $3
+     local.set $8
      local.get $0
      i32.load offset=56
-     local.get $9
-     local.get $3
-     local.get $11
+     local.get $6
+     local.get $8
+     local.get $7
      call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
     end
     local.get $0
     i32.load offset=32
@@ -8093,69 +7880,57 @@
     call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
     local.get $0
     i32.load offset=72
-    local.get $9
+    local.get $6
     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
     local.set $1
     local.get $0
     i32.load offset=72
-    local.get $9
+    local.get $6
     local.get $1
-    local.get $10
+    local.get $7
     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-    drop
     local.get $0
-    i32.load offset=44
-    local.get $9
+    i32.load offset=52
+    local.get $6
     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+    local.set $8
     local.get $0
-    i32.load offset=48
-    local.get $9
+    i32.load offset=56
+    local.get $6
     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-    local.tee $1
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-    local.set $3
-    local.get $1
-    i64.const 10000
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
-    local.get $3
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
-    local.set $1
+    local.set $6
     global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-    local.tee $3
+    local.tee $1
     i32.load offset=28
     i32.eqz
     br_if $folding-inner0
-    local.get $3
+    local.get $1
     i32.load offset=28
-    local.tee $3
+    local.tee $1
     i32.eqz
     br_if $folding-inner1
-    local.get $3
+    local.get $1
     i32.load offset=4
-    local.set $3
+    local.set $9
     global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
     call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#get:contract
     drop
     global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-    local.tee $7
+    local.tee $1
     i32.load offset=44
     i32.eqz
     if
-     i32.const 12256
+     i32.const 12112
      i32.const 5456
      i32.const 232
      i32.const 13
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
     end
-    local.get $7
+    local.get $1
     i32.load offset=44
-    local.tee $7
+    local.tee $10
     i32.eqz
     if
      i32.const 7984
@@ -8167,22 +7942,22 @@
     end
     i32.const 100
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-    local.tee $8
+    local.tee $1
     i32.const 1265010151
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU32
-    local.get $8
-    local.get $3
+    local.get $1
+    local.get $9
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-    local.get $8
-    local.get $7
+    local.get $1
+    local.get $10
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-    local.get $8
+    local.get $1
     local.get $2
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
     local.get $0
     i32.load offset=20
     call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#get:value
-    local.get $8
+    local.get $1
     call $~lib/@btc-vision/btc-runtime/runtime/env/BlockchainEnvironment/BlockchainEnvironment#call
     local.tee $0
     i32.load offset=4
@@ -8196,9 +7971,9 @@
      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU8
      i32.eqz
      if
-      i32.const 12432
+      i32.const 12288
       i32.const 10592
-      i32.const 816
+      i32.const 672
       i32.const 9
       call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
       unreachable
@@ -8220,34 +7995,37 @@
     i32.const 12
     i32.const 47
     call $~lib/rt/stub/__new
-    i32.const 161
+    i32.const 193
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-    local.tee $7
-    local.get $4
+    local.tee $9
+    local.get $3
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-    local.get $7
+    local.get $9
     local.get $0
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-    local.get $7
-    local.get $5
+    local.get $9
+    local.get $4
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU8
-    local.get $7
+    local.get $9
     local.get $2
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+    local.get $9
     local.get $7
-    local.get $11
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-    local.get $7
-    local.get $1
+    local.get $9
+    local.get $8
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-    i32.const 12496
-    local.get $7
+    local.get $9
+    local.get $6
+    call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+    i32.const 12352
+    local.get $9
     call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
     call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
     i32.const 32
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
     local.tee $0
-    local.get $11
+    local.get $7
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
     local.get $0
     return
@@ -8332,7 +8110,7 @@
   if
    i32.const 11488
    i32.const 10592
-   i32.const 397
+   i32.const 372
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8381,14 +8159,14 @@
    i32.const 0
   end
   if
-   i32.const 12560
+   i32.const 12400
    i32.const 10592
-   i32.const 401
+   i32.const 376
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
   end
-  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.8 (result i32)
+  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.6 (result i32)
    global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
    local.tee $5
    i32.load offset=24
@@ -8423,7 +8201,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.8
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.6
    end
    local.get $3
    i64.const 1
@@ -8434,7 +8212,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.8
+    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.6
    end
    local.get $3
    i64.const 0
@@ -8445,9 +8223,9 @@
   local.get $4
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
   if
-   i32.const 12624
+   i32.const 12464
    i32.const 10592
-   i32.const 406
+   i32.const 381
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -8461,7 +8239,6 @@
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=68
   local.get $6
@@ -8480,7 +8257,6 @@
    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   end
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-  drop
   local.get $0
   i32.load offset=40
   local.get $0
@@ -8534,7 +8310,7 @@
   local.get $5
   local.get $0
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-  i32.const 12704
+  i32.const 12544
   local.get $5
   call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
@@ -8571,9 +8347,9 @@
    call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU8
    i32.eqz
    if
-    i32.const 13088
+    i32.const 12928
     i32.const 10592
-    i32.const 834
+    i32.const 690
     i32.const 9
     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
     unreachable
@@ -8655,9 +8431,9 @@
     end
     i32.eqz
     if
-     i32.const 12752
+     i32.const 12592
      i32.const 10592
-     i32.const 432
+     i32.const 408
      i32.const 7
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
@@ -8706,9 +8482,9 @@
      i32.const 0
     end
     if
-     i32.const 12816
+     i32.const 12656
      i32.const 10592
-     i32.const 436
+     i32.const 412
      i32.const 7
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
@@ -8834,9 +8610,9 @@
      i32.const 0
     end
     if
-     i32.const 12880
+     i32.const 12720
      i32.const 10592
-     i32.const 454
+     i32.const 430
      i32.const 7
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
@@ -8880,9 +8656,9 @@
      i32.const 0
     end
     if
-     i32.const 12944
+     i32.const 12784
      i32.const 10592
-     i32.const 458
+     i32.const 434
      i32.const 7
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
@@ -8932,9 +8708,9 @@
      i32.const 0
     end
     if
-     i32.const 13024
+     i32.const 12864
      i32.const 10592
-     i32.const 468
+     i32.const 444
      i32.const 7
      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
      unreachable
@@ -8948,7 +8724,6 @@
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-    drop
     global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
     local.tee $3
     i32.load offset=28
@@ -8991,658 +8766,10 @@
     local.get $4
     local.get $1
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-    i32.const 13152
+    i32.const 12992
     local.get $4
     call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
     call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
-    i32.const 32
-    call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-    local.tee $0
-    local.get $1
-    call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-    local.get $0
-    return
-   end
-   i32.const 10464
-   i32.const 5456
-   i32.const 146
-   i32.const 13
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  i32.const 7984
-  i32.const 5456
-  i32.const 148
-  i32.const 16
-  call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-  unreachable
- )
- (func $PredictionMarket/PredictionMarket#sellShares (param $0 i32) (param $1 i32) (result i32)
-  (local $2 i32)
-  (local $3 i32)
-  (local $4 i64)
-  (local $5 i32)
-  (local $6 i32)
-  (local $7 i32)
-  (local $8 i32)
-  (local $9 i32)
-  (local $10 i32)
-  local.get $0
-  call $PredictionMarket/PredictionMarket#whenNotPaused
-  local.get $1
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-  local.set $2
-  local.get $1
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU8
-  i32.const 0
-  i32.ne
-  local.set $6
-  local.get $1
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-  local.set $7
-  local.get $1
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-  local.set $3
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $1
-  local.get $7
-  i64.load
-  local.get $1
-  i64.load
-  i64.eq
-  if (result i32)
-   local.get $7
-   i64.load offset=8
-   local.get $1
-   i64.load offset=8
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $7
-   i64.load offset=16
-   local.get $1
-   i64.load offset=16
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $7
-   i64.load offset=24
-   local.get $1
-   i64.load offset=24
-   i64.eq
-  else
-   i32.const 0
-  end
-  if
-   i32.const 13200
-   i32.const 10592
-   i32.const 505
-   i32.const 7
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  local.get $2
-  call $PredictionMarket/PredictionMarket#marketKey
-  local.set $5
-  local.get $0
-  i32.load offset=60
-  local.get $5
-  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-  local.set $1
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $8
-  local.get $1
-  i64.load
-  local.get $8
-  i64.load
-  i64.eq
-  if (result i32)
-   local.get $1
-   i64.load offset=8
-   local.get $8
-   i64.load offset=8
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=16
-   local.get $8
-   i64.load offset=16
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=24
-   local.get $8
-   i64.load offset=24
-   i64.eq
-  else
-   i32.const 0
-  end
-  if
-   i32.const 11488
-   i32.const 10592
-   i32.const 512
-   i32.const 7
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.9 (result i32)
-   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-   local.tee $8
-   i32.load offset=24
-   i32.eqz
-   if
-    i32.const 10720
-    i32.const 5456
-    i32.const 119
-    i32.const 13
-    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-    unreachable
-   end
-   local.get $8
-   i32.load offset=24
-   local.tee $8
-   i32.eqz
-   if
-    i32.const 7984
-    i32.const 5456
-    i32.const 121
-    i32.const 16
-    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-    unreachable
-   end
-   local.get $8
-   i64.load offset=8
-   local.tee $4
-   i64.eqz
-   if
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.9
-   end
-   local.get $4
-   i64.const 1
-   i64.eq
-   if
-    i64.const 1
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU64|inlined.9
-   end
-   local.get $4
-   i64.const 0
-   i64.const 0
-   i64.const 0
-   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  end
-  local.get $1
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
-  i32.eqz
-  if
-   i32.const 11552
-   i32.const 10592
-   i32.const 517
-   i32.const 7
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  local.get $0
-  i32.load offset=64
-  local.get $5
-  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-  local.set $1
-  i64.const 1
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $8
-  local.get $1
-  i64.load
-  local.get $8
-  i64.load
-  i64.eq
-  if (result i32)
-   local.get $1
-   i64.load offset=8
-   local.get $8
-   i64.load offset=8
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=16
-   local.get $8
-   i64.load offset=16
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=24
-   local.get $8
-   i64.load offset=24
-   i64.eq
-  else
-   i32.const 0
-  end
-  if
-   i32.const 11616
-   i32.const 10592
-   i32.const 521
-   i32.const 7
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  block $folding-inner1
-   block $folding-inner0
-    global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-    local.tee $1
-    i32.load offset=28
-    i32.eqz
-    br_if $folding-inner0
-    local.get $1
-    i32.load offset=28
-    local.tee $1
-    i32.eqz
-    br_if $folding-inner1
-    local.get $2
-    local.get $1
-    i32.load offset=4
-    call $PredictionMarket/PredictionMarket#userKey
-    local.set $2
-    local.get $6
-    if (result i32)
-     local.get $0
-     i32.load offset=76
-     local.get $2
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-    else
-     local.get $0
-     i32.load offset=80
-     local.get $2
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-    end
-    local.tee $8
-    local.get $7
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
-    if
-     i32.const 13264
-     i32.const 10592
-     i32.const 535
-     i32.const 7
-     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-     unreachable
-    end
-    local.get $0
-    i32.load offset=44
-    local.get $5
-    call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-    local.tee $9
-    local.get $0
-    i32.load offset=48
-    local.get $5
-    call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-    local.tee $10
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
-    local.set $1
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    drop
-    local.get $6
-    if
-     local.get $10
-     local.get $1
-     local.get $9
-     local.get $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.tee $6
-     i64.const 1
-     i64.const 0
-     i64.const 0
-     i64.const 0
-     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.get $6
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
-     local.tee $9
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     local.set $1
-     local.get $0
-     i32.load offset=44
-     local.get $5
-     local.get $6
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-     local.get $0
-     i32.load offset=48
-     local.get $5
-     local.get $9
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-     local.get $0
-     i32.load offset=76
-     local.get $2
-     local.get $8
-     local.get $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-     local.get $0
-     i32.load offset=52
-     local.get $5
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-     local.set $2
-     local.get $0
-     i32.load offset=52
-     local.get $5
-     local.get $2
-     local.get $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-    else
-     local.get $9
-     local.get $1
-     local.get $10
-     local.get $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.tee $6
-     i64.const 1
-     i64.const 0
-     i64.const 0
-     i64.const 0
-     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.get $6
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
-     local.tee $9
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     local.set $1
-     local.get $0
-     i32.load offset=44
-     local.get $5
-     local.get $9
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-     local.get $0
-     i32.load offset=48
-     local.get $5
-     local.get $6
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-     local.get $0
-     i32.load offset=80
-     local.get $2
-     local.get $8
-     local.get $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-     local.get $0
-     i32.load offset=56
-     local.get $5
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-     local.set $2
-     local.get $0
-     i32.load offset=56
-     local.get $5
-     local.get $2
-     local.get $7
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-     drop
-    end
-    local.get $1
-    local.get $0
-    i32.load offset=28
-    call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#get:value
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
-    local.tee $2
-    i64.const 10000
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    local.tee $6
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mod
-    local.set $7
-    local.get $2
-    local.get $6
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
-    local.set $2
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    local.set $6
-    local.get $7
-    i64.load
-    local.get $6
-    i64.load
-    i64.eq
-    if (result i32)
-     local.get $7
-     i64.load offset=8
-     local.get $6
-     i64.load offset=8
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $7
-     i64.load offset=16
-     local.get $6
-     i64.load offset=16
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $7
-     i64.load offset=24
-     local.get $6
-     i64.load offset=24
-     i64.eq
-    else
-     i32.const 0
-    end
-    i32.eqz
-    if
-     local.get $2
-     i64.const 1
-     i64.const 0
-     i64.const 0
-     i64.const 0
-     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-     local.set $2
-    end
-    local.get $1
-    local.get $2
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-    local.set $1
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    local.set $6
-    local.get $1
-    i64.load
-    local.get $6
-    i64.load
-    i64.eq
-    if (result i32)
-     local.get $1
-     i64.load offset=8
-     local.get $6
-     i64.load offset=8
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $1
-     i64.load offset=16
-     local.get $6
-     i64.load offset=16
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $1
-     i64.load offset=24
-     local.get $6
-     i64.load offset=24
-     i64.eq
-    else
-     i32.const 0
-    end
-    if
-     i32.const 13328
-     i32.const 10592
-     i32.const 582
-     i32.const 7
-     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-     unreachable
-    end
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    i64.const 0
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    local.set $6
-    local.get $3
-    i64.load
-    local.get $6
-    i64.load
-    i64.eq
-    if (result i32)
-     local.get $3
-     i64.load offset=8
-     local.get $6
-     i64.load offset=8
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $3
-     i64.load offset=16
-     local.get $6
-     i64.load offset=16
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     local.get $3
-     i64.load offset=24
-     local.get $6
-     i64.load offset=24
-     i64.eq
-    else
-     i32.const 0
-    end
-    if (result i32)
-     i32.const 0
-    else
-     local.get $1
-     local.get $3
-     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
-    end
-    if
-     i32.const 13408
-     i32.const 10592
-     i32.const 587
-     i32.const 7
-     call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-     unreachable
-    end
-    local.get $0
-    i32.load offset=32
-    local.get $0
-    i32.load offset=32
-    call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#get:value
-    local.get $2
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-    call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
-    local.get $0
-    i32.load offset=72
-    local.get $5
-    call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-    local.tee $2
-    local.get $1
-    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
-    if (result i32)
-     local.get $0
-     i32.load offset=72
-     local.get $5
-     i64.const 0
-     i64.const 0
-     i64.const 0
-     i64.const 0
-     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-    else
-     local.get $0
-     i32.load offset=72
-     local.get $5
-     local.get $2
-     local.get $1
-     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.sub
-     call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#set
-    end
-    drop
-    global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
-    local.tee $2
-    i32.load offset=28
-    i32.eqz
-    br_if $folding-inner0
-    local.get $2
-    i32.load offset=28
-    local.tee $2
-    i32.eqz
-    br_if $folding-inner1
-    local.get $0
-    local.get $2
-    i32.load offset=4
-    local.get $1
-    call $PredictionMarket/PredictionMarket#_transferToken
     i32.const 32
     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
     local.tee $0
@@ -9722,9 +8849,9 @@
   i32.load offset=4
   call $~lib/@btc-vision/btc-runtime/runtime/types/Address/Address#equals
   if
-   i32.const 13488
+   i32.const 13040
    i32.const 10592
-   i32.const 617
+   i32.const 468
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -9765,9 +8892,9 @@
   call $~lib/@btc-vision/btc-runtime/runtime/types/Address/Address#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/types/Address/Address#equals
   if
-   i32.const 13552
+   i32.const 13104
    i32.const 10592
-   i32.const 622
+   i32.const 473
    i32.const 7
    call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
    unreachable
@@ -9791,139 +8918,12 @@
   local.get $3
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-  i32.const 13648
+  i32.const 13200
   local.get $3
   call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
   i32.const 0
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
- )
- (func $PredictionMarket/PredictionMarket#withdrawFees (param $0 i32) (result i32)
-  (local $1 i32)
-  (local $2 i32)
-  local.get $0
-  call $PredictionMarket/PredictionMarket#requireAdmin
-  local.get $0
-  i32.load offset=40
-  call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#get:value
-  local.set $1
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $2
-  local.get $1
-  i64.load
-  local.get $2
-  i64.load
-  i64.eq
-  if (result i32)
-   local.get $1
-   i64.load offset=8
-   local.get $2
-   i64.load offset=8
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=16
-   local.get $2
-   i64.load offset=16
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=24
-   local.get $2
-   i64.load offset=24
-   i64.eq
-  else
-   i32.const 0
-  end
-  i32.eqz
-  if
-   i32.const 13824
-   i32.const 10592
-   i32.const 656
-   i32.const 7
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  local.get $0
-  i32.load offset=32
-  call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#get:value
-  local.set $1
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $2
-  local.get $1
-  i64.load
-  local.get $2
-  i64.load
-  i64.eq
-  if (result i32)
-   local.get $1
-   i64.load offset=8
-   local.get $2
-   i64.load offset=8
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=16
-   local.get $2
-   i64.load offset=16
-   i64.eq
-  else
-   i32.const 0
-  end
-  if (result i32)
-   local.get $1
-   i64.load offset=24
-   local.get $2
-   i64.load offset=24
-   i64.eq
-  else
-   i32.const 0
-  end
-  if
-   i32.const 13936
-   i32.const 10592
-   i32.const 661
-   i32.const 7
-   call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
-   unreachable
-  end
-  local.get $0
-  i32.load offset=32
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
-  local.get $0
-  local.get $0
-  i32.load offset=36
-  call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#get:value
-  local.get $1
-  call $PredictionMarket/PredictionMarket#_transferToken
-  i32.const 32
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-  local.tee $0
-  local.get $1
-  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-  local.get $0
  )
  (func $PredictionMarket/PredictionMarket#getMarketInfo (param $0 i32) (param $1 i32) (result i32)
   (local $2 i32)
@@ -10025,13 +9025,13 @@
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
   local.tee $4
   local.get $0
-  i32.load offset=44
+  i32.load offset=52
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
   local.get $4
   local.get $0
-  i32.load offset=48
+  i32.load offset=56
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
@@ -10057,6 +9057,101 @@
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU8
   local.get $4
  )
+ (func $PredictionMarket/PredictionMarket#getUserBets (param $0 i32) (param $1 i32) (result i32)
+  (local $2 i32)
+  (local $3 i32)
+  (local $4 i32)
+  local.get $1
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
+  local.tee $2
+  local.get $1
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readAddress
+  call $PredictionMarket/PredictionMarket#userKey
+  local.set $1
+  local.get $2
+  call $PredictionMarket/PredictionMarket#marketKey
+  local.set $2
+  local.get $0
+  i32.load offset=84
+  local.get $1
+  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  local.set $3
+  i64.const 1
+  i64.const 0
+  i64.const 0
+  i64.const 0
+  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
+  local.set $4
+  local.get $3
+  i64.load
+  local.get $4
+  i64.load
+  i64.eq
+  if (result i32)
+   local.get $3
+   i64.load offset=8
+   local.get $4
+   i64.load offset=8
+   i64.eq
+  else
+   i32.const 0
+  end
+  if (result i32)
+   local.get $3
+   i64.load offset=16
+   local.get $4
+   i64.load offset=16
+   i64.eq
+  else
+   i32.const 0
+  end
+  if (result i32)
+   local.get $3
+   i64.load offset=24
+   local.get $4
+   i64.load offset=24
+   i64.eq
+  else
+   i32.const 0
+  end
+  local.set $3
+  i32.const 161
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
+  local.tee $4
+  local.get $0
+  i32.load offset=76
+  local.get $1
+  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+  local.get $4
+  local.get $0
+  i32.load offset=80
+  local.get $1
+  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+  local.get $4
+  local.get $3
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU8
+  local.get $4
+  local.get $0
+  i32.load offset=52
+  local.get $2
+  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+  local.get $4
+  local.get $0
+  i32.load offset=56
+  local.get $2
+  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+  local.get $4
+  local.get $0
+  i32.load offset=72
+  local.get $2
+  call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+  local.get $4
+ )
  (func $PredictionMarket/PredictionMarket#getPrice (param $0 i32) (param $1 i32) (result i32)
   (local $2 i32)
   local.get $1
@@ -10064,49 +9159,49 @@
   call $PredictionMarket/PredictionMarket#marketKey
   local.set $1
   local.get $0
-  i32.load offset=44
+  i32.load offset=52
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
+  local.tee $2
   local.get $0
-  i32.load offset=48
+  i32.load offset=56
   local.get $1
   call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-  local.tee $0
   call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-  local.set $1
+  local.set $0
   i64.const 0
   i64.const 0
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $2
-  local.get $1
+  local.set $1
+  local.get $0
   i64.load
-  local.get $2
+  local.get $1
   i64.load
   i64.eq
   if (result i32)
-   local.get $1
+   local.get $0
    i64.load offset=8
-   local.get $2
+   local.get $1
    i64.load offset=8
    i64.eq
   else
    i32.const 0
   end
   if (result i32)
-   local.get $1
+   local.get $0
    i64.load offset=16
-   local.get $2
+   local.get $1
    i64.load offset=16
    i64.eq
   else
    i32.const 0
   end
   if (result i32)
-   local.get $1
+   local.get $0
    i64.load offset=24
-   local.get $2
+   local.get $1
    i64.load offset=24
    i64.eq
   else
@@ -10130,14 +9225,14 @@
    local.get $1
    return
   end
-  local.get $0
+  local.get $2
   i64.const 10000
   i64.const 0
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
-  local.get $1
+  local.get $0
   call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div
   local.set $0
   i64.const 10000
@@ -10170,12 +9265,12 @@
    return
   end
   local.get $1
-  i32.const -1507841499
+  i32.const -485691964
   i32.eq
   if
    local.get $0
    local.get $2
-   call $PredictionMarket/PredictionMarket#buyShares
+   call $PredictionMarket/PredictionMarket#placeBet
    return
   end
   local.get $1
@@ -10194,15 +9289,6 @@
    local.get $0
    local.get $2
    call $PredictionMarket/PredictionMarket#claimPayout
-   return
-  end
-  local.get $1
-  i32.const 1416287088
-  i32.eq
-  if
-   local.get $0
-   local.get $2
-   call $PredictionMarket/PredictionMarket#sellShares
    return
   end
   local.get $1
@@ -10233,9 +9319,9 @@
      local.get $1
      call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.lt
      if
-      i32.const 13696
+      i32.const 13248
       i32.const 10592
-      i32.const 639
+      i32.const 490
       i32.const 7
       call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
       unreachable
@@ -10253,14 +9339,14 @@
      call $~lib/rt/stub/__new
      i32.const 64
      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-     local.tee $3
+     local.tee $0
      local.get $2
      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-     local.get $3
+     local.get $0
      local.get $1
      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-     i32.const 13776
-     local.get $3
+     i32.const 13328
+     local.get $0
      call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
      call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
      br $folding-inner1
@@ -10270,7 +9356,77 @@
     i32.eq
     if
      local.get $0
-     call $PredictionMarket/PredictionMarket#withdrawFees
+     call $PredictionMarket/PredictionMarket#requireAdmin
+     local.get $0
+     i32.load offset=32
+     call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#get:value
+     local.set $1
+     i64.const 0
+     i64.const 0
+     i64.const 0
+     i64.const 0
+     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
+     local.set $2
+     local.get $1
+     i64.load
+     local.get $2
+     i64.load
+     i64.eq
+     if (result i32)
+      local.get $1
+      i64.load offset=8
+      local.get $2
+      i64.load offset=8
+      i64.eq
+     else
+      i32.const 0
+     end
+     if (result i32)
+      local.get $1
+      i64.load offset=16
+      local.get $2
+      i64.load offset=16
+      i64.eq
+     else
+      i32.const 0
+     end
+     if (result i32)
+      local.get $1
+      i64.load offset=24
+      local.get $2
+      i64.load offset=24
+      i64.eq
+     else
+      i32.const 0
+     end
+     if
+      i32.const 13376
+      i32.const 10592
+      i32.const 509
+      i32.const 7
+      call $~lib/@btc-vision/btc-runtime/runtime/abort/abort/revertOnError
+      unreachable
+     end
+     local.get $0
+     i32.load offset=32
+     i64.const 0
+     i64.const 0
+     i64.const 0
+     i64.const 0
+     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
+     call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredU256/StoredU256#set:value
+     local.get $0
+     local.get $0
+     i32.load offset=36
+     call $~lib/@btc-vision/btc-runtime/runtime/storage/StoredAddress/StoredAddress#get:value
+     local.get $1
+     call $PredictionMarket/PredictionMarket#_transferToken
+     i32.const 32
+     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
+     local.tee $0
+     local.get $1
+     call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
+     local.get $0
      return
     end
     local.get $1
@@ -10294,7 +9450,7 @@
      local.tee $2
      local.get $1
      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-     i32.const 14000
+     i32.const 13440
      local.get $2
      call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
      call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
@@ -10332,7 +9488,7 @@
       local.tee $2
       local.get $0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-      i32.const 14064
+      i32.const 13504
       local.get $2
       call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
       call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
@@ -10369,7 +9525,7 @@
       local.tee $2
       local.get $0
       call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeAddress
-      i32.const 14096
+      i32.const 13536
       local.get $2
       call $~lib/@btc-vision/btc-runtime/runtime/events/NetEvent/NetEvent#constructor
       call $~lib/@btc-vision/btc-runtime/runtime/contracts/OP_NET/OP_NET#emitEvent
@@ -10385,77 +9541,12 @@
       return
      end
      local.get $1
-     i32.const 1054677454
+     i32.const -82556930
      i32.eq
      if
-      local.get $2
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readU256
-      local.get $2
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesReader/BytesReader#readAddress
-      call $PredictionMarket/PredictionMarket#userKey
-      local.set $1
       local.get $0
-      i32.load offset=84
-      local.get $1
-      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-      local.set $2
-      i64.const 1
-      i64.const 0
-      i64.const 0
-      i64.const 0
-      call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-      local.set $3
       local.get $2
-      i64.load
-      local.get $3
-      i64.load
-      i64.eq
-      if (result i32)
-       local.get $2
-       i64.load offset=8
-       local.get $3
-       i64.load offset=8
-       i64.eq
-      else
-       i32.const 0
-      end
-      if (result i32)
-       local.get $2
-       i64.load offset=16
-       local.get $3
-       i64.load offset=16
-       i64.eq
-      else
-       i32.const 0
-      end
-      if (result i32)
-       local.get $2
-       i64.load offset=24
-       local.get $3
-       i64.load offset=24
-       i64.eq
-      else
-       i32.const 0
-      end
-      local.set $2
-      i32.const 65
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
-      local.tee $3
-      local.get $0
-      i32.load offset=76
-      local.get $1
-      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-      local.get $3
-      local.get $0
-      i32.load offset=80
-      local.get $1
-      call $~lib/@btc-vision/btc-runtime/runtime/memory/AddressMemoryMap/AddressMemoryMap#get
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU256
-      local.get $3
-      local.get $2
-      call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#writeU8
-      local.get $3
+      call $PredictionMarket/PredictionMarket#getUserBets
       return
      end
      local.get $1
@@ -10611,18 +9702,12 @@
   i32.const 1
   global.set $~started
   call $start:~lib/@btc-vision/btc-runtime/runtime/index
-  i64.const 50000
+  i64.const 10000
   i64.const 0
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   global.set $PredictionMarket/MIN_TRADE_AMOUNT
-  i64.const 1000000
-  i64.const 0
-  i64.const 0
-  i64.const 0
-  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  global.set $PredictionMarket/INITIAL_LIQUIDITY
   global.get $~lib/@btc-vision/btc-runtime/runtime/env/index/Blockchain
   local.tee $0
   i32.const 7216
