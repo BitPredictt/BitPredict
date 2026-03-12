@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Clock, CheckCircle2, XCircle, BarChart3, Target, PieChart, ExternalLink, Coins, Loader2, Gift, Flame, Percent, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Bet, Market, PnlData } from '../types';
-import { getExplorerTxUrl, claimPayoutOnChain, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc } from '../lib/opnet';
+import { getExplorerTxUrl, claimPayoutOnChain, emergencyWithdrawOnChain, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc } from '../lib/opnet';
 import * as api from '../lib/api';
 
 interface PortfolioProps {
@@ -26,6 +26,7 @@ interface PortfolioProps {
 
 export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, onEnsureAuth, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
+  const [emergencyBetId, setEmergencyBetId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<api.PortfolioMetrics | null>(null);
   const [pnlData, setPnlData] = useState<PnlData | null>(null);
 
@@ -69,6 +70,38 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
       completeOp(opId, 'failed');
     } finally {
       setClaimingBetId(null);
+    }
+  };
+
+  const handleEmergencyWithdraw = async (betId: string) => {
+    if (emergencyBetId || !walletAddress) return;
+    const bet = bets.find(b => b.id === betId);
+    if (!bet) return;
+
+    const market = markets.find(m => m.id === bet.marketId);
+    if (!market?.onchainId) {
+      onToast('Market not on-chain', 'error');
+      return;
+    }
+
+    setEmergencyBetId(betId);
+    let opId: number | null = null;
+    try {
+      await onEnsureAuth();
+      opId = await trackOp('emergency_withdraw', undefined, `Emergency withdraw from ${market.question?.slice(0, 30)}`, bet.marketId);
+      onToast('Emergency withdraw... Sign in OP_WALLET', 'loading');
+
+      const r = await emergencyWithdrawOnChain(walletProvider, walletNetwork, walletAddressObj, walletAddress, market.onchainId);
+      if (!r.success) throw new Error(r.error || 'Emergency withdraw failed');
+
+      onBalanceRefresh();
+      onToast(`Refunded ${formatBtc(r.refund || bet.amount)}!`, 'success');
+      completeOp(opId, 'confirmed', r.txHash);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : String(err), 'error');
+      completeOp(opId, 'failed');
+    } finally {
+      setEmergencyBetId(null);
     }
   };
 
@@ -415,6 +448,20 @@ export function Portfolio({ bets, markets, onChainBalance, walletConnected, wall
                         >
                           {claimingBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <Gift size={10} />}
                           {claimingBetId === bet.id ? 'Claiming...' : 'Claim'}
+                        </button>
+                      )}
+                      {/* Emergency Withdraw for cancelled/voided markets */}
+                      {bet.status === 'active' && (() => {
+                        const m = getMarket(bet.marketId);
+                        return m && (m.outcome === 'void' || (m.resolved && m.outcome === 'void'));
+                      })() && (
+                        <button
+                          onClick={() => handleEmergencyWithdraw(bet.id)}
+                          disabled={!!emergencyBetId}
+                          className="mt-1 flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-red-600/30 to-orange-500/30 border border-red-500/40 text-[10px] font-bold text-red-300 hover:border-red-400/60 transition-all disabled:opacity-50"
+                        >
+                          {emergencyBetId === bet.id ? <Loader2 size={10} className="animate-spin" /> : <AlertTriangle size={10} />}
+                          {emergencyBetId === bet.id ? 'Withdrawing...' : 'Emergency Withdraw'}
                         </button>
                       )}
                       {bet.status === 'active' && (bet.potentialPayout ?? 0) > 0 && (

@@ -44,6 +44,8 @@ const BPS_BASE: u64 = 10000;
 const MAX_FEE_BPS: u64 = 500;           // max 5% fee
 const MIN_TRADE_AMOUNT: u256 = u256.fromU64(10_000); // 10,000 sats minimum
 const MIN_MARKET_DURATION: u64 = 6;      // 6 blocks ≈ 1 hour
+const EMERGENCY_TIMEOUT_BLOCKS: u64 = 1000; // ~7 days — users can self-withdraw if unresolved
+const TIMELOCK_BLOCKS: u64 = 6;            // ~1 hour grace period after resolution
 
 // Cross-contract call selectors (OP-20 standard)
 const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7; // transferFrom — OPNet SHA-256 selector
@@ -145,6 +147,44 @@ class UnpausedEvent extends NetEvent {
   }
 }
 
+class MarketCancelledEvent extends NetEvent {
+  constructor(marketId: u256, admin: Address) {
+    const data = new BytesWriter(64);
+    data.writeU256(marketId);
+    data.writeAddress(admin);
+    super('MarketCancelled', data);
+  }
+}
+
+class EmergencyWithdrawEvent extends NetEvent {
+  constructor(marketId: u256, user: Address, amount: u256) {
+    const data = new BytesWriter(96);
+    data.writeU256(marketId);
+    data.writeAddress(user);
+    data.writeU256(amount);
+    super('EmergencyWithdraw', data);
+  }
+}
+
+class NoWinnerRefundEvent extends NetEvent {
+  constructor(marketId: u256, recipient: Address, amount: u256) {
+    const data = new BytesWriter(96);
+    data.writeU256(marketId);
+    data.writeAddress(recipient);
+    data.writeU256(amount);
+    super('NoWinnerRefund', data);
+  }
+}
+
+class DustSweptEvent extends NetEvent {
+  constructor(marketId: u256, amount: u256) {
+    const data = new BytesWriter(64);
+    data.writeU256(marketId);
+    data.writeU256(amount);
+    super('DustSwept', data);
+  }
+}
+
 /** Contract */
 
 @final
@@ -178,6 +218,11 @@ export class PredictionMarket extends ReentrancyGuard {
   private userNoShares:  AddressMemoryMap;  // pointer 17
   private userClaimed:   AddressMemoryMap;  // pointer 18
 
+  // Audit additions (pointers 19-21)
+  private cancelledFlags: AddressMemoryMap;  // pointer 19: marketKey → u256.One = cancelled
+  private userRefunded:   AddressMemoryMap;  // pointer 20: userKey → u256.One = refunded
+  private resolvedAtBlock: AddressMemoryMap; // pointer 21: marketKey → block# when resolved
+
   constructor() {
     super();
     const emptySubPointer = new Uint8Array(0);
@@ -203,6 +248,11 @@ export class PredictionMarket extends ReentrancyGuard {
     this.userYesShares = new AddressMemoryMap(Blockchain.nextPointer);
     this.userNoShares  = new AddressMemoryMap(Blockchain.nextPointer);
     this.userClaimed   = new AddressMemoryMap(Blockchain.nextPointer);
+
+    // Audit additions (pointers 19-21)
+    this.cancelledFlags  = new AddressMemoryMap(Blockchain.nextPointer);
+    this.userRefunded    = new AddressMemoryMap(Blockchain.nextPointer);
+    this.resolvedAtBlock = new AddressMemoryMap(Blockchain.nextPointer);
   }
 
   /** Lifecycle */
@@ -293,6 +343,10 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Market does not exist');
     }
 
+    if (u256.eq(this.cancelledFlags.get(marketKey), u256.One)) {
+      throw new Revert('Market cancelled');
+    }
+
     const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
     if (u256.ge(currentBlock, endBlock)) {
       throw new Revert('Market has ended');
@@ -355,6 +409,11 @@ export class PredictionMarket extends ReentrancyGuard {
   /**
    * resolveMarket(marketId: u256, outcome: bool) → void
    * Admin resolves market after endBlock.
+   *
+   * HIGH-4 Design Decision: resolveMarket intentionally does NOT use whenNotPaused().
+   * If the contract is paused (e.g. during emergency), admin must still be able to
+   * resolve markets to prevent funds from being permanently locked. Users cannot
+   * claim until unpaused (claimPayout has whenNotPaused), so this is safe.
    */
   @method(
     { name: 'marketId', type: ABIDataTypes.UINT256 },
@@ -383,6 +442,7 @@ export class PredictionMarket extends ReentrancyGuard {
 
     this.resolvedFlags.set(marketKey, u256.One);
     this.outcomes.set(marketKey, outcome ? u256.One : u256.Zero);
+    this.resolvedAtBlock.set(marketKey, currentBlock); // HIGH-1: record for timelock
     this.activeMarketCount.value = SafeMath.sub(this.activeMarketCount.value, u256.One);
 
     this.emitEvent(new MarketResolvedEvent(marketId, outcome, Blockchain.tx.sender));
@@ -394,6 +454,11 @@ export class PredictionMarket extends ReentrancyGuard {
    * claimPayout(marketId: u256) → payout: u256
    * Transfers WBTC tokens to winner.
    * Payout = (userShares * totalPool) / totalWinningShares
+   *
+   * CRITICAL-2: If totalWinningShares == 0 (all bets on losing side),
+   * refunds proportionally from the losing pool.
+   *
+   * HIGH-1: Timelock — claims only available after TIMELOCK_BLOCKS grace period.
    */
   @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
   @returns({ name: 'payout', type: ABIDataTypes.UINT256 })
@@ -408,6 +473,14 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Market not resolved');
     }
 
+    // HIGH-1: Timelock — enforce grace period after resolution
+    const resolvedBlock: u256 = this.resolvedAtBlock.get(marketKey);
+    const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
+    const claimableAfter: u256 = SafeMath.add(resolvedBlock, u256.fromU64(TIMELOCK_BLOCKS));
+    if (u256.lt(currentBlock, claimableAfter)) {
+      throw new Revert('Timelock active - claims open after grace period');
+    }
+
     if (u256.eq(this.userClaimed.get(userKey), u256.One)) {
       throw new Revert('Already claimed');
     }
@@ -415,28 +488,64 @@ export class PredictionMarket extends ReentrancyGuard {
     const outcomeIsYes: boolean = u256.eq(this.outcomes.get(marketKey), u256.One);
     const totalPool: u256       = this.totalPools.get(marketKey);
 
-    let userShares: u256 = u256.Zero;
+    let userWinningShares: u256 = u256.Zero;
     let totalWinningShares: u256 = u256.Zero;
 
     if (outcomeIsYes) {
-      userShares         = this.userYesShares.get(userKey);
+      userWinningShares  = this.userYesShares.get(userKey);
       totalWinningShares = this.totalYesShares.get(marketKey);
     } else {
-      userShares         = this.userNoShares.get(userKey);
+      userWinningShares  = this.userNoShares.get(userKey);
       totalWinningShares = this.totalNoShares.get(marketKey);
     }
 
-    if (u256.eq(userShares, u256.Zero)) {
-      throw new Revert('No winning shares');
+    // CRITICAL-2: All-losers scenario — nobody bet on the winning side
+    if (u256.eq(totalWinningShares, u256.Zero)) {
+      // Refund from losing side proportionally
+      let userLosingShares: u256 = u256.Zero;
+      let totalLosingShares: u256 = u256.Zero;
+
+      if (outcomeIsYes) {
+        // outcome=YES but no YES bets → refund NO bettors
+        userLosingShares  = this.userNoShares.get(userKey);
+        totalLosingShares = this.totalNoShares.get(marketKey);
+      } else {
+        // outcome=NO but no NO bets → refund YES bettors
+        userLosingShares  = this.userYesShares.get(userKey);
+        totalLosingShares = this.totalYesShares.get(marketKey);
+      }
+
+      if (u256.eq(userLosingShares, u256.Zero)) {
+        throw new Revert('No shares to refund');
+      }
+
+      const refund: u256 = SafeMath.div(
+        SafeMath.mul(userLosingShares, totalPool),
+        totalLosingShares,
+      );
+
+      if (u256.eq(refund, u256.Zero)) {
+        throw new Revert('Nothing to claim');
+      }
+
+      // CEI: mark claimed before transfer
+      this.userClaimed.set(userKey, u256.One);
+      this._transferToken(Blockchain.tx.sender, refund);
+      this.emitEvent(new NoWinnerRefundEvent(marketId, Blockchain.tx.sender, refund));
+
+      const writer = new BytesWriter(32);
+      writer.writeU256(refund);
+      return writer;
     }
 
-    if (u256.eq(totalWinningShares, u256.Zero)) {
-      throw new Revert('No winning shares in pool');
+    // Normal path: winners claim proportionally
+    if (u256.eq(userWinningShares, u256.Zero)) {
+      throw new Revert('No winning shares');
     }
 
     // payout = (userShares * totalPool) / totalWinningShares
     const payout: u256 = SafeMath.div(
-      SafeMath.mul(userShares, totalPool),
+      SafeMath.mul(userWinningShares, totalPool),
       totalWinningShares,
     );
 
@@ -454,6 +563,149 @@ export class PredictionMarket extends ReentrancyGuard {
 
     const writer = new BytesWriter(32);
     writer.writeU256(payout);
+    return writer;
+  }
+
+  /**
+   * cancelMarket(marketId: u256) → void
+   * CRITICAL-1: Admin cancels market — bettors then call emergencyWithdraw() for refunds.
+   */
+  @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
+  public cancelMarket(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+
+    const marketId: u256 = calldata.readU256();
+    const marketKey: Address = this.marketKey(marketId);
+
+    const endBlock: u256 = this.endBlocks.get(marketKey);
+    if (u256.eq(endBlock, u256.Zero)) {
+      throw new Revert('Market does not exist');
+    }
+
+    if (u256.eq(this.resolvedFlags.get(marketKey), u256.One)) {
+      throw new Revert('Market already resolved');
+    }
+
+    if (u256.eq(this.cancelledFlags.get(marketKey), u256.One)) {
+      throw new Revert('Market already cancelled');
+    }
+
+    this.cancelledFlags.set(marketKey, u256.One);
+    this.activeMarketCount.value = SafeMath.sub(this.activeMarketCount.value, u256.One);
+
+    this.emitEvent(new MarketCancelledEvent(marketId, Blockchain.tx.sender));
+
+    return new BytesWriter(0);
+  }
+
+  /**
+   * emergencyWithdraw(marketId: u256) → refund: u256
+   * CRITICAL-1: Users withdraw from cancelled or timed-out (unresolved > 1000 blocks) markets.
+   * Refund = (userYes + userNo) * totalPool / (totalYes + totalNo)
+   */
+  @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
+  @returns({ name: 'refund', type: ABIDataTypes.UINT256 })
+  public emergencyWithdraw(calldata: Calldata): BytesWriter {
+    const marketId: u256 = calldata.readU256();
+    const marketKey: Address = this.marketKey(marketId);
+
+    const endBlock: u256 = this.endBlocks.get(marketKey);
+    if (u256.eq(endBlock, u256.Zero)) {
+      throw new Revert('Market does not exist');
+    }
+
+    if (u256.eq(this.resolvedFlags.get(marketKey), u256.One)) {
+      throw new Revert('Market is resolved - use claimPayout');
+    }
+
+    // Must be cancelled OR timed out (unresolved past endBlock + EMERGENCY_TIMEOUT_BLOCKS)
+    const isCancelled: boolean = u256.eq(this.cancelledFlags.get(marketKey), u256.One);
+    const currentBlock: u256 = u256.fromU64(Blockchain.block.number);
+    const timeoutBlock: u256 = SafeMath.add(endBlock, u256.fromU64(EMERGENCY_TIMEOUT_BLOCKS));
+    const isTimedOut: boolean = u256.ge(currentBlock, timeoutBlock);
+
+    if (!isCancelled && !isTimedOut) {
+      throw new Revert('Market not cancelled or timed out');
+    }
+
+    const userKey: Address = this.userKey(marketId, Blockchain.tx.sender);
+
+    if (u256.eq(this.userRefunded.get(userKey), u256.One)) {
+      throw new Revert('Already refunded');
+    }
+
+    const userYes: u256 = this.userYesShares.get(userKey);
+    const userNo: u256  = this.userNoShares.get(userKey);
+    const userTotal: u256 = SafeMath.add(userYes, userNo);
+
+    if (u256.eq(userTotal, u256.Zero)) {
+      throw new Revert('No shares to refund');
+    }
+
+    const totalYes: u256 = this.totalYesShares.get(marketKey);
+    const totalNo: u256  = this.totalNoShares.get(marketKey);
+    const totalShares: u256 = SafeMath.add(totalYes, totalNo);
+    const totalPool: u256 = this.totalPools.get(marketKey);
+
+    // refund = (userTotal * totalPool) / totalShares
+    const refund: u256 = SafeMath.div(
+      SafeMath.mul(userTotal, totalPool),
+      totalShares,
+    );
+
+    if (u256.eq(refund, u256.Zero)) {
+      throw new Revert('Nothing to refund');
+    }
+
+    // CEI: mark refunded BEFORE transfer
+    this.userRefunded.set(userKey, u256.One);
+
+    this._transferToken(Blockchain.tx.sender, refund);
+
+    this.emitEvent(new EmergencyWithdrawEvent(marketId, Blockchain.tx.sender, refund));
+
+    const writer = new BytesWriter(32);
+    writer.writeU256(refund);
+    return writer;
+  }
+
+  /**
+   * sweepDust(marketId: u256) → swept: u256
+   * HIGH-3: Admin sweeps remaining dust from resolved/cancelled markets to feeRecipient.
+   */
+  @method({ name: 'marketId', type: ABIDataTypes.UINT256 })
+  @returns({ name: 'swept', type: ABIDataTypes.UINT256 })
+  public sweepDust(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
+
+    const marketId: u256 = calldata.readU256();
+    const marketKey: Address = this.marketKey(marketId);
+
+    const endBlock: u256 = this.endBlocks.get(marketKey);
+    if (u256.eq(endBlock, u256.Zero)) {
+      throw new Revert('Market does not exist');
+    }
+
+    const isResolved: boolean = u256.eq(this.resolvedFlags.get(marketKey), u256.One);
+    const isCancelled: boolean = u256.eq(this.cancelledFlags.get(marketKey), u256.One);
+    if (!isResolved && !isCancelled) {
+      throw new Revert('Market must be resolved or cancelled');
+    }
+
+    const remaining: u256 = this.totalPools.get(marketKey);
+    if (u256.eq(remaining, u256.Zero)) {
+      throw new Revert('No dust to sweep');
+    }
+
+    // Zero out pool before transfer (CEI)
+    this.totalPools.set(marketKey, u256.Zero);
+
+    this._transferToken(this.feeRecipient.value, remaining);
+
+    this.emitEvent(new DustSweptEvent(marketId, remaining));
+
+    const writer = new BytesWriter(32);
+    writer.writeU256(remaining);
     return writer;
   }
 

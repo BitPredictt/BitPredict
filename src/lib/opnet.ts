@@ -134,7 +134,8 @@ export async function fetchBlockHeight(walletProvider?: unknown): Promise<number
 // wallet handles signing automatically via OP_WALLET extension.
 // Access results via result.properties.balance (not result.decoded).
 
-const MAX_SATS = 250_000n;
+// MEDIUM-3: Configurable via env var
+const MAX_SATS = BigInt(import.meta.env.VITE_MAX_SATS || '500000');
 
 // Parimutuel fee: 2% from bet amount (synced with contract 200 BPS)
 export const BET_FEE_PCT = 0.02;
@@ -251,9 +252,8 @@ export async function approveForMarket(
 ): Promise<{ txHash: string; success: boolean; error?: string; skipped?: boolean }> {
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
-    // Check existing allowance — skip TX if already enough
-    const currentAllowanceBtc = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey);
-    const currentAllowanceSats = currentAllowanceBtc * 1e8;
+    // Check existing allowance — skip TX if already enough (both in sats)
+    const currentAllowanceSats = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey);
     if (currentAllowanceSats >= amount) {
       return { txHash: '', success: true, skipped: true };
     }
@@ -397,6 +397,56 @@ export async function claimPayoutOnChain(
 }
 
 /**
+ * Emergency withdraw on-chain via PredictionMarket.emergencyWithdraw(marketId).
+ * Available for cancelled or timed-out (unresolved >1000 blocks) markets.
+ *
+ * @param onchainMarketId - on-chain market ID (number)
+ */
+export async function emergencyWithdrawOnChain(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  walletAddress: string,
+  onchainMarketId: number,
+): Promise<{ txHash: string; success: boolean; refund?: number; error?: string }> {
+  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
+  try {
+    const { getContract } = await import('opnet');
+    const { PredictionMarketAbi } = await import('../../contracts/abis/PredictionMarket.abi');
+
+    const contract = getContract(
+      OPNET_CONFIG.contractAddress,
+      PredictionMarketAbi as never,
+      provider as never,
+      network as never,
+      senderAddr as never,
+    );
+
+    const sim = await withRetry(() => (contract as any).emergencyWithdraw(BigInt(onchainMarketId))) as any;
+    if (sim?.revert) return { txHash: '', success: false, error: `emergencyWithdraw revert: ${sim.revert}` };
+
+    const gas = await getGasParameters(provider);
+
+    const receipt = await sim.sendTransaction({
+      refundTo: walletAddress,
+      maximumAllowedSatToSpend: MAX_SATS,
+      network,
+      feeRate: gas.feeRate,
+      priorityFee: gas.priorityFee,
+      // Frontend: wallet handles signing
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    const refund = sim?.properties?.refund != null ? Number(sim.properties.refund) : undefined;
+    return { txHash, success: true, refund };
+  } catch (err) {
+    let msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('no utxo')) msg = OPNET_CONFIG.network === 'testnet' ? 'No BTC UTXOs. Get testnet BTC: https://faucet.opnet.org' : 'No BTC UTXOs. Ensure your wallet has sufficient BTC for fees.';
+    return { txHash: '', success: false, error: msg };
+  }
+}
+
+/**
  * Sign a reward claim TX — user signs increaseAllowance for the reward amount.
  * Used when claiming achievement/quest WBTC rewards.
  * @param rewardAmount - reward in sats
@@ -469,7 +519,7 @@ async function resolveContractAddress(
 
 /**
  * Read current allowance of WBTC token for a given spender.
- * Returns allowance in human units (divided by 1e8).
+ * MEDIUM-2: Returns raw sats (Number), NOT divided by 1e8.
  * Used to skip approve step if sufficient allowance already exists.
  */
 export async function getTokenAllowance(
@@ -496,7 +546,7 @@ export async function getTokenAllowance(
     if (!result || result.revert) return 0;
 
     const raw = result?.properties?.allowance ?? result?.decoded?.[0] ?? 0n;
-    return Number(BigInt(raw)) / 1e8;
+    return Number(BigInt(raw)); // raw sats, no division
   } catch {
     return 0;
   }
@@ -753,8 +803,7 @@ export async function approveForVault(
   if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
   try {
     // Check existing allowance — skip TX if already enough (both in sats)
-    const currentAllowanceBtc = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey);
-    const currentAllowanceSats = currentAllowanceBtc * 1e8;
+    const currentAllowanceSats = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.vaultAddress, OPNET_CONFIG.vaultPubkey);
     if (currentAllowanceSats >= amount) {
       return { txHash: '', success: true, skipped: true };
     }
@@ -824,9 +873,8 @@ export async function depositToTreasury(
 
     const treasuryAddr = await resolveContractAddress(provider, OPNET_CONFIG.treasuryAddress, OPNET_CONFIG.treasuryPubkey) as any;
 
-    // Check existing allowance — skip approve TX if already enough
-    const currentAllowanceBtc = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.treasuryAddress, OPNET_CONFIG.treasuryPubkey);
-    const currentAllowanceSats = Math.round(currentAllowanceBtc * 1e8);
+    // Check existing allowance — skip approve TX if already enough (raw sats)
+    const currentAllowanceSats = await getTokenAllowance(provider, network, senderAddr, OPNET_CONFIG.treasuryAddress, OPNET_CONFIG.treasuryPubkey);
 
     const gas = await getGasParameters(provider);
 

@@ -80,6 +80,55 @@
             ]
         },
         {
+            "name": "cancelMarket",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "marketId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "name": "emergencyWithdraw",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "marketId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "refund",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "sweepDust",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "marketId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "swept",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
             "name": "setAdmin",
             "type": "Function",
             "payable": false,

@@ -353,6 +353,14 @@ async function getPredictionMarketAbi() {
     { name: 'resolveMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'outcome', type: ABIDataTypes.BOOL }], outputs: [], type: BitcoinAbiTypes.Function },
     { name: 'claimPayout', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'payout', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
     { name: 'withdrawFees', inputs: [], outputs: [{ name: 'amount', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'setAdmin', inputs: [{ name: 'newAdmin', type: ABIDataTypes.ADDRESS }], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'setFee', inputs: [{ name: 'newFeeBps', type: ABIDataTypes.UINT256 }], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'setFeeRecipient', inputs: [{ name: 'recipient', type: ABIDataTypes.ADDRESS }], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'pause', inputs: [], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'unpause', inputs: [], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'cancelMarket', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [], type: BitcoinAbiTypes.Function },
+    { name: 'emergencyWithdraw', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'refund', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'sweepDust', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'swept', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
     { name: 'getMarketInfo', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
     { name: 'getUserBets', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }, { name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
     { name: 'getPrice', inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
@@ -446,6 +454,96 @@ async function resolveMarketOnChain(onchainId, outcomeIsYes) {
     return { success: true, txHash };
   } catch (e) {
     console.error('[resolveMarketOnChain] Error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    releaseTxLock();
+  }
+}
+
+/**
+ * Cancel a market on-chain via PredictionMarket.cancelMarket(marketId).
+ * Called for void markets (expired >7 days without resolution).
+ */
+async function cancelMarketOnChain(onchainId) {
+  if (!deployerWallet || !opnetRpcProvider || !PREDICTION_MARKET_ADDRESS) {
+    return { success: false, error: 'On-chain not ready' };
+  }
+  if (!acquireTxLock()) return { success: false, error: 'Server busy' };
+  try {
+    const { getContract } = await import('opnet');
+    const PredictionMarketAbi = await getPredictionMarketAbi();
+
+    const contract = getContract(
+      PREDICTION_MARKET_ADDRESS,
+      PredictionMarketAbi,
+      opnetRpcProvider,
+      opnetNetwork,
+      deployerWallet.address,
+    );
+
+    const sim = await contract.cancelMarket(BigInt(onchainId));
+    if (sim.revert) throw new Error('cancelMarket revert: ' + sim.revert);
+
+    const feeRate = await getDynamicFeeRate();
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`[cancelMarketOnChain] onchainId=${onchainId}, tx=${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    console.error('[cancelMarketOnChain] Error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    releaseTxLock();
+  }
+}
+
+/**
+ * Sweep dust from a resolved/cancelled market on-chain.
+ * Remaining pool balance goes to feeRecipient.
+ */
+async function sweepDustOnChain(onchainId) {
+  if (!deployerWallet || !opnetRpcProvider || !PREDICTION_MARKET_ADDRESS) {
+    return { success: false, error: 'On-chain not ready' };
+  }
+  if (!acquireTxLock()) return { success: false, error: 'Server busy' };
+  try {
+    const { getContract } = await import('opnet');
+    const PredictionMarketAbi = await getPredictionMarketAbi();
+
+    const contract = getContract(
+      PREDICTION_MARKET_ADDRESS,
+      PredictionMarketAbi,
+      opnetRpcProvider,
+      opnetNetwork,
+      deployerWallet.address,
+    );
+
+    const sim = await contract.sweepDust(BigInt(onchainId));
+    if (sim.revert) throw new Error('sweepDust revert: ' + sim.revert);
+
+    const feeRate = await getDynamicFeeRate();
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`[sweepDustOnChain] onchainId=${onchainId}, tx=${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    console.error('[sweepDustOnChain] Error:', e.message);
     return { success: false, error: e.message };
   } finally {
     releaseTxLock();
@@ -659,37 +757,50 @@ async function verifyTxExists(txHash, expectedSender) {
     return { valid: false, error: 'Invalid txHash format' };
   }
 
-  try {
-    // btc_getTransactionByHash — returns TX whether confirmed or still in mempool
-    const res = await fetch(OPNET_RPC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [txHash], id: 1 }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const data = await res.json();
+  // CRITICAL-3: Retry 3 times with 2s delay (covers propagation delay).
+  // No "trust" fallback — TX must be verifiable or request fails.
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 2000;
 
-    if (data.result) {
-      const tx = data.result;
-      // Sender check
-      if (expectedSender && tx.from) {
-        if (tx.from.toLowerCase() !== expectedSender.toLowerCase()) {
-          return { valid: false, error: `Sender mismatch: ${tx.from} vs ${expectedSender}` };
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(OPNET_RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [txHash], id: 1 }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+
+      if (data.result) {
+        const tx = data.result;
+        // Sender check
+        if (expectedSender && tx.from) {
+          if (tx.from.toLowerCase() !== expectedSender.toLowerCase()) {
+            return { valid: false, error: `Sender mismatch: ${tx.from} vs ${expectedSender}` };
+          }
         }
+        const confirmed = tx.blockNumber !== undefined && tx.blockNumber !== null;
+        return { valid: true, confirmed, source: confirmed ? 'confirmed' : 'mempool' };
       }
-      const confirmed = tx.blockNumber !== undefined && tx.blockNumber !== null;
-      return { valid: true, confirmed, source: confirmed ? 'confirmed' : 'mempool' };
-    }
 
-    // TX not found yet — network propagation delay (wallet just broadcast)
-    // Accept on trust; background job will confirm later
-    console.log(`TX ${txHash} not found via getTransaction — accepting (just broadcast)`);
-    return { valid: true, confirmed: false, source: 'trust' };
-  } catch (e) {
-    console.error('TX check error:', e.message);
-    // RPC down — don't block the bet
-    return { valid: true, confirmed: false, source: 'rpc_down' };
+      // TX not found — wait and retry (propagation delay)
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+    } catch (e) {
+      console.error(`TX check error (attempt ${attempt + 1}/${MAX_RETRIES}):`, e.message);
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      } else {
+        return { valid: false, error: 'RPC unavailable' };
+      }
+    }
   }
+
+  // All retries exhausted — TX not found
+  console.warn(`TX ${txHash} not found after ${MAX_RETRIES} attempts`);
+  return { valid: false, error: 'Transaction not found on-chain' };
 }
 
 // Phase 2: Background confirmation — called every 30s to confirm pending bets.
@@ -1434,9 +1545,9 @@ async function resolveExpiredMarkets() {
       } else {
         db.prepare('UPDATE markets SET resolved = 1 WHERE id = ?').run(m.id);
       }
-      // Resolve on-chain if market has onchainId (even void — to decrement activeMarketCount)
+      // Cancel on-chain (not resolve) — allows users to emergencyWithdraw
       if (m.onchain_id) {
-        resolveMarketOnChain(m.onchain_id, false).catch(e => console.error('On-chain resolve (void) error:', e.message));
+        cancelMarketOnChain(m.onchain_id).catch(e => console.error('On-chain cancel (void) error:', e.message));
       }
     }
   }
@@ -3706,6 +3817,23 @@ setInterval(() => confirmPendingBets(), 30_000);
 
 // Phase 2b: Confirm pending operations every 30 seconds
 setInterval(() => confirmPendingOps(), 30_000);
+
+// Sweep dust from resolved/cancelled markets every 12 hours
+setInterval(async () => {
+  try {
+    const oneDayAgo = Math.floor(Date.now() / 1000) - 86400;
+    const resolved = db.prepare(
+      "SELECT onchain_id FROM markets WHERE resolved = 1 AND onchain_id IS NOT NULL AND updated_at < ?",
+    ).all(oneDayAgo);
+    for (const m of resolved) {
+      await sweepDustOnChain(m.onchain_id).catch(e =>
+        console.log(`[sweepDust cron] id=${m.onchain_id}: ${e.message}`),
+      );
+    }
+  } catch (e) {
+    console.error('[sweepDust cron] Error:', e.message);
+  }
+}, 12 * 60 * 60 * 1000);
 
 // ==========================================================================
 // PENDING OPERATIONS (on-chain TX tracking)

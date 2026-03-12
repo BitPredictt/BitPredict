@@ -57,3 +57,17 @@
 - `PROTOCOL_TREASURY_ADDRESS` — куда слать protocol revenue
 - `WITHDRAWAL_FEE_PCT` — комиссия за вывод (default: 0.005 = 0.5%)
 - `PROTOCOL_FLUSH_THRESHOLD` — порог для flush (default: 10000 sats)
+
+## Security Notes
+- **HIGH-2 WARNING**: `DEPLOYER_SEED` in `.env` — seed phrase for deployer wallet. NEVER commit to git. Rotate periodically. Consider hardware wallet or HSM for production.
+- **HIGH-4 Design Decision**: `resolveMarket()` intentionally does NOT use `whenNotPaused()`. Admin must resolve markets during emergencies to prevent funds being locked. Claims are still paused (claimPayout has whenNotPaused).
+
+## Audit Fixes (Mar 12, 2026)
+- **CRITICAL-1**: cancelMarket + emergencyWithdraw — admin can cancel, users self-refund
+- **CRITICAL-2**: claimPayout handles all-losers scenario (NoWinnerRefund)
+- **CRITICAL-3**: verifyTxExists — no more "trust" fallback, retry 3x with 2s delay
+- **HIGH-1**: Timelock (6 blocks) on claimPayout after resolution
+- **HIGH-3**: sweepDust — admin sweeps remaining dust from resolved/cancelled markets
+- **MEDIUM-2**: getTokenAllowance returns raw sats (no /1e8 division)
+- **MEDIUM-3**: MAX_SATS configurable via VITE_MAX_SATS env var (default 500000)
+- Contract needs rebuild + redeploy after these changes

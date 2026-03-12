@@ -45,6 +45,31 @@ export type ClaimPayout = CallResult<
 >;
 
 /**
+ * @description Represents the result of the cancelMarket function call.
+ */
+export type CancelMarket = CallResult<{}, OPNetEvent<never>[]>;
+
+/**
+ * @description Represents the result of the emergencyWithdraw function call.
+ */
+export type EmergencyWithdraw = CallResult<
+    {
+        refund: bigint;
+    },
+    OPNetEvent<never>[]
+>;
+
+/**
+ * @description Represents the result of the sweepDust function call.
+ */
+export type SweepDust = CallResult<
+    {
+        swept: bigint;
+    },
+    OPNetEvent<never>[]
+>;
+
+/**
  * @description Represents the result of the setAdmin function call.
  */
 export type SetAdmin = CallResult<{}, OPNetEvent<never>[]>;
@@ -117,6 +142,9 @@ export interface IPredictionMarket extends IOP_NETContract {
     placeBet(marketId: bigint, isYes: boolean, amount: bigint): Promise<PlaceBet>;
     resolveMarket(marketId: bigint, outcome: boolean): Promise<ResolveMarket>;
     claimPayout(marketId: bigint): Promise<ClaimPayout>;
+    cancelMarket(marketId: bigint): Promise<CancelMarket>;
+    emergencyWithdraw(marketId: bigint): Promise<EmergencyWithdraw>;
+    sweepDust(marketId: bigint): Promise<SweepDust>;
     setAdmin(newAdmin: Address): Promise<SetAdmin>;
     setFee(newFeeBps: bigint): Promise<SetFee>;
     withdrawFees(): Promise<WithdrawFees>;
