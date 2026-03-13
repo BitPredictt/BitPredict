@@ -1,186 +1,145 @@
 # BitPredict — Vibecoding Story
 
-> Twitter thread for #opnetvibecode submission + Vibecoding Story award
-> Copy each section as a separate tweet in the thread.
+> Twitter/X thread for #opnetvibecode submission + Vibecoding Story award.
+> Each tweet is under 280 characters. Copy-paste one by one.
 
 ---
 
-## Tweet 1 — Hook
+## 1/9 — Hook (250 chars)
 
 What if Polymarket existed on Bitcoin?
 
-Not on Ethereum. Not on an L2. On actual Bitcoin L1.
+Not Ethereum. Not an L2. Actual Bitcoin L1.
 
-That's what I built in 3 weeks with @opnetbtc and Bob AI.
+I built it in 3 weeks with @opnetbtc and Bob AI.
 
-Here's the story of BitPredict — the first prediction market on Bitcoin.
+BitPredict — the first prediction market on Bitcoin.
 
-🧵👇
+Thread 🧵👇
 
 #opnetvibecode
 
 ---
 
-## Tweet 2 — The Problem
+## 2/9 — Problem (268 chars)
 
-$2T+ in BTC sits idle. Zero DeFi on Layer 1.
+$2T in BTC sits idle. Zero DeFi on L1.
 
-Meanwhile prediction markets are exploding — Polymarket does $1B+/month.
+Prediction markets do $1B+/month — all on ETH or Solana. Bitcoin holders left out.
 
-But every prediction market runs on Ethereum or Solana. Bitcoin holders? Left out.
+OP_NET changes that: smart contracts on Bitcoin. No bridge. No L2 token. Just Bitcoin.
 
-OP_NET changes that. Smart contracts on Bitcoin. No bridge. No wrapped tokens on other chains.
-
----
-
-## Tweet 3 — Day 1: The First Contract
-
-Started with Bob and a question: "Can I build a prediction market on Bitcoin L1?"
-
-Bob's answer: yes, and here's how.
-
-First challenge: AssemblyScript, not Solidity. SHA256 selectors, not keccak256. u256 math, no floats. Everything is different from EVM.
-
-First contract compiled. First market created on-chain. Real Bitcoin transaction.
+That's where BitPredict comes in.
 
 ---
 
-## Tweet 4 — The Pivot: AMM to Parimutuel
+## 3/9 — The Pivot (275 chars)
 
-Week 1: built a constant-product AMM (Uniswap-style) for binary outcomes.
+Week 1: built an AMM (Uniswap-style) for binary bets.
 
-Problem: AMMs need liquidity providers. On a new platform with zero users? Dead on arrival.
+Problem: AMMs need LPs. Zero users = dead.
 
-Week 2: ripped it all out. Rebuilt as parimutuel (like Polymarket):
-- All bets pool together
-- Winners split the pot
-- No LP needed
-- Works with 2 users or 2000
+Week 2: scrapped it. Rebuilt as parimutuel:
+• Bets pool together
+• Winners split the pot
+• No LP needed
+• Works with 2 or 2000 users
 
-The contract went from ~400 lines to ~600. Every line matters when you're on Bitcoin L1.
-
----
-
-## Tweet 5 — 5 Smart Contracts
-
-Ended up with 5 contracts, all on Bitcoin L1:
-
-1. PredictionMarket — parimutuel engine (placeBet, claimPayout, resolveMarket)
-2. WBTC — NativeSwap BTC wrapper (wrap real BTC, bet with WBTC)
-3. StakingVault — stake WBTC, earn 40% of platform fees
-4. Treasury — protocol revenue collection
-5. PriceOracle — BTC/ETH/SOL feeds for fast bets
-
-All compiled to WASM. All deployed on OP_NET testnet. All verified.
+Way better for Bitcoin L1.
 
 ---
 
-## Tweet 6 — The Security Audit
+## 4/9 — 5 Contracts (271 chars)
 
-Asked Bob to audit everything. Two full rounds.
+5 smart contracts on Bitcoin L1:
 
-Round 1 found:
-- 3 CRITICAL: no cancel/refund, all-losers crash, TX trust fallback
-- 4 HIGH: no timelock on claims, no emergency withdraw
+1. PredictionMarket — parimutuel engine
+2. WBTC — NativeSwap BTC wrapper
+3. StakingVault — stake & earn 40% of fees
+4. Treasury — protocol revenue
+5. PriceOracle — BTC/ETH/SOL feeds
 
-Fixed all of them.
-
-Round 2 (mainnet audit) found:
-- Cross-market drain via sweepDust
-- Unpinned dependencies
-
-Fixed those too.
-
-10 findings. 10 fixes. Zero known vulnerabilities.
-
-Most hackathon projects never get audited. We did it twice.
+All WASM. All deployed. All verified on testnet.
 
 ---
 
-## Tweet 7 — The Vault: Passive Income on Bitcoin
+## 5/9 — Security (274 chars)
 
-StakingVault uses Bitcoin-native CSV timelocks (not just timestamps).
+Bob audited everything. Two full rounds.
 
-Stake WBTC → earn 40% of every bet fee on the platform.
+Round 1: 3 CRITICAL + 4 HIGH (no refunds, all-losers crash, no timelock). Fixed.
 
-Auto-compound toggle. 7-day vesting. Projected APY from real fee data.
+Round 2: cross-market drain, unpinned deps. Fixed.
 
-Fee flow: Volume → 2% fee → 40% vault → your share.
+10 findings → 10 fixes → 0 known vulns.
 
-DeFi yield. On Bitcoin. For real.
-
----
-
-## Tweet 8 — AI Inside
-
-Bob isn't just a build tool — he's IN the product.
-
-In-app AI chat powered by Gemini:
-- "Which market has the best value?"
-- "What's the EV on BTC hitting $120k?"
-- "How do I place my first bet?"
-
-Per-market signals: bullish/bearish/neutral with confidence levels.
-
-AI-assisted security audit + AI-powered user experience.
+Most hackathon projects skip audits. We did two.
 
 ---
 
-## Tweet 9 — What I Learned
+## 6/9 — Vault + AI (270 chars)
 
-Building on Bitcoin L1 is hard. Here's what surprised me:
+StakingVault: stake WBTC, earn 40% of all platform fees. Auto-compound, 7-day vesting, CSV timelocks.
 
-1. No floating point. Ever. u256 or bust.
-2. Two address systems (OPNet Identity vs Bitcoin bech32) — broke my brain
-3. CSV timelocks are elegant but unforgiving
-4. AssemblyScript ≠ TypeScript (looks the same, behaves differently)
-5. Bob saved me from at least 3 critical bugs I would've shipped
+DeFi yield on Bitcoin L1.
 
-The EVM muscle memory is a liability here. Bitcoin is a different beast.
+AI inside the product: Gemini-powered chat, per-market signals (bullish/bearish), strategy tips.
+
+Bob builds AND powers the UX.
 
 ---
 
-## Tweet 10 — Live Demo
+## 7/9 — Lessons (277 chars)
 
-BitPredict is live on OP_NET testnet right now:
+Building on Bitcoin L1 is different:
+
+• No floats — u256 or bust
+• Two address systems — OPNet Identity vs bech32
+• AssemblyScript looks like TS but isn't
+• CSV timelocks: elegant, unforgiving
+• Bob caught 3 critical bugs I'd have shipped
+
+EVM muscle memory is a liability here.
+
+---
+
+## 8/9 — Live (218 chars)
+
+BitPredict is live on OP_NET testnet:
 
 https://bitpredict.club
 
-- Connect OP_WALLET
-- Wrap BTC → WBTC
-- Browse markets, place bets
-- Stake in the vault
-- Chat with AI
+Connect wallet → wrap BTC → bet on markets → stake in vault → chat with AI.
 
 5 contracts. Full-stack DeFi. On Bitcoin.
 
-GitHub: github.com/BitPredictt/BitPredict
+github.com/BitPredictt/BitPredict
 
 ---
 
-## Tweet 11 — Closing
+## 9/9 — Closing (189 chars)
 
-3 weeks. 5 contracts. 2 security audits. 1 AI agent.
+3 weeks. 5 contracts. 2 audits. 1 AI agent.
 
-The first prediction market on Bitcoin L1.
+First prediction market on Bitcoin L1.
 
-Built with Bob. Powered by OP_NET. Settled on Bitcoin.
+Built with Bob. Powered by @opnetbtc. Settled on Bitcoin.
 
-What comes next? Mainnet.
+Next stop: mainnet.
 
-@opnetbtc #opnetvibecode
+#opnetvibecode
 
 ---
 
-# Short Version (single tweet for submission)
+# Submission Tweet (standalone, 264 chars)
 
-Built the first prediction market on Bitcoin L1 with @opnetbtc 🔥
+Built the first prediction market on Bitcoin L1 with @opnetbtc
 
-5 smart contracts. Parimutuel betting. Staking vault with real yield. AI market signals. 2 security audits.
+5 contracts. Parimutuel betting. Staking vault. AI signals. 2 security audits.
 
-Live on testnet → https://bitpredict.club
+Live on testnet: https://bitpredict.club
 
-3 weeks of vibecoding with Bob. Here's the thread 🧵
+3 weeks of vibecoding with Bob 🧵
 
 #opnetvibecode
 
