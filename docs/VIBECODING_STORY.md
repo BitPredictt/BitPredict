@@ -131,6 +131,73 @@ Next stop: mainnet.
 
 ---
 
+---
+
+# Image Prompts (Midjourney / DALL-E / Grok)
+
+> Generate one image per prompt. Attach to the corresponding tweet.
+> Style: dark background (#0a0a0f), orange (#f7931a) + purple (#9333ea) accents, futuristic fintech, no text on images.
+
+## IMG 1 — for Tweet 1/9 (Hook)
+
+```
+A glowing Bitcoin coin floating above a futuristic prediction market dashboard interface, dark background, orange and purple neon accents, holographic YES/NO voting bars, cinematic lighting, 16:9 aspect ratio, no text
+```
+
+## IMG 2 — for Tweet 3/9 (The Pivot)
+
+```
+Split image: left side shows a broken Uniswap-style AMM liquidity pool draining empty, right side shows a vibrant parimutuel betting pool filling up with golden coins, dark background, orange vs purple contrast, dramatic transition effect, 16:9, no text
+```
+
+## IMG 3 — for Tweet 4/9 (5 Contracts)
+
+```
+Five glowing smart contract cubes arranged in a pentagon formation on a Bitcoin blockchain, each cube has a different icon (market chart, wrapped coin, vault lock, treasury chest, oracle eye), dark space background, orange and purple holographic glow, connected by energy lines, 16:9, no text
+```
+
+## IMG 4 — for Tweet 5/9 (Security Audit)
+
+```
+A futuristic security shield with a checkmark, surrounded by floating code fragments and bug icons being eliminated by laser beams, dark background, green and orange accents, "protection" feel, cybersecurity aesthetic, 16:9, no text
+```
+
+## IMG 5 — for Tweet 6/9 (Vault + AI)
+
+```
+A Bitcoin vault door opening with golden light pouring out, combined with an AI brain hologram analyzing market charts, dark background, orange gold from vault and purple glow from AI, split composition, 16:9, no text
+```
+
+## IMG 6 — for Tweet 8/9 (Live) — USE REAL SCREENSHOT
+
+```
+Take a real screenshot of https://bitpredict.club with markets visible, wallet connected, and vault tab showing APY. This is the most important image — shows the real working product.
+```
+
+## IMG 7 — for Tweet 9/9 (Closing)
+
+```
+A Bitcoin rocket launching from a laptop screen showing a prediction market interface, trail of orange and purple light, dark space background, stars, "to the moon" energy but professional, 16:9, no text
+```
+
+### Which tweets get images:
+
+| Tweet | Image | Why |
+|-------|-------|-----|
+| 1/9 Hook | IMG 1 (generated) | Eye-catching opener |
+| 2/9 Problem | no image | Text is enough |
+| 3/9 Pivot | IMG 2 (generated) | Visual before/after |
+| 4/9 Contracts | IMG 3 (generated) | Architecture visual |
+| 5/9 Security | IMG 4 (generated) | Trust signal |
+| 6/9 Vault+AI | IMG 5 (generated) | Features visual |
+| 7/9 Lessons | no image | Personal reflection |
+| 8/9 Live | IMG 6 (SCREENSHOT!) | Proof it works |
+| 9/9 Closing | IMG 7 (generated) | Strong finish |
+
+**7 out of 9 tweets have images. Tweet 2 and 7 are text-only — intentionally, for rhythm.**
+
+---
+
 # Submission Tweet (standalone, 264 chars)
 
 Built the first prediction market on Bitcoin L1 with @opnetbtc
