@@ -6,6 +6,7 @@ import { useWallet } from './hooks/useWallet';
 import * as api from './lib/api';
 import { approveForMarket, placeBetOnChain, waitForTxConfirmation, waitForTxVisible, waitForAllowanceUpdate, getOnChainWbtcBalance, OPNET_CONFIG, formatBtc } from './lib/opnet';
 import { Header } from './components/Header';
+import { useTheme } from './hooks/useTheme';
 import { NetworkStats } from './components/NetworkStats';
 import { MarketCard } from './components/MarketCard';
 import { BetModal } from './components/BetModal';
@@ -24,6 +25,7 @@ import { ActiveOperations } from './components/ActiveOperations';
 
 function App() {
   const { wallet, loading: walletLoading, connectOPWallet, disconnect, refreshBalance, provider, network: walletNetwork, addressObj, signerReady, signMessage } = useWallet();
+  const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('markets');
   const [category, setCategory] = useState<CategoryFilter>('All');
   const [search, setSearch] = useState('');
@@ -162,7 +164,7 @@ function App() {
     loadBets();
     const iv = setInterval(loadBets, 15000);
     return () => clearInterval(iv);
-  }, [wallet.connected, wallet.address, signerReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wallet.connected, wallet.address, signerReady, signMessage]);
 
   // Fetch on-chain WBTC balance (real token balance from contract)
   // Retries on initial load because wallet SDK provider may not be ready immediately after reconnect
@@ -337,7 +339,7 @@ function App() {
       completeOp(opId, 'failed');
       throw err;
     }
-  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, refreshBalance, ensureAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markets, wallet.connected, wallet.address, provider, walletNetwork, addressObj, bets, refreshBalance, ensureAuth, addToast, trackOp, completeOp]);
 
   return (
     <div className="min-h-screen">
@@ -350,6 +352,8 @@ function App() {
         onTabChange={setActiveTab}
         onChainBalance={onChainBalance}
         onWalletClick={() => setShowWalletModal(true)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
       <NetworkStats walletProvider={provider} marketCount={markets.filter(m => !m.resolved).length} />
 

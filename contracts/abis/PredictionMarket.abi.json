@@ -202,16 +202,15 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "yesPool",
-                    "type": "UINT256"
-                }
+                { "name": "yesPool", "type": "UINT256" },
+                { "name": "noPool", "type": "UINT256" },
+                { "name": "totalPool", "type": "UINT256" },
+                { "name": "endBlock", "type": "UINT256" },
+                { "name": "resolved", "type": "BOOL" },
+                { "name": "outcome", "type": "BOOL" }
             ]
         },
         {
@@ -220,20 +219,16 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                },
-                {
-                    "name": "user",
-                    "type": "ADDRESS"
-                }
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "user", "type": "ADDRESS" }
             ],
             "outputs": [
-                {
-                    "name": "yesBet",
-                    "type": "UINT256"
-                }
+                { "name": "yesBet", "type": "UINT256" },
+                { "name": "noBet", "type": "UINT256" },
+                { "name": "claimed", "type": "BOOL" },
+                { "name": "yesPool", "type": "UINT256" },
+                { "name": "noPool", "type": "UINT256" },
+                { "name": "totalPool", "type": "UINT256" }
             ]
         },
         {
@@ -242,16 +237,25 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "yesPriceBps",
-                    "type": "UINT256"
-                }
+                { "name": "yesPriceBps", "type": "UINT256" },
+                { "name": "noPriceBps", "type": "UINT256" }
+            ]
+        }
+        },
+        {
+            "name": "getContractInfo",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [],
+            "outputs": [
+                { "name": "nextMarketId", "type": "UINT256" },
+                { "name": "activeMarketCount", "type": "UINT256" },
+                { "name": "accumulatedFees", "type": "UINT256" },
+                { "name": "isPaused", "type": "BOOL" }
             ]
         }
     ],

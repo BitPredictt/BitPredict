@@ -1,4 +1,4 @@
-import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Trophy, HelpCircle, ExternalLink, ChevronDown } from 'lucide-react';
+import { Bitcoin, Wallet, LogOut, Menu, X, BarChart3, Lock, Briefcase, Trophy, HelpCircle, ExternalLink, ChevronDown, Sun, Moon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { WalletState, Tab } from '../types';
 import { NotificationBell } from './NotificationBell';
@@ -13,9 +13,11 @@ interface HeaderProps {
   onTabChange: (tab: Tab) => void;
   onChainBalance: number;
   onWalletClick?: () => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
-export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, onChainBalance, onWalletClick }: HeaderProps) {
+export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab, onTabChange, onChainBalance, onWalletClick, theme, onToggleTheme }: HeaderProps) {
   const [mobileMenu, setMobileMenu] = useState(false);
 
   const formatAddress = (addr: string) =>
@@ -65,8 +67,17 @@ export function Header({ wallet, onConnect, onDisconnect, connecting, activeTab,
             ))}
           </nav>
 
-          {/* Wallet */}
+          {/* Wallet + Theme */}
           <div className="flex items-center gap-2">
+            {onToggleTheme && (
+              <button
+                onClick={onToggleTheme}
+                className="p-2 rounded-lg bg-surface-2 text-gray-400 hover:text-btc transition-all"
+                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              >
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            )}
             {wallet.connected ? (
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500 status-breathing shrink-0" />

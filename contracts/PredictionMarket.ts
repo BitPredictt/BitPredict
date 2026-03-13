@@ -894,6 +894,21 @@ export class PredictionMarket extends ReentrancyGuard {
     return writer;
   }
 
+  /**
+   * getContractInfo() — batch view for protocol stats
+   * Returns: nextMarketId, activeMarketCount, accumulatedFees, isPaused
+   */
+  @method()
+  @returns({ name: 'nextMarketId', type: ABIDataTypes.UINT256 })
+  public getContractInfo(_calldata: Calldata): BytesWriter {
+    const writer = new BytesWriter(97);
+    writer.writeU256(this.nextMarketId.value);
+    writer.writeU256(this.activeMarketCount.value);
+    writer.writeU256(this.accumulatedFees.value);
+    writer.writeBoolean(this._paused.value);
+    return writer;
+  }
+
   /** Internal Helpers */
 
   private whenNotPaused(): void {

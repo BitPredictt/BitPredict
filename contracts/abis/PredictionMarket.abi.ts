@@ -91,7 +91,14 @@ export const PredictionMarketAbi = [
     {
         name: 'getMarketInfo',
         inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'yesPool', type: ABIDataTypes.UINT256 }],
+        outputs: [
+            { name: 'yesPool', type: ABIDataTypes.UINT256 },
+            { name: 'noPool', type: ABIDataTypes.UINT256 },
+            { name: 'totalPool', type: ABIDataTypes.UINT256 },
+            { name: 'endBlock', type: ABIDataTypes.UINT256 },
+            { name: 'resolved', type: ABIDataTypes.BOOL },
+            { name: 'outcome', type: ABIDataTypes.BOOL },
+        ],
         type: BitcoinAbiTypes.Function,
     },
     {
@@ -100,13 +107,34 @@ export const PredictionMarketAbi = [
             { name: 'marketId', type: ABIDataTypes.UINT256 },
             { name: 'user', type: ABIDataTypes.ADDRESS },
         ],
-        outputs: [{ name: 'yesBet', type: ABIDataTypes.UINT256 }],
+        outputs: [
+            { name: 'yesBet', type: ABIDataTypes.UINT256 },
+            { name: 'noBet', type: ABIDataTypes.UINT256 },
+            { name: 'claimed', type: ABIDataTypes.BOOL },
+            { name: 'yesPool', type: ABIDataTypes.UINT256 },
+            { name: 'noPool', type: ABIDataTypes.UINT256 },
+            { name: 'totalPool', type: ABIDataTypes.UINT256 },
+        ],
         type: BitcoinAbiTypes.Function,
     },
     {
         name: 'getPrice',
         inputs: [{ name: 'marketId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'yesPriceBps', type: ABIDataTypes.UINT256 }],
+        outputs: [
+            { name: 'yesPriceBps', type: ABIDataTypes.UINT256 },
+            { name: 'noPriceBps', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Function,
+    },
+    {
+        name: 'getContractInfo',
+        inputs: [],
+        outputs: [
+            { name: 'nextMarketId', type: ABIDataTypes.UINT256 },
+            { name: 'activeMarketCount', type: ABIDataTypes.UINT256 },
+            { name: 'accumulatedFees', type: ABIDataTypes.UINT256 },
+            { name: 'isPaused', type: ABIDataTypes.BOOL },
+        ],
         type: BitcoinAbiTypes.Function,
     },
     ...PredictionMarketEvents,

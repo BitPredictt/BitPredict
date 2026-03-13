@@ -815,26 +815,6 @@ export async function getOnChainVaultInfo(
 }
 
 /**
- * Sign a vault stake/unstake/claim proof TX.
- * Same pattern as signBetProof but with a different memo context.
- * @param amount - WBTC amount (will be expanded to token decimals)
- */
-export async function signVaultProof(
-  provider: unknown,
-  network: unknown,
-  senderAddr: unknown,
-  walletAddress: string,
-  amount: number,
-): Promise<{ txHash: string; success: boolean; error?: string }> {
-  if (!provider || !network || !senderAddr) return { txHash: '', success: false, error: 'Wallet not connected' };
-  try {
-    return signBetProof(provider, network, senderAddr, walletAddress, BigInt(amount));
-  } catch (err) {
-    return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
  * Approve WBTC allowance for the StakingVault contract.
  * Checks current allowance first — skips TX if already sufficient.
  *
