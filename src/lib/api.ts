@@ -77,12 +77,13 @@ export async function loginWithWallet(
   const signature = await signMessage(message);
   // Extract p2tr address from wallet Address object for on-chain transfers
   let p2trAddress: string | undefined;
-  if (addressObj && typeof (addressObj as any).p2tr === 'function') {
+  const addrObj = addressObj as unknown as { p2tr?: (net: unknown) => string } | undefined;
+  if (addrObj && typeof addrObj.p2tr === 'function') {
     try {
       const { networks } = await import('@btc-vision/bitcoin');
       const networkName = import.meta.env.VITE_OPNET_NETWORK || 'testnet';
       const net = networkName === 'mainnet' ? networks.bitcoin : networks.opnetTestnet;
-      p2trAddress = (addressObj as any).p2tr(net);
+      p2trAddress = addrObj.p2tr(net);
     } catch { /* fallback: no p2tr */ }
   }
   return authUser(address, signature, challenge, referrer, p2trAddress);
@@ -143,6 +144,7 @@ export interface ServerBet {
   marketResolved: boolean;
   marketOutcome: string | null;
   currency: 'wbtc';
+  txHash: string | null;
 }
 
 export interface PlaceBetResult {
@@ -227,25 +229,6 @@ export async function placeOnChainBet(address: string, marketId: string, side: '
     method: 'POST',
     body: JSON.stringify({ address, marketId, side, amount, txHash }),
   });
-}
-
-// --- Reward claims (achievement/quest WBTC) ---
-export interface RewardClaim {
-  reward_id: string;
-  reward_type: string;
-  amount: number;
-  claimed_at: number;
-}
-
-export async function claimReward(address: string, rewardId: string) {
-  return apiFetch<{ success: boolean; amount: number; newBalance: number }>('/api/reward/claim', {
-    method: 'POST',
-    body: JSON.stringify({ address, rewardId }),
-  });
-}
-
-export async function getClaimedRewards(address: string) {
-  return apiFetch<RewardClaim[]>(`/api/reward/claimed/${address}`);
 }
 
 // --- Price history (for sparkline charts) ---
@@ -361,6 +344,13 @@ export interface ReportBetResult {
   netAmount: number;
   newYesPrice: number;
   newNoPrice: number;
+}
+
+export async function deployMarket(marketId: string): Promise<{ success: boolean; onchainId: number; txHash?: string; alreadyDeployed?: boolean; error?: string }> {
+  return apiFetch('/api/market/deploy', {
+    method: 'POST',
+    body: JSON.stringify({ marketId }),
+  });
 }
 
 export async function reportBetTx(address: string, marketId: string, side: 'yes' | 'no', amount: number, txHash: string, onchainMarketId: number) {
@@ -523,6 +513,12 @@ export async function updatePendingOp(id: number, status: string, txHash?: strin
   });
 }
 
+export async function deletePendingOp(id: number) {
+  return apiFetch<{ success: boolean }>(`/api/operations/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 // --- Treasury Deposit/Withdraw ---
 import type { TreasuryDeposit, WithdrawalRequest, DepositResult, WithdrawResult } from '../types';
 
@@ -540,12 +536,7 @@ export async function withdrawRequest(address: string, amount: number): Promise<
   });
 }
 
-export async function withdrawConfirm(address: string, nonce: string, txHash: string): Promise<{ success: boolean }> {
-  return apiFetch<{ success: boolean }>('/api/withdraw/confirm', {
-    method: 'POST',
-    body: JSON.stringify({ address, nonce, txHash }),
-  });
-}
+// withdrawConfirm and withdrawCancel removed — server handles everything atomically via adminWithdraw
 
 export async function getDepositHistory(address: string): Promise<TreasuryDeposit[]> {
   return apiFetch<TreasuryDeposit[]>(`/api/deposit/status/${address}`);

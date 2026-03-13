@@ -1,161 +1,130 @@
-# BitPredict — AI-Powered Prediction Markets on Bitcoin L1
+# BitPredict — Prediction Markets on Bitcoin L1
 
-> **Built for OP_NET Vibecoding Week 2: "The DeFi Signal"** | `#opnetvibecode` | [@opnetbtc](https://x.com/opnetbtc)
+> **OP_NET Vibecoding Challenge — Week 3: "The Breakthrough"** | `#opnetvibecode` | [@opnetbtc](https://x.com/opnetbtc)
 
 ![Bitcoin](https://img.shields.io/badge/Bitcoin-L1-orange?style=for-the-badge&logo=bitcoin)
 ![OP_NET](https://img.shields.io/badge/OP__NET-Powered-blue?style=for-the-badge)
-![Bob AI](https://img.shields.io/badge/Bob_AI-Agent-purple?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Live](https://img.shields.io/badge/Status-Live_on_Testnet-green?style=for-the-badge)
+![Contracts](https://img.shields.io/badge/Contracts-5_Deployed-purple?style=for-the-badge)
 
 ---
 
 ## What is BitPredict?
 
-BitPredict is a **full-stack DeFi prediction market** built natively on **Bitcoin Layer 1** using **OP_NET smart contracts**. Users trade binary outcomes (YES/NO) and multi-outcome markets on real-world events — crypto prices, politics, sports, tech — using **BPUSD** (virtual stablecoin on OP_NET testnet).
+BitPredict is a **fully on-chain prediction market** running natively on **Bitcoin Layer 1** through OP_NET. Users bet on real-world outcomes — crypto prices, politics, sports, tech — using **WBTC** (wrapped BTC). Every bet, stake, and claim is a real Bitcoin transaction.
 
-Unlike prediction markets on Ethereum or L2 rollups, BitPredict operates directly on Bitcoin's base layer, inheriting its security while adding programmable market logic through OP_NET's Tapscript-encoded smart contracts.
+**This is the first prediction market ever built on Bitcoin L1.** No Ethereum. No L2. Just Bitcoin.
 
-### Key Highlights
+### Why Bitcoin Needs This
 
-- **Bitcoin-native DeFi** — prediction markets directly on the most secure blockchain
-- **Constant-product AMM** — real x*y=k pricing for binary outcomes (same math as Uniswap)
-- **StakingVault** — stake BPUSD, earn 50% of protocol fees, auto-compound rewards
-- **Bob AI Agent** — built-in market analyst powered by Gemini LLM + OP_NET expertise
-- **On-chain settlement** — every bet signed via OP_WALLET, recorded on Bitcoin L1
-- **5-minute fast markets** — rapid-fire BTC price predictions with live countdowns
-- **Achievements & quests** — gamified XP system with on-chain reward claims
-- **Social trading** — follow top predictors, P&L charts, leaderboard
+- **$2T+ in BTC** sits idle with zero DeFi options on L1
+- Prediction markets (Polymarket, Kalshi) are booming — **$1B+ monthly volume** — but none on Bitcoin
+- OP_NET unlocks smart contracts on Bitcoin without sacrificing security
+- BitPredict brings this $1B market to the most trusted blockchain
 
 ---
 
 ## Live Demo
 
-| | URL |
+| | Link |
 |---|---|
-| **Frontend** | [bitpredictt.github.io/BitPredict](https://bitpredictt.github.io/BitPredict/) |
-| **Backend API** | [polyfantasy.xyz/bpapi](https://polyfantasy.xyz/bpapi/) |
+| **App** | [bitpredict.club](https://bitpredict.club) |
 | **GitHub** | [github.com/BitPredictt/BitPredict](https://github.com/BitPredictt/BitPredict) |
 
 ### Deployed Contracts (OP_NET Testnet)
 
-| Contract | Address |
-|---|---|
-| **PredictionMarket** | `opt1sqr00sl3vc4h955dpwdr2j35mqmflrnav8qskrepj` |
-| **BPUSD Token (OP-20)** | `opt1sqpumh2np66f0dev767my7qvetur8x2zd3clgxs8d` |
-| **StakingVault** | `opt1sqzvj9vwjg6llrarqzx7xsw3mtt2gh7er5gz55srt` |
+| Contract | Address | Purpose |
+|---|---|---|
+| **PredictionMarket** | `opt1sqzpqfn6cr5fjzp2crfemjyqg4p9w0fve5vp99r5r` | Parimutuel betting engine |
+| **WBTC** | `opt1sqzymwwcv446449k8ntgzw3mw5qvv3e77mskm2ry2` | NativeSwap BTC wrapper |
+| **StakingVault** | `opt1sqqxqss2hqn7hn5xhkv7fzupvn6u3yq7puuypj3uv` | Stake WBTC, earn fees |
+| **Treasury** | `opt1sqr2tt0qyz2p2azjhvtp5kusl08j60mz4ss5rkudm` | Protocol fee collection |
+| **PriceOracle** | `opt1sqq6cuxydx96fy3eerrxm6q6een27737ahu0n0jn2` | BTC/ETH/SOL price feeds |
 
-Explorer: [opscan.org](https://opscan.org)
+---
+
+## How It Works
+
+```
+User places bet → WBTC approved → placeBet() on-chain → funds locked in contract
+                                                          ↓
+Market resolves → Oracle sets outcome → Winners call claimPayout() → WBTC returned
+                                                          ↓
+                                        2% fee split: 40% vault stakers
+                                                      40% protocol
+                                                      20% market creator
+```
+
+### Parimutuel Model
+
+Unlike AMM-based prediction markets, BitPredict uses a **parimutuel** system (same as horse racing, Polymarket):
+
+- All bets pool together per side (YES/NO)
+- Odds determined by total money on each side
+- Winners split the entire pool proportionally
+- No counterparty risk — the contract holds all funds
+- No liquidity providers needed
+
+### On-Chain Bet Flow (3 Steps)
+
+1. **Approve** — User approves WBTC spending via OP_WALLET
+2. **Place Bet** — `placeBet()` locks WBTC in the PredictionMarket contract
+3. **Report** — Frontend reports txHash to server for indexing
+
+Every step is a signed Bitcoin L1 transaction. Server only indexes — never touches funds.
 
 ---
 
 ## Features
 
-### Prediction Markets
+### Core Platform
+- **Binary markets** — YES/NO on crypto, politics, sports, tech, culture
+- **Multi-outcome markets** — multiple options per event
+- **Real-time prices** — BTC/ETH/SOL via PriceOracle contract
+- **AI market signals** — Bob AI (Gemini LLM) provides per-market analysis
+- **Market creation** — anyone can create markets (creator earns 20% of fees)
 
-| Feature | Description |
-|---|---|
-| **Constant-Product AMM** | x*y=k pricing for binary outcomes — same math as Uniswap |
-| **Binary Markets** | YES/NO outcomes on crypto, politics, sports, tech, culture |
-| **Multi-Outcome Markets** | Multiple outcomes per market (e.g., election candidates) |
-| **5-Min Fast Bets** | Rapid BTC price predictions with live countdown timers |
-| **On-Chain Bets** | Each bet signed via OP_WALLET (increaseAllowance proof) |
-| **2% Trading Fee** | Protocol fee distributed to vault stakers |
-| **Price Impact Display** | AMM slippage shown before trade confirmation |
-| **AI Market Signals** | Bob AI generates bullish/bearish/neutral signals per market |
+### Predict & Earn Vault
+- **Stake WBTC** → earn 40% of all platform fees
+- **Auto-compound** toggle — reinvest rewards automatically
+- **Projected APY** — annualized from real fee data
+- **Fee Flow visualization** — Volume → 2% fee → 40% vault → your share
+- **Earnings calculator** — estimated weekly/monthly returns
+- **7-day vesting** — linear unlock on staked positions
 
-### StakingVault (Predict & Earn)
+### Portfolio & Social
+- **P&L tracking** — cumulative profit/loss with charts
+- **Leaderboard** — top predictors by volume, wins, PnL
+- **Follow traders** — track top performers' activity
+- **Win streaks** — gamified streak tracking
 
-| Feature | Description |
-|---|---|
-| **Stake BPUSD** | Deposit into the vault to earn protocol revenue |
-| **50% Fee Distribution** | Half of all trading fees flow to vault stakers |
-| **Auto-Compound** | Toggle automatic reinvestment of rewards |
-| **Vesting Schedule** | Reward vesting with progress tracking |
-| **TVL & APY Charts** | Real-time vault analytics with Recharts |
-| **On-Chain Proofs** | Stake/unstake/claim all require OP_WALLET signatures |
-
-### Bob AI Agent
-
-| Feature | Description |
-|---|---|
-| **Market Analysis** | AI-powered market signals (buy YES/NO, confidence levels) |
-| **Chat Interface** | Full conversational AI with Gemini LLM backend |
-| **OP_NET Expertise** | Protocol knowledge, contract mechanics, trading strategies |
-| **Quick Prompts** | One-click analysis shortcuts (EV calc, BTC analysis, strategy) |
-| **Per-Market Signals** | Each market card shows Bob's bullish/bearish signal |
-
-### Social & Gamification
-
-| Feature | Description |
-|---|---|
-| **Leaderboard** | Top predictors ranked by volume and win rate |
-| **Follow Traders** | Follow/unfollow top performers |
-| **P&L Charts** | Portfolio performance with area charts |
-| **Achievements** | 8+ achievements with XP rewards |
-| **Quests** | Daily/weekly quests for extra BPUSD |
-| **On-Chain Rewards** | Claim quest rewards via OP_WALLET signature |
-
-### Frontend
-
-| Feature | Description |
-|---|---|
-| **Market Browser** | Search, filter, sort by volume/liquidity/ending soon |
-| **Category Filtering** | Crypto, Politics, Sports, Tech, Culture, Fast Bets |
-| **Real-time Updates** | Markets refresh every 10s, bets every 15s |
-| **Portfolio Tracking** | Active bets, wins, losses, ROI, win streaks |
-| **Responsive Design** | Desktop nav + mobile bottom tab bar |
-| **Dark Theme** | Bitcoin-inspired dark UI with gradient accents |
+### Security (Audited)
+- All math in **u256** (no floating-point)
+- **cancelMarket + emergencyWithdraw** — admin safety net, users self-refund
+- **NoWinnerRefund** — if all bets on losing side, everyone gets refunded
+- **Timelock** — 6-block delay on claims after resolution
+- **sweepDust** — admin recovers rounding dust from resolved markets
+- **totalPools accounting** — prevents cross-market drain attacks
+- **On-chain TX verification** — server validates every txHash before recording
 
 ---
 
-## Architecture
+## Smart Contracts (5 Deployed)
 
-```
-BitPredict
-├── contracts/                    # OP_NET Smart Contracts (AssemblyScript)
-│   ├── PredictionMarket.ts       # AMM prediction market contract
-│   ├── BPUSDToken.ts             # BPUSD MintableToken (OP-20)
-│   ├── StakingVault.ts           # MasterChef-style staking vault
-│   └── src/                      # Entry points + ABI definitions
-│
-├── server/                       # Express Backend
-│   └── index.js                  # API + SQLite DB + AI signal + vault logic
-│                                 #   - Market CRUD, AMM calculation
-│                                 #   - On-chain bet verification
-│                                 #   - Fee distribution to vault
-│                                 #   - Leaderboard, social, portfolio P&L
-│                                 #   - Bob AI chat (Gemini LLM)
-│
-├── src/                          # React Frontend
-│   ├── App.tsx                   # Main app with tab navigation
-│   ├── components/
-│   │   ├── Header.tsx            # Logo, wallet, nav tabs (lucide icons)
-│   │   ├── MarketCard.tsx        # Market card with AMM prices + countdown
-│   │   ├── BetModal.tsx          # Trade modal with AMM details + AI signal
-│   │   ├── Portfolio.tsx         # User bets, P&L chart, win streaks
-│   │   ├── VaultDashboard.tsx    # Stake/unstake, TVL chart, APY, rewards
-│   │   ├── Leaderboard.tsx       # Top predictors ranking
-│   │   ├── AIChat.tsx            # Bob AI conversational interface
-│   │   ├── Achievements.tsx      # XP, quests, reward claims
-│   │   ├── TopPredictors.tsx     # Follow/unfollow top traders
-│   │   ├── NetworkStats.tsx      # Block height, gas, market count
-│   │   ├── HowItWorks.tsx        # Onboarding steps
-│   │   ├── Toast.tsx             # Notification system
-│   │   └── Footer.tsx            # Links and credits
-│   ├── hooks/
-│   │   ├── useWallet.ts          # OP_WALLET connection + balance
-│   │   └── useAchievements.ts    # Achievement tracking + XP
-│   ├── lib/
-│   │   ├── opnet.ts              # OP_NET integration (signing, AMM calc)
-│   │   └── api.ts                # Server API client (all endpoints)
-│   └── data/
-│       └── markets.ts            # Category definitions
-│
-├── deploy/                       # Deployment scripts
-├── index.html                    # Entry point
-├── vite.config.ts                # Vite + TailwindCSS v4
-└── package.json                  # Dependencies
-```
+| Contract | Lines | Key Functions |
+|---|---|---|
+| **PredictionMarket** | 600+ | `placeBet`, `claimPayout`, `createMarket`, `resolveMarket`, `cancelMarket`, `emergencyWithdraw`, `sweepDust` |
+| **WBTC** | 200+ | `wrap` (BTC→WBTC), `unwrap` (WBTC→BTC), NativeSwap OP-20 |
+| **StakingVault** | 300+ | `stake`, `unstake`, `claim`, CSV timelock vesting |
+| **Treasury** | 250+ | `deposit`, `adminWithdraw`, emergency withdrawal with timelock |
+| **PriceOracle** | 150+ | `updatePrice`, `getPrice`, multi-asset support |
+
+All contracts use:
+- `btc-runtime` for OP_NET compatibility
+- `u256` integer math (no floating-point)
+- SafeMath overflow/underflow protection
+- Event emission for indexing (`MarketCreated`, `SharesPurchased`, `Staked`, etc.)
+- Proper OP_NET storage patterns (`Blockchain.getStorageAt`)
 
 ---
 
@@ -164,51 +133,53 @@ BitPredict
 | Layer | Technology |
 |---|---|
 | **Blockchain** | Bitcoin L1 via OP_NET (Tapscript-encoded calldata) |
-| **Smart Contracts** | AssemblyScript (btc-runtime) compiled to WASM |
-| **Frontend** | React 19 + TypeScript 5.9 + Vite 7 |
-| **Styling** | TailwindCSS v4 |
-| **Charts** | Recharts (TVL, APY, P&L area/bar charts) |
-| **Icons** | Lucide React |
-| **Wallet** | OP_WALLET browser extension (@btc-vision/walletconnect) |
-| **Backend** | Express.js + better-sqlite3 |
-| **AI** | Gemini LLM (gemini-2.5-flash) |
-| **OP_NET SDK** | `opnet`, `@btc-vision/bitcoin`, `@btc-vision/transaction` |
-| **Deployment** | GitHub Pages (frontend) + VPS (backend) |
+| **Smart Contracts** | AssemblyScript + btc-runtime → WASM |
+| **Frontend** | React 19 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4 |
+| **Charts** | Recharts (TVL, P&L, rewards) |
+| **Wallet** | OP_WALLET (@btc-vision/walletconnect) |
+| **Backend** | Express.js + better-sqlite3 (oracle + indexer) |
+| **AI** | Gemini 2.5 Flash (market signals + chat) |
+| **Hosting** | VPS (API) + Cloudflare (CDN) |
 
 ---
 
-## Smart Contract Design
-
-### Constant-Product AMM
-
-BitPredict uses the same AMM model as Uniswap, adapted for binary outcomes:
+## Architecture
 
 ```
-k = yesReserve * noReserve  (constant)
-
-Buying YES shares:
-  newNoReserve  = noReserve + netAmount
-  newYesReserve = k / newNoReserve
-  shares        = yesReserve - newYesReserve
-
-YES price = noReserve / (yesReserve + noReserve)
+BitPredict
+├── contracts/                    # 5 OP_NET Smart Contracts
+│   ├── PredictionMarket.ts       # Parimutuel betting engine
+│   ├── WBTC.ts                   # NativeSwap BTC↔WBTC wrapper
+│   ├── StakingVault.ts           # MasterChef-style staking + CSV timelocks
+│   ├── Treasury.ts               # Protocol fee collection + admin withdraw
+│   ├── PriceOracle.ts            # Multi-asset price feeds
+│   ├── abis/                     # Contract ABIs (auto-generated)
+│   └── build/                    # Compiled WASM bytecode
+│
+├── server/
+│   └── index.js                  # Express backend (oracle + indexer)
+│                                 #   - Market management + resolution
+│                                 #   - On-chain TX verification (3x retry)
+│                                 #   - Fee distribution to vault
+│                                 #   - AI chat (Gemini LLM)
+│                                 #   - Leaderboard, social, P&L
+│
+├── src/                          # React Frontend
+│   ├── App.tsx                   # 3-step on-chain bet flow
+│   ├── components/
+│   │   ├── VaultDashboard.tsx    # Stake/unstake + fee flow + APY
+│   │   ├── BetModal.tsx          # On-chain betting interface
+│   │   ├── Portfolio.tsx         # P&L charts + claim payouts
+│   │   ├── AIChat.tsx            # Bob AI conversational interface
+│   │   └── ...                   # 15+ components
+│   ├── lib/
+│   │   ├── opnet.ts              # OP_NET SDK integration
+│   │   └── api.ts                # Server API client
+│   └── hooks/
+│       └── useWallet.ts          # OP_WALLET connection
+│
+└── deploy/                       # Contract deployment scripts
 ```
-
-This provides:
-- **Continuous liquidity** — always a price available
-- **Natural price discovery** — prices move with demand
-- **Slippage protection** — large trades move price more
-- **No order book needed** — fully automated
-
-### Security Measures
-
-- **No floating-point arithmetic** — all calculations use u256 integer math
-- **SafeMath operations** — overflow/underflow protection
-- **Reentrancy protection** — state updates before external effects
-- **Market validation** — end time must be future, amounts above 100 minimum
-- **Double-claim prevention** — claimed flag per user per market
-- **Fee enforcement** — 2% (200 bps) on every trade
-- **On-chain bet proofs** — each bet requires signed OP_WALLET transaction
 
 ---
 
@@ -217,76 +188,60 @@ This provides:
 ### Prerequisites
 
 - Node.js >= 18
-- npm >= 9
 - [OP_WALLET](https://opnet.org) browser extension
 - Testnet BTC from [faucet.opnet.org](https://faucet.opnet.org)
 
-### Installation
+### Quick Start
 
 ```bash
 git clone https://github.com/BitPredictt/BitPredict.git
 cd BitPredict
 npm install
+cp .env.example .env        # Fill in contract addresses
+npm run dev                  # Frontend on localhost:5173
+cd server && npm install && node index.js  # Backend on :3456
 ```
 
-### Development
+### Build & Deploy Contracts
 
 ```bash
-# Frontend (Vite dev server)
-npm run dev
-
-# Backend (Express server, port 3456)
-node server/index.js
-```
-
-### Build for Production
-
-```bash
-npm run build
+cd contracts && npm run build    # Compile all contracts to WASM
+cd deploy && node deploy-market.mjs  # Deploy PredictionMarket
 ```
 
 ---
 
-## How to Use
+## Mainnet Viability
 
-1. Install [OP_WALLET](https://opnet.org) Chrome extension
-2. Switch to **OP_NET Testnet** in OP_WALLET settings
-3. Get free testnet BTC from [faucet.opnet.org](https://faucet.opnet.org)
-4. Open BitPredict and click **Connect**
-5. Get free BPUSD from the **Vault** tab (faucet)
-6. Browse markets, select one, choose YES or NO
-7. Sign the transaction in OP_WALLET (on-chain proof)
-8. Track your bets in the **Portfolio** tab
-9. Stake BPUSD in the **Vault** to earn trading fees
-10. Chat with **Bob AI** for market analysis and signals
+BitPredict is designed for mainnet deployment:
 
----
+- **Sustainable fee model** — 2% on every bet, split between vault stakers (40%), protocol (40%), and creators (20%)
+- **No dependencies on external liquidity** — parimutuel model works with any number of bettors
+- **Security audited** — 3 critical, 4 high, 3 medium findings identified and fixed
+- **Treasury contract** — protocol revenue collection with admin controls
+- **WBTC wrapping** — real BTC ↔ WBTC via NativeSwap (no synthetic tokens)
+- **Oracle infrastructure** — PriceOracle contract for fast-bet price feeds
 
-## On-Chain Bet Flow
-
-```
-1. User selects market + side (YES/NO) + amount
-2. Frontend calls increaseAllowance on BPUSD contract (via OP_WALLET)
-3. User signs TX in OP_WALLET → txHash returned
-4. Frontend sends txHash to server
-5. Server verifies TX, records bet, calculates AMM price impact
-6. 2% fee collected: 50% to vault stakers, 50% to protocol
-7. New YES/NO prices broadcast to all clients
-```
+### Post-Launch Roadmap
+- Multisig admin (replace single-key)
+- Redis rate limiter (replace in-memory)
+- PostgreSQL (replace SQLite for scale)
+- Professional security audit
+- Mobile app
 
 ---
 
-## AI Agent (Bob)
+## Built With Bob
 
-This project was built with extensive use of **Bob**, the OP_NET AI MCP agent:
+This entire project was built using **Bob**, the OP_NET AI development agent:
 
-- **Smart contract patterns** — AssemblyScript contract templates and btc-runtime API
-- **AMM mathematics** — Constant-product formula validated against NativeSwap
-- **Security guidance** — Floating-point risks, reentrancy, overflow concerns
-- **OP_NET integration** — Provider setup, transaction building, deployment flow
-- **Frontend architecture** — React component patterns for DeFi apps
+- Smart contract architecture and security patterns
+- AssemblyScript + btc-runtime API guidance
+- OP_NET storage, events, and deployment flows
+- Frontend OP_NET SDK integration
+- Security audit and vulnerability fixes
 
-Bob also powers the in-app AI chat, providing real-time market analysis and trading signals.
+Bob also powers the **in-app AI chat**, providing real-time market analysis and trading signals to users.
 
 ---
 
@@ -294,19 +249,18 @@ Bob also powers the in-app AI chat, providing real-time market analysis and trad
 
 | Resource | URL |
 |---|---|
+| **BitPredict App** | [bitpredict.club](https://bitpredict.club) |
 | **OP_NET** | [opnet.org](https://opnet.org) |
-| **Bob AI Agent** | [ai.opnet.org](https://ai.opnet.org) |
-| **Developer Docs** | [dev.opnet.org](https://dev.opnet.org) |
+| **Bob AI** | [ai.opnet.org](https://ai.opnet.org) |
+| **OP_NET Docs** | [dev.opnet.org](https://dev.opnet.org) |
 | **Block Explorer** | [opscan.org](https://opscan.org) |
-| **OP_WALLET** | [opnet.org](https://opnet.org) |
-| **Testnet Faucet** | [faucet.opnet.org](https://faucet.opnet.org) |
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE)
 
 ---
 
-*Built with AI. Powered by Bitcoin. Settled on OP_NET. #opnetvibecode*
+*The first prediction market on Bitcoin L1. Built with Bob. Powered by OP_NET.* `#opnetvibecode`

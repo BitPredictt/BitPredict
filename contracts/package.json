@@ -11,9 +11,9 @@
         "build:wbtc": "asc src/wbtc-index.ts --target wbtc-release --config asconfig.json"
     },
     "dependencies": {
-        "@btc-vision/btc-runtime": "latest",
-        "@btc-vision/as-bignum": "latest",
-        "@btc-vision/opnet-transform": "latest",
+        "@btc-vision/btc-runtime": "1.10.12",
+        "@btc-vision/as-bignum": "0.1.2",
+        "@btc-vision/opnet-transform": "1.2.0",
         "assemblyscript": "^0.27.34"
     }
 }

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, Send, Sparkles, Loader2, Zap, TrendingUp, Shield, Cpu, Trash2, BrainCircuit, ExternalLink, BarChart3 } from 'lucide-react';
+import { Send, Sparkles, Loader2, Zap, TrendingUp, Shield, Cpu, Trash2, BrainCircuit, ExternalLink, BarChart3 } from 'lucide-react';
 import * as api from '../lib/api';
 
 interface Message {
@@ -20,11 +20,10 @@ const QUICK_PROMPTS = [
 ];
 
 interface AIChatProps {
-  onAnalyze?: () => void;
   walletAddress?: string;
 }
 
-export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
+export function AIChat({ walletAddress }: AIChatProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -48,8 +47,6 @@ export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setLoading(true);
-    onAnalyze?.();
-
     try {
       const { reply, source } = await api.aiChat(text.trim(), walletAddress);
       setMessages((prev) => [...prev, {
@@ -70,7 +67,7 @@ export function AIChat({ onAnalyze, walletAddress }: AIChatProps) {
     } finally {
       setLoading(false);
     }
-  }, [loading, onAnalyze, walletAddress]);
+  }, [loading, walletAddress]);
 
   const clearChat = () => {
     setMessages([{

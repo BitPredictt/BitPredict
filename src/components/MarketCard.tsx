@@ -20,7 +20,16 @@ const categoryColors: Record<string, string> = {
   'Fast Bets': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
 };
 
-export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavorite }: MarketCardProps) {
+const categoryIcons: Record<string, string> = {
+  Crypto: '₿',
+  Politics: '🏛',
+  Sports: '⚽',
+  Tech: '🤖',
+  Culture: '🎭',
+  'Fast Bets': '⚡',
+};
+
+export function MarketCard({ market, onSelect, isFavorite, onToggleFavorite }: MarketCardProps) {
   // Normalize prices to always sum to 100%
   const rawSum = market.yesPrice + market.noPrice;
   const normYes = rawSum > 0 ? (market.yesPrice / rawSum) * 100 : 50;
@@ -35,9 +44,8 @@ export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavori
   const noPct = fmtPct(normNo);
   const yesWidth = Math.max(0.5, Math.min(99.5, normYes));
   const noWidth = 100 - yesWidth;
-  const endMs = market.endTime ? market.endTime * 1000 : (new Date(market.endDate).getTime() || Date.now());
-
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const endMs = market.endTime ? market.endTime * 1000 : (new Date(market.endDate).getTime() || now);
   const msLeft = Math.max(0, endMs - now);
   const isEndingSoon = msLeft > 0 && msLeft < 86400000;
   const isUrgent = msLeft > 0 && msLeft < 120000; // < 2 min
@@ -98,9 +106,23 @@ export function MarketCard({ market, onSelect, index, isFavorite, onToggleFavori
       </div>
 
       {/* Question */}
-      <h3 className="text-sm font-bold text-white leading-snug mb-3 group-hover:text-btc-light transition-colors">
-        {market.question}
-      </h3>
+      <div className="flex items-start gap-3 mb-3">
+        {market.imageUrl ? (
+          <img
+            src={market.imageUrl}
+            alt=""
+            className="w-10 h-10 rounded-lg object-cover shrink-0 border border-white/10"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <div className="w-10 h-10 rounded-lg shrink-0 border border-white/10 bg-surface-2 flex items-center justify-center text-lg">
+            {categoryIcons[market.category] || '📊'}
+          </div>
+        )}
+        <h3 className="text-sm font-bold text-white leading-snug group-hover:text-btc-light transition-colors">
+          {market.question}
+        </h3>
+      </div>
 
       {/* Progress bar / Outcomes */}
       {market.outcomes && market.outcomes.length > 1 ? (

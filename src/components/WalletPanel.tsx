@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Clock, CheckCircle2, XCircle, Loader2, RefreshCw, X } from 'lucide-react';
 import * as api from '../lib/api';
-import { depositToTreasury, wrapBTC, unwrapWBTC, getExplorerTxUrl, OPNET_CONFIG, truncateAddress, waitForTxConfirmation, formatBtc } from '../lib/opnet';
+import { wrapBTC, unwrapWBTC, getExplorerTxUrl, waitForTxConfirmation, formatBtc } from '../lib/opnet';
 import type { TreasuryDeposit, WithdrawalRequest } from '../types';
 
 interface WalletPanelProps {
   walletConnected: boolean;
   walletAddress: string;
-  balance: number;
-  backedBalance: number;
   onChainBalance: number;
   walletBtcBalance?: number;
   onConnect: () => void;
@@ -22,7 +20,7 @@ interface WalletPanelProps {
 }
 
 export function WalletPanel({
-  walletConnected, walletAddress, balance, backedBalance, onChainBalance, walletBtcBalance,
+  walletConnected, walletAddress, onChainBalance, walletBtcBalance,
   onConnect, onClose, onBalanceRefresh, onToast, onEnsureAuth,
   walletProvider, walletNetwork, walletAddressObj,
 }: WalletPanelProps) {
@@ -32,8 +30,6 @@ export function WalletPanel({
   const [step, setStep] = useState('');
   const [deposits, setDeposits] = useState<TreasuryDeposit[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
-
-  const syntheticBalance = Math.max(0, balance - backedBalance);
 
   const loadHistory = useCallback(async () => {
     if (!walletAddress) return;
@@ -54,56 +50,34 @@ export function WalletPanel({
   const handleDeposit = async () => {
     const sats = Math.round((parseFloat(amount) || 0) * 1e8);
     if (sats < 10000) {
-      onToast('Minimum deposit: 0.0001 BTC', 'error');
+      onToast('Minimum: 0.0001 BTC', 'error');
       return;
     }
     const amt = sats;
 
     setLoading(true);
     try {
-      // Ensure JWT auth before server API calls
-      await onEnsureAuth();
-
-      // Check if user has enough WBTC on-chain, if not — wrap first
-      if (onChainBalance < amt) {
-        const deficit = amt - onChainBalance;
-        setStep(`Wrapping ${formatBtc(deficit)} → WBTC...`);
-        onToast(`Wrapping ${formatBtc(deficit)} BTC → WBTC...`, 'loading');
-        const wrapResult = await wrapBTC(walletProvider, walletNetwork, walletAddressObj, walletAddress, deficit);
-        if (!wrapResult.success) {
-          onToast(wrapResult.error || 'Wrap failed', 'error');
-          return;
-        }
-        onToast('Wrapped! Waiting for confirmation...', 'loading');
-        setStep('Waiting for wrap confirmation...');
-        // Wait for wrap TX to confirm before depositing
-        if (wrapResult.txHash) {
-          await waitForTxConfirmation(walletProvider, wrapResult.txHash, 120000);
-        }
-        onBalanceRefresh();
-      }
-
-      // Deposit WBTC to Treasury
-      setStep('Depositing WBTC to Treasury...');
-      onToast('Approving & depositing WBTC...', 'loading');
-      const txResult = await depositToTreasury(walletProvider, walletNetwork, walletAddressObj, walletAddress, amt);
-
-      if (!txResult.success) {
-        onToast(txResult.error || 'Deposit failed', 'error');
+      // Wrap BTC → WBTC (stays in wallet, ready for on-chain bets)
+      setStep(`Wrapping ${formatBtc(amt)} → WBTC...`);
+      onToast(`Wrapping ${formatBtc(amt)} BTC → WBTC...`, 'loading');
+      const wrapResult = await wrapBTC(walletProvider, walletNetwork, walletAddressObj, walletAddress, amt);
+      if (!wrapResult.success) {
+        onToast(wrapResult.error || 'Wrap failed', 'error');
         return;
       }
-
-      // Notify server
-      const result = await api.depositConfirm(walletAddress, txResult.txHash, amt);
-      if (result.success) {
-        onToast(`Deposited ${formatBtc(amt)}`, 'success',
-          getExplorerTxUrl(txResult.txHash), 'View TX');
-        setAmount('');
-        onBalanceRefresh();
-        loadHistory();
+      onToast('Wrapped! Waiting for confirmation...', 'loading');
+      setStep('Waiting for confirmation...');
+      if (wrapResult.txHash) {
+        await waitForTxConfirmation(walletProvider, wrapResult.txHash, 120000);
       }
+      onToast(`Wrapped ${formatBtc(amt)} BTC → WBTC`, 'success',
+        wrapResult.txHash ? getExplorerTxUrl(wrapResult.txHash) : undefined,
+        wrapResult.txHash ? 'View TX' : undefined);
+      setAmount('');
+      onBalanceRefresh();
+      loadHistory();
     } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Deposit error', 'error');
+      onToast(e instanceof Error ? e.message : 'Wrap error', 'error');
     } finally {
       setLoading(false);
       setStep('');
@@ -113,31 +87,35 @@ export function WalletPanel({
   const handleWithdraw = async () => {
     const sats = Math.round((parseFloat(amount) || 0) * 1e8);
     if (sats < 10000) {
-      onToast('Minimum withdrawal: 0.0001 BTC', 'error');
+      onToast('Minimum: 0.0001 BTC', 'error');
       return;
     }
     const amt = sats;
-    if (amt > backedBalance) {
-      onToast(`Insufficient backed balance: ${formatBtc(backedBalance)}`, 'error');
+    if (amt > onChainBalance) {
+      onToast(`Max: ${formatBtc(onChainBalance)} WBTC`, 'error');
       return;
     }
 
     setLoading(true);
     try {
-      await onEnsureAuth();
-      setStep('Processing withdrawal...');
-      const result = await api.withdrawRequest(walletAddress, amt);
-      if (result.success) {
-        const msg = result.status === 'completed'
-          ? `Withdrawn ${formatBtc(result.netAmount)} (fee: ${formatBtc(result.fee)})`
-          : `Withdrawal queued: ${formatBtc(result.netAmount)}`;
-        onToast(msg, 'success', result.txHash ? getExplorerTxUrl(result.txHash) : undefined, result.txHash ? 'View TX' : undefined);
-        setAmount('');
-        onBalanceRefresh();
-        loadHistory();
+      // Unwrap WBTC → BTC (on-chain burn + server sends BTC)
+      setStep(`Unwrapping ${formatBtc(amt)} WBTC → BTC...`);
+      onToast(`Unwrapping ${formatBtc(amt)} WBTC → BTC...`, 'loading');
+      const result = await unwrapWBTC(walletProvider, walletNetwork, walletAddressObj, walletAddress, amt);
+
+      if (!result.success) {
+        onToast(result.error || 'Unwrap failed', 'error');
+        return;
       }
+
+      onToast(`Unwrapped ${formatBtc(amt)} WBTC → BTC`, 'success',
+        result.txHash ? getExplorerTxUrl(result.txHash) : undefined,
+        result.txHash ? 'View TX' : undefined);
+      setAmount('');
+      onBalanceRefresh();
+      loadHistory();
     } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Withdrawal error', 'error');
+      onToast(e instanceof Error ? e.message : 'Unwrap error', 'error');
     } finally {
       setLoading(false);
       setStep('');
@@ -146,7 +124,7 @@ export function WalletPanel({
 
   const statusIcon = (status: string) => {
     if (status === 'confirmed' || status === 'completed') return <CheckCircle2 size={14} className="text-green-400" />;
-    if (status === 'pending') return <Clock size={14} className="text-yellow-400" />;
+    if (status === 'pending' || status === 'authorized') return <Clock size={14} className="text-yellow-400" />;
     return <XCircle size={14} className="text-red-400" />;
   };
 
@@ -166,7 +144,6 @@ export function WalletPanel({
 
   const amtBtc = parseFloat(amount) || 0;
   const amt = Math.round(amtBtc * 1e8); // convert BTC to sats
-  const needsWrap = mode === 'deposit' && amt > 0 && onChainBalance < amt;
 
   return (
     <div className="bg-gray-900/60 border border-gray-700/50 rounded-2xl p-6">
@@ -189,29 +166,14 @@ export function WalletPanel({
       {/* Balance breakdown */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-          <div className="text-xs text-gray-400">Platform</div>
-          <div className="text-lg font-bold text-white">{formatBtc(balance)}</div>
+          <div className="text-xs text-green-400">WBTC Balance</div>
+          <div className="text-lg font-bold text-green-400">{formatBtc(onChainBalance)}</div>
         </div>
         <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-          <div className="text-xs text-green-400">Backed</div>
-          <div className="text-lg font-bold text-green-400">{formatBtc(backedBalance)}</div>
-          <div className="text-[10px] text-gray-500">Withdrawable</div>
-        </div>
-        <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-          <div className="text-xs text-btc">On-chain WBTC</div>
-          <div className="text-lg font-bold text-btc">{formatBtc(onChainBalance)}</div>
-        </div>
-        <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-          <div className="text-xs text-orange-400">Wallet BTC</div>
+          <div className="text-xs text-orange-400">BTC Balance</div>
           <div className="text-lg font-bold text-orange-400">{walletBtcBalance != null ? (walletBtcBalance / 1e8).toFixed(6) : '—'}</div>
         </div>
       </div>
-
-      {syntheticBalance > 0 && (
-        <div className="bg-purple-900/20 border border-purple-700/30 rounded-xl px-3 py-2 mb-4 text-xs text-purple-300 text-center">
-          +{formatBtc(syntheticBalance)} bonus (rewards, non-withdrawable)
-        </div>
-      )}
 
       {/* Mode toggle */}
       <div className="flex gap-2 mb-4">
@@ -236,15 +198,12 @@ export function WalletPanel({
       {/* Info banners */}
       {mode === 'deposit' && (
         <div className="bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2 mb-3 text-xs text-green-300">
-          {needsWrap
-            ? `Will auto-wrap ${formatBtc(amt - onChainBalance)} → WBTC, then deposit`
-            : 'Deposits WBTC to the platform. BTC is auto-wrapped if needed.'
-          }
+          Wraps BTC → WBTC. WBTC stays in your wallet for on-chain bets.
         </div>
       )}
       {mode === 'withdraw' && (
         <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl px-3 py-2 mb-3 text-xs text-orange-300">
-          Withdraws WBTC to your wallet. Fee: 0.5%
+          Unwraps WBTC → BTC back to your wallet.
         </div>
       )}
 
@@ -261,12 +220,12 @@ export function WalletPanel({
             className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
           />
           {mode === 'withdraw' && (
-            <button onClick={() => setAmount((backedBalance / 1e8).toFixed(8))} className="px-3 py-2.5 bg-gray-800 rounded-xl text-xs text-gray-400 hover:text-white border border-gray-700">
+            <button onClick={() => setAmount((onChainBalance / 1e8).toFixed(8))} className="px-3 py-2.5 bg-gray-800 rounded-xl text-xs text-gray-400 hover:text-white border border-gray-700">
               MAX
             </button>
           )}
         </div>
-        {mode === 'withdraw' && amt > 0 && (
+        {false && mode === 'withdraw' && amt > 0 && (
           <div className="text-xs text-gray-400 mt-1.5">
             Fee: {formatBtc(Math.ceil(amt * 0.005))} (0.5%) | Net: {formatBtc(Math.floor(amt * 0.995))}
           </div>
@@ -275,7 +234,7 @@ export function WalletPanel({
 
       <button
         onClick={mode === 'deposit' ? handleDeposit : handleWithdraw}
-        disabled={loading || !amount || amt < 10000 || (mode === 'withdraw' && amt > backedBalance)}
+        disabled={loading || !amount || amt < 10000 || (mode === 'withdraw' && amt > onChainBalance)}
         className={`w-full py-3 rounded-xl font-medium transition flex items-center justify-center gap-2 ${
           loading ? 'bg-gray-700 cursor-wait' :
           mode === 'deposit' ? 'bg-green-600 hover:bg-green-500 text-white' :
@@ -285,9 +244,9 @@ export function WalletPanel({
         {loading ? (
           <><Loader2 size={16} className="animate-spin" /> {step || 'Processing...'}</>
         ) : mode === 'deposit' ? (
-          needsWrap ? `Wrap & Deposit ${amtBtc > 0 ? formatBtc(amt) : ''}` : `Deposit ${amtBtc > 0 ? formatBtc(amt) : ''}`
+          `Wrap BTC → WBTC ${amtBtc > 0 ? formatBtc(amt) : ''}`
         ) : (
-          `Withdraw ${amtBtc > 0 ? formatBtc(amt) : ''}`
+          `Unwrap WBTC → BTC ${amtBtc > 0 ? formatBtc(amt) : ''}`
         )}
       </button>
 
@@ -301,7 +260,7 @@ export function WalletPanel({
                 <div className="flex items-center gap-2">
                   {statusIcon(d.status)}
                   <ArrowDownToLine size={12} className="text-green-400" />
-                  <span className="text-green-400">+{formatBtc((d as any).amount || (d as any).amount_bpusd || 0)}</span>
+                  <span className="text-green-400">+{formatBtc(d.amount_bpusd || 0)}</span>
                 </div>
                 <span className="text-gray-500">{formatTime(d.created_at)}</span>
               </div>
@@ -311,9 +270,9 @@ export function WalletPanel({
                 <div className="flex items-center gap-2">
                   {statusIcon(w.status)}
                   <ArrowUpFromLine size={12} className="text-orange-400" />
-                  <span className="text-orange-400">-{formatBtc((w as any).amount || (w as any).amount_bpusd || 0)}</span>
-                  {((w as any).fee || (w as any).fee_bpusd || 0) > 0 && (
-                    <span className="text-gray-600">(fee: {formatBtc((w as any).fee || (w as any).fee_bpusd)})</span>
+                  <span className="text-orange-400">-{formatBtc(w.amount_bpusd || 0)}</span>
+                  {(w.fee_bpusd || 0) > 0 && (
+                    <span className="text-gray-600">(fee: {formatBtc(w.fee_bpusd)})</span>
                   )}
                 </div>
                 <span className="text-gray-500">{formatTime(w.created_at)}</span>

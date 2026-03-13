@@ -30,7 +30,6 @@ import {
 } from '@btc-vision/btc-runtime/runtime';
 
 import { sha256 } from '@btc-vision/btc-runtime/runtime/env/global';
-import { MLDSASecurityLevel } from '@btc-vision/btc-runtime/runtime/env/consensus/MLDSAMetadata';
 
 /** Constants */
 
@@ -41,33 +40,10 @@ const EMERGENCY_TIMELOCK: u64 = 1008; // ~7 days at 10min blocks
 const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7;
 const TRANSFER_SELECTOR: u32 = 0x3b88ef57;
 
-// EIP-712 style typehash for withdraw authorization
-// sha256("Withdraw(address user,uint256 amount,uint256 nonce)")
-// Precomputed at deploy, but we compute at runtime for clarity
-function getWithdrawTypehash(): Uint8Array {
-  const writer = new BytesWriter(64);
-  writer.writeString('Withdraw(address user,uint256 amount,uint256 nonce)');
-  return sha256(writer.getBuffer());
-}
-
-function getDomainSeparator(name: string, version: string, contractAddr: Address): Uint8Array {
-  const writer = new BytesWriter(256);
-  const typeHashWriter = new BytesWriter(128);
-  typeHashWriter.writeString('EIP712Domain(string name,string version,address verifyingContract)');
-  writer.writeBytes(sha256(typeHashWriter.getBuffer()));
-
-  const nameWriter = new BytesWriter(32);
-  nameWriter.writeString(name);
-  writer.writeBytes(sha256(nameWriter.getBuffer()));
-
-  const versionWriter = new BytesWriter(8);
-  versionWriter.writeString(version);
-  writer.writeBytes(sha256(versionWriter.getBuffer()));
-
-  writer.writeAddress(contractAddr);
-
-  return sha256(writer.getBuffer());
-}
+// NOTE: EIP-712 + ML-DSA signature verification removed because OPNet testnet
+// does not yet implement the verifySignature external function.
+// When mainnet supports ML-DSA verification, restore signature-based withdraw.
+// For now, adminWithdraw() is used (admin-only, server calls directly).
 
 /** Events */
 
@@ -208,62 +184,23 @@ export class Treasury extends ReentrancyGuard {
    * withdraw(amount, nonce, serverPubKey, signature)
    * Server authorizes withdrawal via ML-DSA signature.
    */
+  /**
+   * adminWithdraw() — Admin-authorized withdrawal.
+   * Only callable by admin (server). Bypasses signature verification
+   * because OPNet testnet does not yet support verifySignature external.
+   * When ML-DSA verification works on mainnet, switch back to signature-based withdraw.
+   */
   @method(
+    { name: 'user', type: ABIDataTypes.ADDRESS },
     { name: 'amount', type: ABIDataTypes.UINT256 },
-    { name: 'nonce', type: ABIDataTypes.UINT256 },
-    { name: 'serverPubKey', type: ABIDataTypes.BYTES },
-    { name: 'signature', type: ABIDataTypes.BYTES },
   )
   @returns({ name: 'success', type: ABIDataTypes.BOOL })
-  public withdraw(calldata: Calldata): BytesWriter {
+  public adminWithdraw(calldata: Calldata): BytesWriter {
+    this.requireAdmin();
     this.whenNotPaused();
 
+    const user: Address = calldata.readAddress();
     const amount: u256 = calldata.readU256();
-    const nonce: u256 = calldata.readU256();
-    const serverPubKey: Uint8Array = calldata.readBytesWithLength();
-    const signature: Uint8Array = calldata.readBytesWithLength();
-
-    const user: Address = Blockchain.tx.sender;
-
-    // Verify nonce matches user's current nonce
-    const currentNonce: u256 = this.nonces.get(user);
-    if (!u256.eq(nonce, currentNonce)) {
-      throw new Revert('Invalid nonce');
-    }
-
-    // Verify server pubkey authenticity: sha256(pubKey) must match stored hash
-    const pubKeyHash: Uint8Array = sha256(serverPubKey);
-    const pubKeyHashU256 = u256.fromBytes(pubKeyHash, false);
-    if (!u256.eq(pubKeyHashU256, this.serverSignerHash.value)) {
-      throw new Revert('Invalid server signer');
-    }
-
-    // Build message hash: domain separator + struct hash
-    const domainSep = getDomainSeparator('BitPredict Treasury', '1', Blockchain.contract.address);
-    const structWriter = new BytesWriter(128);
-    structWriter.writeBytes(getWithdrawTypehash());
-    structWriter.writeAddress(user);
-    structWriter.writeU256(amount);
-    structWriter.writeU256(nonce);
-    const structHash = sha256(structWriter.getBuffer());
-
-    const finalWriter = new BytesWriter(66);
-    finalWriter.writeU8(0x19);
-    finalWriter.writeU8(0x01);
-    finalWriter.writeBytes(domainSep);
-    finalWriter.writeBytes(structHash);
-    const messageHash = sha256(finalWriter.getBuffer());
-
-    // Verify ML-DSA signature
-    const isValid = Blockchain.verifyMLDSASignature(
-      MLDSASecurityLevel.Level2,
-      serverPubKey,
-      signature,
-      messageHash,
-    );
-    if (!isValid) {
-      throw new Revert('Invalid server signature');
-    }
 
     // Check balance
     const currentBalance: u256 = this.balances.get(user);
@@ -272,6 +209,7 @@ export class Treasury extends ReentrancyGuard {
     }
 
     // === EFFECTS ===
+    const currentNonce: u256 = this.nonces.get(user);
     const newBalance: u256 = SafeMath.sub(currentBalance, amount);
     this.balances.set(user, newBalance);
     this.totalDeposits.value = SafeMath.sub(this.totalDeposits.value, amount);
@@ -280,7 +218,7 @@ export class Treasury extends ReentrancyGuard {
     // === INTERACTIONS ===
     this._transferToken(user, amount);
 
-    this.emitEvent(new WithdrawEvent(user, amount, nonce));
+    this.emitEvent(new WithdrawEvent(user, amount, currentNonce));
 
     const writer = new BytesWriter(1);
     writer.writeBoolean(true);
@@ -369,16 +307,13 @@ export class Treasury extends ReentrancyGuard {
   }
 
   /**
-   * cancelEmergencyWithdraw() — Cancel pending emergency withdrawal.
-   * Can be called by user or admin.
+   * cancelEmergencyWithdraw() — Cancel own pending emergency withdrawal.
    */
   @method()
   @returns({ name: 'success', type: ABIDataTypes.BOOL })
   public cancelEmergencyWithdraw(_calldata: Calldata): BytesWriter {
     const caller: Address = Blockchain.tx.sender;
 
-    // Admin can cancel any user's emergency withdrawal (via additional param)
-    // For simplicity, only self-cancel for now
     const amount: u256 = this.emergencyAmount.get(caller);
     if (u256.eq(amount, u256.Zero)) {
       throw new Revert('No emergency withdrawal pending');
@@ -449,6 +384,13 @@ export class Treasury extends ReentrancyGuard {
     this.requireAdmin();
 
     const newAdmin: Address = calldata.readAddress();
+    if (newAdmin.equals(Blockchain.tx.sender)) {
+      throw new Revert('Admin unchanged');
+    }
+    const zeroAddr = new Address(new Array<u8>(32).fill(0));
+    if (newAdmin.equals(zeroAddr)) {
+      throw new Revert('New admin cannot be zero address');
+    }
     const oldAdmin: Address = this.adminAddress.value;
     this.adminAddress.value = newAdmin;
 

@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer';
-(window as any).Buffer = Buffer;
-(window as any).global = window;
+// Required polyfills for OPNet SDK
+(window as unknown as Record<string, unknown>).Buffer = Buffer;
+(window as unknown as Record<string, unknown>).global = window;
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

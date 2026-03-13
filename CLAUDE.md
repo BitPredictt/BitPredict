@@ -35,7 +35,7 @@
 - `contracts/PredictionMarket.ts` — on-chain parimutuel (placeBet, claimPayout, createMarket, resolveMarket, withdrawFees)
 - `contracts/abis/PredictionMarket.abi.ts` — ABI (placeBet, getUserBets, getMarketInfo, getPrice)
 - `contracts/StakingVault.ts` — стейкинг vault с CSV timelocks
-- `contracts/Treasury.ts` — Treasury (deposit/withdraw, ML-DSA auth)
+- `contracts/Treasury.ts` — Treasury (deposit/adminWithdraw, admin-only withdraw)
 - `contracts/WBTC.ts` — NativeSwap WBTC token (wrap/unwrap BTC↔WBTC)
 - `server/index.js` — Express сервер (~3800 строк, oracle + indexer)
 - `src/lib/api.ts` — фронтенд API клиент с JWT + reportBetTx/reportClaimTx
@@ -62,7 +62,7 @@
 - **HIGH-2 WARNING**: `DEPLOYER_SEED` in `.env` — seed phrase for deployer wallet. NEVER commit to git. Rotate periodically. Consider hardware wallet or HSM for production.
 - **HIGH-4 Design Decision**: `resolveMarket()` intentionally does NOT use `whenNotPaused()`. Admin must resolve markets during emergencies to prevent funds being locked. Claims are still paused (claimPayout has whenNotPaused).
 
-## Audit Fixes (Mar 12, 2026)
+## Audit Fixes (Mar 12, 2026) — Round 1
 - **CRITICAL-1**: cancelMarket + emergencyWithdraw — admin can cancel, users self-refund
 - **CRITICAL-2**: claimPayout handles all-losers scenario (NoWinnerRefund)
 - **CRITICAL-3**: verifyTxExists — no more "trust" fallback, retry 3x with 2s delay
@@ -70,4 +70,21 @@
 - **HIGH-3**: sweepDust — admin sweeps remaining dust from resolved/cancelled markets
 - **MEDIUM-2**: getTokenAllowance returns raw sats (no /1e8 division)
 - **MEDIUM-3**: MAX_SATS configurable via VITE_MAX_SATS env var (default 500000)
+
+## Audit Fixes (Mar 12, 2026) — Round 2 (Bob Mainnet Audit)
+- **CRITICAL-4**: totalPools now decremented in claimPayout + emergencyWithdraw (prevents cross-market drain via sweepDust)
+- **CRITICAL-5**: Contract deps pinned (btc-runtime 1.10.12, as-bignum 0.1.2, opnet-transform 1.2.0)
+- **HIGH-5**: Treasury.transferAdmin now has zero address + unchanged admin checks
+- **HIGH-6**: Server: helmet middleware added for security headers
+- **LOW-1**: Treasury.cancelEmergencyWithdraw misleading comment fixed
 - Contract needs rebuild + redeploy after these changes
+
+## Mainnet Remaining TODOs
+- Rotate DEPLOYER_SEED + consider HSM for mainnet
+- Install helmet: `cd server && npm install`
+- Redis rate limiter (replace in-memory)
+- Request body validation (zod/joi)
+- PostgreSQL for production scale
+- Multisig admin (currently single key)
+- Professional human audit before real money
+- Full E2E test on testnet after rebuild

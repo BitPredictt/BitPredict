@@ -50,8 +50,13 @@ export function NotificationBell({ walletAddress }: NotificationBellProps) {
     }).catch(() => {});
   };
 
+  const [tick, setTick] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const iv = setInterval(() => setTick(Math.floor(Date.now() / 1000)), 30000);
+    return () => clearInterval(iv);
+  }, []);
   const timeAgo = (ts: number) => {
-    const diff = Math.floor(Date.now() / 1000) - ts;
+    const diff = tick - ts;
     if (diff < 60) return 'now';
     if (diff < 3600) return `${Math.floor(diff / 60)}m`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h`;

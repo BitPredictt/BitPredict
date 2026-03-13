@@ -24,7 +24,7 @@ interface PortfolioProps {
   walletAddressObj: unknown;
 }
 
-export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onBetsUpdate, onToast, onEnsureAuth, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
+export function Portfolio({ bets, markets, onChainBalance, walletConnected, walletAddress, walletBtcBalance, onConnect, onBalanceRefresh, onToast, onEnsureAuth, trackOp, completeOp, walletProvider, walletNetwork, walletAddressObj }: PortfolioProps) {
   const [claimingBetId, setClaimingBetId] = useState<string | null>(null);
   const [emergencyBetId, setEmergencyBetId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<api.PortfolioMetrics | null>(null);

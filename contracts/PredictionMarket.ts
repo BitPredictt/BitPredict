@@ -528,8 +528,9 @@ export class PredictionMarket extends ReentrancyGuard {
         throw new Revert('Nothing to claim');
       }
 
-      // CEI: mark claimed before transfer
+      // CEI: mark claimed + decrement pool before transfer
       this.userClaimed.set(userKey, u256.One);
+      this.totalPools.set(marketKey, SafeMath.sub(totalPool, refund));
       this._transferToken(Blockchain.tx.sender, refund);
       this.emitEvent(new NoWinnerRefundEvent(marketId, Blockchain.tx.sender, refund));
 
@@ -553,8 +554,9 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Nothing to claim');
     }
 
-    // Mark claimed BEFORE external call (checks-effects-interactions)
+    // Mark claimed + decrement pool BEFORE external call (checks-effects-interactions)
     this.userClaimed.set(userKey, u256.One);
+    this.totalPools.set(marketKey, SafeMath.sub(totalPool, payout));
 
     // Transfer WBTC to winner
     this._transferToken(Blockchain.tx.sender, payout);
@@ -657,8 +659,9 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Nothing to refund');
     }
 
-    // CEI: mark refunded BEFORE transfer
+    // CEI: mark refunded + decrement pool BEFORE transfer
     this.userRefunded.set(userKey, u256.One);
+    this.totalPools.set(marketKey, SafeMath.sub(totalPool, refund));
 
     this._transferToken(Blockchain.tx.sender, refund);
 

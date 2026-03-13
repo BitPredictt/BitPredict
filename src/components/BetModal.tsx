@@ -108,11 +108,10 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
   const isEmptyPool = totalPool === 0;
   const isOneSided = totalPool > 0 && (yesPool === 0 || noPool === 0);
 
-  const isDisplayOnly = !market.onchainId;
   const activeBalance = Math.floor(onChainBalance);
   const insufficientBalance = amountNum > activeBalance;
   const MIN_BET = 10000;
-  const canPlace = wallet.connected && amountNum >= MIN_BET && !placing && !insufficientBalance && !isDisplayOnly;
+  const canPlace = wallet.connected && amountNum >= MIN_BET && !placing && !insufficientBalance;
 
   const handlePlace = async () => {
     if (!canPlace) return;
@@ -141,7 +140,21 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
         {/* Header */}
         <div className="mb-5">
           <span className="text-[10px] font-bold uppercase tracking-wider text-btc">{market.category}</span>
-          <h3 className="text-base font-bold text-white mt-1 pr-8">{market.question}</h3>
+          <div className="flex items-start gap-3 mt-1">
+            {market.imageUrl ? (
+              <img
+                src={market.imageUrl}
+                alt=""
+                className="w-12 h-12 rounded-xl object-cover shrink-0 border border-white/10"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-xl shrink-0 border border-white/10 bg-surface-2 flex items-center justify-center text-xl">
+                {({'Crypto':'₿','Politics':'🏛','Sports':'⚽','Tech':'🤖','Culture':'🎭','Fast Bets':'⚡'})[market.category] || '📊'}
+              </div>
+            )}
+            <h3 className="text-base font-bold text-white pr-8">{market.question}</h3>
+          </div>
         </div>
 
         {/* Bob AI Signal */}
@@ -337,14 +350,6 @@ export function BetModal({ market, wallet, onChainBalance, onClose, onPlaceBet }
                 </p>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Display-only warning */}
-        {isDisplayOnly && (
-          <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
-            <Info size={16} className="text-blue-400 mt-0.5 shrink-0" />
-            <p className="text-xs text-blue-300">This market is display-only (Polymarket mirror). On-chain betting is not available.</p>
           </div>
         )}
 

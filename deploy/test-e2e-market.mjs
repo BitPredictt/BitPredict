@@ -12,7 +12,7 @@ const mnemonic = new Mnemonic(phrase, '', network);
 const wallet = mnemonic.deriveOPWallet(undefined, 0);
 console.log('Wallet:', wallet.p2tr);
 
-const CONTRACT = 'opt1sqpygvu6f4jmpcztx24e70v820fpaevf94gxcpauv';
+const CONTRACT = 'opt1sqzpqfn6cr5fjzp2crfemjyqg4p9w0fve5vp99r5r';
 const RPC_URL = 'https://testnet.opnet.org';
 const provider = new JSONRpcProvider({ url: RPC_URL, network });
 

@@ -56,6 +56,10 @@ deploy/.env
 /*.mjs
 scripts/fund-wallets.mjs
 
+# Server test scripts (may contain seeds)
+server/test-*.cjs
+server/test-*.mjs
+
 # Build artifacts
 dist.tar.gz
 *.tar.gz

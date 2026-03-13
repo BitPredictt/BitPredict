@@ -86,8 +86,9 @@ import { BinaryWriter } from './node_modules/@btc-vision/transaction/build/index
 const calldataWriter = new BinaryWriter();
 // Write WBTC token address as proper Address (32-byte pubkey)
 calldataWriter.writeAddress(Address.fromString(WBTC_PUBKEY));
-// Write server signer hash as u256 (Treasury reads readU256)
-calldataWriter.writeBytes(serverSignerHash);
+// Write server signer hash as u256 (Treasury reads readU256 with be=true)
+const hashBigInt = BigInt('0x' + serverSignerHash.toString('hex'));
+calldataWriter.writeU256(hashBigInt);
 
 const calldata = calldataWriter.getBuffer();
 

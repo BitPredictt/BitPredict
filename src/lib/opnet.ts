@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * OP_NET Integration Layer for BitPredict
  *
@@ -192,6 +193,31 @@ export async function waitForTxConfirmation(
   return { confirmed: false };
 }
 
+/**
+ * Wait until TX is visible on-chain (mempool OR confirmed). Faster than waitForTxConfirmation.
+ */
+export async function waitForTxVisible(
+  provider: unknown,
+  txHash: string,
+  timeoutMs = 60_000,
+  pollMs = 3_000,
+): Promise<{ found: boolean; confirmed: boolean }> {
+  if (!txHash || !provider) return { found: false, confirmed: false };
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const tx = await (provider as any).getTransaction(txHash);
+      if (tx) {
+        const confirmed = tx.blockNumber !== undefined && tx.blockNumber !== null;
+        return { found: true, confirmed };
+      }
+    } catch { /* retry */ }
+    await new Promise(r => setTimeout(r, pollMs));
+  }
+  return { found: false, confirmed: false };
+}
+
 // Re-export types for consumers
 export type { AbstractRpcProvider } from 'opnet';
 
@@ -269,9 +295,10 @@ export async function approveForMarket(
     );
 
     const spenderAddr = await resolveContractAddress(provider, OPNET_CONFIG.contractAddress, OPNET_CONFIG.contractPubkey) as any;
-    const rawAmount = BigInt(amount);
+    // increaseAllowance by 100 BTC — user only confirms once
+    const APPROVE_AMOUNT = BigInt(100_0000_0000);
 
-    const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, rawAmount)) as any;
+    const approveSim = await withRetry(() => (token as any).increaseAllowance(spenderAddr, APPROVE_AMOUNT)) as any;
     if (approveSim?.revert) return { txHash: '', success: false, error: `increaseAllowance revert: ${approveSim.revert}` };
 
     const gas = await getGasParameters(provider);
@@ -282,7 +309,6 @@ export async function approveForMarket(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
     return { txHash: approveTx?.transactionId || approveTx?.txid || '', success: true };
   } catch (err) {
@@ -333,7 +359,6 @@ export async function placeBetOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
 
     const txHash = receipt?.transactionId || receipt?.txid || '';
@@ -383,7 +408,6 @@ export async function claimPayoutOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
 
     const txHash = receipt?.transactionId || receipt?.txid || '';
@@ -433,7 +457,6 @@ export async function emergencyWithdrawOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
 
     const txHash = receipt?.transactionId || receipt?.txid || '';
@@ -492,16 +515,13 @@ export async function signRewardClaimProof(
  * Resolve a contract's Address object for use as a parameter in contract calls
  * (e.g. increaseAllowance spender argument).
  *
- * Address.fromString() requires a HEX public key — NOT an opt1/bc1 address string.
- * For contracts, the correct key is mldsaHashedPublicKey (SHA256 of MLDSA key).
- *
- * Strategy:
- *   1. If pubkeyHex is provided in config — use it directly (fast, no RPC).
- *   2. Otherwise — fetch dynamically via provider.getPublicKeyInfo(address, true).
+ * On OPNet testnet, contracts only have tweakedPubkey (no separate MLDSA key).
+ * Address.fromString(tweakedPubkeyHex) works correctly for all contract calls.
+ * Using getPublicKeyInfo() causes CORS errors from browser (direct RPC to testnet.opnet.org).
  *
  * @param provider  - wallet's AbstractRpcProvider from useWalletConnect()
  * @param contractAddress - opt1/bc1 address string of the contract
- * @param pubkeyHex - optional pre-configured hex public key (from env var)
+ * @param pubkeyHex - pre-configured hex public key (from env var)
  */
 async function resolveContractAddress(
   provider: unknown,
@@ -510,10 +530,9 @@ async function resolveContractAddress(
 ): Promise<unknown> {
   const { Address } = await import('@btc-vision/transaction');
   if (pubkeyHex) {
-    // Fast path: pubkey pre-configured, no RPC needed
     return Address.fromString(pubkeyHex);
   }
-  // Dynamic path: fetch from chain — isContract=true uses mldsaHashedPublicKey
+  // Fallback: fetch from chain (works in Node.js, may CORS-fail in browser)
   return (provider as any).getPublicKeyInfo(contractAddress, true);
 }
 
@@ -543,11 +562,18 @@ export async function getTokenAllowance(
 
     const spenderAddr = await resolveContractAddress(provider, spenderAddress, spenderPubkey) as any;
     const result = await (token as any).allowance(senderAddr, spenderAddr);
-    if (!result || result.revert) return 0;
+    if (!result || result.revert) {
+      console.warn('[allowance] call reverted or empty:', result?.revert);
+      return 0;
+    }
 
-    const raw = result?.properties?.allowance ?? result?.decoded?.[0] ?? 0n;
-    return Number(BigInt(raw)); // raw sats, no division
-  } catch {
+    // OP-20 allowance() returns { properties: { remaining: BigInt } }, NOT "allowance"
+    const raw = result?.properties?.remaining ?? result?.properties?.allowance ?? result?.decoded?.[0] ?? 0n;
+    const value = Number(BigInt(raw));
+    console.log('[allowance] current:', value, 'sats');
+    return value; // raw sats, no division
+  } catch (e) {
+    console.warn('[allowance] check failed, will approve:', e instanceof Error ? e.message : e);
     return 0;
   }
 }
@@ -562,6 +588,31 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
     }
   }
   throw new Error('Retry exhausted');
+}
+
+/**
+ * Wait for allowance to be updated on-chain after approve TX.
+ * Approve TXs may not appear via btc_getTransactionByHash but the allowance
+ * IS set on the contract — so we poll allowance() instead of looking up the TX.
+ */
+export async function waitForAllowanceUpdate(
+  provider: unknown,
+  network: unknown,
+  senderAddr: unknown,
+  spenderAddress: string,
+  requiredAmount: number,
+  timeoutMs = 90_000,
+  pollMs = 5_000,
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const allowance = await getTokenAllowance(provider, network, senderAddr, spenderAddress);
+      if (allowance >= requiredAmount) return true;
+    } catch { /* retry */ }
+    await new Promise(r => setTimeout(r, pollMs));
+  }
+  return false;
 }
 
 /**
@@ -616,7 +667,6 @@ export async function stakeOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing, do NOT pass signer/mldsaSigner
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -660,7 +710,6 @@ export async function unstakeOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing, do NOT pass signer/mldsaSigner
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -702,7 +751,6 @@ export async function claimVaultOnChain(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing, do NOT pass signer/mldsaSigner
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -832,7 +880,6 @@ export async function approveForVault(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
     return { txHash: approveTx?.transactionId || approveTx?.txid || '', success: true };
   } catch (err) {
@@ -917,7 +964,6 @@ export async function depositToTreasury(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
 
     return { txHash: depositTx?.transactionId || depositTx?.txid || '', success: true };
@@ -925,6 +971,9 @@ export async function depositToTreasury(
     return { txHash: '', success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// withdrawFromTreasury removed — server handles withdrawal via adminWithdraw on-chain.
+// When ML-DSA signature verification works on mainnet, can restore client-side withdraw.
 
 // ─── Wrap/Unwrap BTC <-> WBTC (NativeSwap) ───
 
@@ -975,7 +1024,6 @@ export async function wrapBTC(
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
       extraOutputs: [{ address: OPNET_CONFIG.wbtcPoolAddress, value: BigInt(amountSats) }],
-      // Frontend: wallet handles signing
     });
     return { txHash: receipt?.transactionId || receipt?.txid || '', success: true };
   } catch (err) {
@@ -1025,7 +1073,6 @@ export async function unwrapWBTC(
       network,
       feeRate: gas.feeRate,
       priorityFee: gas.priorityFee,
-      // Frontend: wallet handles signing
     });
 
     const burnTxHash = receipt?.transactionId || receipt?.txid || '';

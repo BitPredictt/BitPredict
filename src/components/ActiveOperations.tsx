@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2, ExternalLink, CheckCircle2, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, ExternalLink, CheckCircle2, XCircle, ChevronDown, ChevronUp, X } from 'lucide-react';
 import * as api from '../lib/api';
 import { getExplorerTxUrl } from '../lib/opnet';
 
@@ -29,11 +29,28 @@ export function ActiveOperations({ walletAddress, refreshKey }: ActiveOperations
     } catch { /* silent */ }
   }, [walletAddress]);
 
+  const dismissOp = async (id: number) => {
+    setOps(prev => prev.filter(o => o.id !== id));
+    try { await api.deletePendingOp(id); } catch { /* silent */ }
+  };
+
+  const dismissAll = () => {
+    ops.forEach(op => api.deletePendingOp(op.id).catch(() => {}));
+    setOps([]);
+  };
+
+  const [tick, setTick] = useState(() => Math.floor(Date.now() / 1000));
+
   useEffect(() => {
-    loadOps();
+    loadOps(); // eslint-disable-line react-hooks/set-state-in-effect
     const iv = setInterval(loadOps, 10000);
     return () => clearInterval(iv);
   }, [loadOps, refreshKey]);
+
+  useEffect(() => {
+    const iv = setInterval(() => setTick(Math.floor(Date.now() / 1000)), 10000);
+    return () => clearInterval(iv);
+  }, []);
 
   if (!walletAddress || ops.length === 0) return null;
 
@@ -48,9 +65,8 @@ export function ActiveOperations({ walletAddress, refreshKey }: ActiveOperations
     if (status === 'failed' || status === 'expired') return 'border-red-500/30 bg-red-500/5';
     return 'border-btc/30 bg-btc/5';
   };
-
   const timeAgo = (ts: number) => {
-    const diff = Math.floor(Date.now() / 1000) - ts;
+    const diff = tick - ts;
     if (diff < 60) return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     return `${Math.floor(diff / 3600)}h ago`;
@@ -70,7 +86,13 @@ export function ActiveOperations({ walletAddress, refreshKey }: ActiveOperations
               Active Operations ({ops.length})
             </span>
           </div>
-          {collapsed ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+          <div className="flex items-center gap-1">
+            <span
+              onClick={(e) => { e.stopPropagation(); dismissAll(); }}
+              className="text-[9px] text-gray-500 hover:text-red-400 cursor-pointer px-1"
+            >Clear all</span>
+            {collapsed ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+          </div>
         </button>
 
         {/* Operations list */}
@@ -88,7 +110,15 @@ export function ActiveOperations({ walletAddress, refreshKey }: ActiveOperations
                       {OP_LABELS[op.type] || op.type}
                     </span>
                   </div>
-                  <span className="text-[9px] text-gray-500">{timeAgo(op.created_at)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] text-gray-500">{timeAgo(op.created_at)}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); dismissOp(op.id); }}
+                      className="text-gray-600 hover:text-red-400 transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </div>
                 {op.details && (
                   <div className="text-[10px] text-gray-400 mt-1 truncate">{op.details}</div>

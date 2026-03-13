@@ -135,7 +135,7 @@ export function AIAnalysis({ onAnalyze }: AIAnalysisProps) {
 
       {/* FAQ items */}
       <div className="space-y-2">
-        {filtered.map((item, i) => {
+        {filtered.map((item) => {
           const globalIdx = FAQ_DATA.indexOf(item);
           const isOpen = openItems.has(globalIdx);
           const meta = CATEGORY_META[item.category];

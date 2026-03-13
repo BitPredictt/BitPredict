@@ -136,6 +136,7 @@ export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
 
 let toastCounter = 0;
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastData[]>([]);
 

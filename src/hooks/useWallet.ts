@@ -62,7 +62,7 @@ export function useWallet() {
     sdkDisconnect();
   }, [sdkDisconnect]);
 
-  const refreshBalance = useCallback(async (_address: string) => {}, []);
+  const refreshBalance = useCallback(async () => {}, []);
 
   /**
    * Sign a message for auth challenge.
@@ -73,7 +73,7 @@ export function useWallet() {
     if (!walletInstance) {
       throw new Error('Wallet signer not ready — wallet instance unavailable');
     }
-    const signature = await (walletInstance as any).signMessage(message);
+    const signature = await (walletInstance as unknown as { signMessage: (msg: string) => Promise<string> }).signMessage(message);
     if (!signature) {
       throw new Error('Wallet returned empty signature');
     }
