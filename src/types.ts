@@ -92,7 +92,7 @@ export interface LeaderboardEntry {
   isUser?: boolean;
 }
 
-export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'achievements' | 'vault';
+export type Tab = 'markets' | 'portfolio' | 'leaderboard' | 'ai' | 'vault';
 export type CategoryFilter = 'All' | 'Favorites' | 'Fast Bets' | 'Crypto' | 'Politics' | 'Sports' | 'Tech' | 'Culture';
 
 // --- Vault types ---
@@ -102,6 +102,9 @@ export interface VaultInfo {
   apy: number;
   stakerCount: number;
   rewardsPerShare: number;
+  apyLabel?: 'Target' | 'Projected' | 'Estimated';
+  platformAgeDays?: number;
+  totalVolume?: number;
 }
 
 export interface VaultUserInfo {
@@ -179,6 +182,7 @@ export interface WithdrawResult {
   txHash?: string;
   status: string;
   message?: string;
+  error?: string;
 }
 
 // --- PnL types ---

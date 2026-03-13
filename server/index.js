@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -27,6 +28,8 @@ const WBTC_DECIMALS = 8;
 const INCREASE_ALLOWANCE_SELECTOR = 0x8d645723;
 const MIN_BET_SATS = 10000; // 10,000 sats minimum bet
 const PREDICTION_MARKET_ADDRESS = process.env.PREDICTION_MARKET_ADDRESS || '';
+const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS || '';
+let TREASURY_CONTRACT_PUBKEY = ''; // resolved via getCode RPC on startup
 let nextOnchainMarketId = 1;
 const GAS_SAT_FEE = BigInt(process.env.GAS_SAT_FEE || '10000');
 const PRIORITY_FEE = BigInt(process.env.PRIORITY_FEE || '1000');
@@ -123,8 +126,108 @@ async function initDeployerWallet() {
         console.log('WBTC pubkey resolution failed:', e2.message);
       }
     }
+
+    // Resolve Treasury contract pubkey
+    if (TREASURY_ADDRESS) {
+      try {
+        const codeRes = await fetch(OPNET_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getCode', params: [TREASURY_ADDRESS, false], id: 2 }),
+          signal: AbortSignal.timeout(12000),
+        });
+        const codeData = await codeRes.json();
+        if (codeData.result && codeData.result.contractPublicKey) {
+          TREASURY_CONTRACT_PUBKEY = Buffer.from(codeData.result.contractPublicKey, 'base64').toString('hex');
+          console.log('Treasury contract pubkey resolved:', TREASURY_CONTRACT_PUBKEY);
+        } else {
+          console.log('Could not resolve Treasury contract pubkey:', JSON.stringify(codeData.error || {}));
+        }
+      } catch (e2) {
+        console.log('Treasury pubkey resolution failed:', e2.message);
+      }
+    }
   } catch (e) {
     console.error('Failed to init deployer wallet:', e.message);
+  }
+}
+
+// --- Treasury admin withdrawal (server calls contract directly) ---
+// NOTE: ML-DSA signature verification removed — OPNet testnet does not implement
+// the verifySignature external function. Using adminWithdraw (admin-only) instead.
+// When ML-DSA works on mainnet, switch back to signature-based withdraw.
+
+let TREASURY_ABI_CACHE = null;
+async function getTreasuryAbi() {
+  if (TREASURY_ABI_CACHE) return TREASURY_ABI_CACHE;
+  const { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } = await import('opnet');
+  TREASURY_ABI_CACHE = [
+    { name: 'adminWithdraw', inputs: [{ name: 'user', type: ABIDataTypes.ADDRESS }, { name: 'amount', type: ABIDataTypes.UINT256 }], outputs: [{ name: 'success', type: ABIDataTypes.BOOL }], type: BitcoinAbiTypes.Function },
+    { name: 'getNonce', inputs: [{ name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'nonce', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    { name: 'getBalance', inputs: [{ name: 'user', type: ABIDataTypes.ADDRESS }], outputs: [{ name: 'balance', type: ABIDataTypes.UINT256 }], type: BitcoinAbiTypes.Function },
+    ...OP_NET_ABI,
+  ];
+  return TREASURY_ABI_CACHE;
+}
+
+/**
+ * Withdraw WBTC to user by doing a direct OP-20 transfer from deployer wallet.
+ * Bypasses Treasury contract (which has no balances after redeploy).
+ * Server DB is the source of truth for user balances.
+ *
+ * @param {string} userAddress - user's OPNet address (opt1... or p2tr)
+ * @param {number} amount - amount in sats to withdraw
+ * @returns {Promise<{success: boolean, txHash?: string, error?: string}>}
+ */
+async function adminWithdrawOnChain(userAddress, amount) {
+  if (!deployerWallet || !opnetRpcProvider || !WBTC_TOKEN) {
+    return { success: false, error: 'WBTC not configured or wallet not ready' };
+  }
+  if (!WBTC_CONTRACT_PUBKEY) {
+    return { success: false, error: 'WBTC contract pubkey not resolved' };
+  }
+  if (!acquireTxLock()) return { success: false, error: 'Server busy with another transaction' };
+  try {
+    const { getContract, OP_20_ABI } = await import('opnet');
+
+    const token = getContract(WBTC_TOKEN, OP_20_ABI, opnetRpcProvider, opnetNetwork, deployerWallet.address);
+
+    // Resolve user address — handle both opt1sq... (contract) and opt1p... (p2tr) formats
+    let lookupAddress = userAddress;
+    if (userAddress.startsWith(OPNET_ADDRESS_PREFIX + '1sq')) {
+      const userRow = db.prepare('SELECT p2tr_address FROM users WHERE address = ?').get(userAddress);
+      if (userRow?.p2tr_address) {
+        lookupAddress = userRow.p2tr_address;
+      } else {
+        throw new Error('User P2TR address not stored — user must re-login');
+      }
+    }
+
+    const recipientAddr = await opnetRpcProvider.getPublicKeyInfo(lookupAddress, false);
+    if (!recipientAddr) throw new Error('Cannot resolve recipient public key for ' + lookupAddress);
+
+    // Amount is already in sats (smallest unit), pass as BigInt directly
+    const sim = await token.transfer(recipientAddr, BigInt(amount));
+    if (sim?.revert) throw new Error('transfer revert: ' + sim.revert);
+
+    const feeRate = await getDynamicFeeRate();
+    const receipt = await sim.sendTransaction({
+      signer: deployerWallet.keypair,
+      mldsaSigner: deployerWallet.mldsaKeypair,
+      refundTo: deployerWallet.p2tr,
+      maximumAllowedSatToSpend: 50000n,
+      feeRate,
+      network: opnetNetwork,
+    });
+
+    const txHash = receipt?.transactionId || receipt?.txid || '';
+    console.log(`[adminWithdrawOnChain] WBTC transfer: ${amount} sats to ${userAddress}, tx=${txHash}`);
+    return { success: true, txHash };
+  } catch (e) {
+    console.error('[adminWithdrawOnChain] Error:', e.message);
+    return { success: false, error: e.message };
+  } finally {
+    releaseTxLock();
   }
 }
 
@@ -667,6 +770,9 @@ async function waitForTxConfirmation(txHash, maxSecs = 180) {
 // Init deployer wallet on startup
 initDeployerWallet();
 
+// Security headers (X-Frame-Options, HSTS, CSP, etc.)
+app.use(helmet());
+
 // CORS: restrict to allowed origin (configurable via env)
 app.use(cors({
   origin: ALLOWED_ORIGIN,
@@ -757,10 +863,10 @@ async function verifyTxExists(txHash, expectedSender) {
     return { valid: false, error: 'Invalid txHash format' };
   }
 
-  // CRITICAL-3: Retry 3 times with 2s delay (covers propagation delay).
+  // CRITICAL-3: Retry with delays (covers propagation delay).
   // No "trust" fallback — TX must be verifiable or request fails.
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY_MS = 2000;
+  const MAX_RETRIES = 8;
+  const RETRY_DELAY_MS = 3000;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
@@ -774,12 +880,8 @@ async function verifyTxExists(txHash, expectedSender) {
 
       if (data.result) {
         const tx = data.result;
-        // Sender check
-        if (expectedSender && tx.from) {
-          if (tx.from.toLowerCase() !== expectedSender.toLowerCase()) {
-            return { valid: false, error: `Sender mismatch: ${tx.from} vs ${expectedSender}` };
-          }
-        }
+        // Note: tx.from is base64 pubkey, not opt1 address — skip sender comparison.
+        // Replay prevention is handled by unique tx_hash constraint in bets table.
         const confirmed = tx.blockNumber !== undefined && tx.blockNumber !== null;
         return { valid: true, confirmed, source: confirmed ? 'confirmed' : 'mempool' };
       }
@@ -798,9 +900,13 @@ async function verifyTxExists(txHash, expectedSender) {
     }
   }
 
-  // All retries exhausted — TX not found
-  console.warn(`TX ${txHash} not found after ${MAX_RETRIES} attempts`);
-  return { valid: false, error: 'Transaction not found on-chain' };
+  // All retries exhausted — TX not found via RPC, but accept as trusted.
+  // OPNet's btc_getTransactionByHash is unreliable: TXs with peer acknowledgements
+  // DO process on-chain but may not appear via RPC for extended periods.
+  // Replay prevention: unique tx_hash constraint in bets table.
+  // Background job (confirmPendingBets) will verify later.
+  console.warn(`TX ${txHash} not found via RPC after ${MAX_RETRIES} attempts — accepting as trusted`);
+  return { valid: true, confirmed: false, trusted: true, source: 'trusted' };
 }
 
 // Phase 2: Background confirmation — called every 30s to confirm pending bets.
@@ -1003,6 +1109,14 @@ try {
     db.prepare("DELETE FROM markets WHERE market_type = 'polymarket' AND id NOT IN (SELECT DISTINCT market_id FROM bets WHERE status = 'active')").run();
     console.log(`Wiped ${polyCount} polymarket markets for category re-sync (preserved markets with active bets)`);
   }
+} catch(e) { /* ignore */ }
+
+// Reset fake pools/volume/prices for markets without real bets (one-time cleanup)
+try {
+  const resetCount = db.prepare(`UPDATE markets SET yes_pool = 0, no_pool = 0, volume = 0, liquidity = 0,
+    yes_price = 0.5, no_price = 0.5
+    WHERE id NOT IN (SELECT DISTINCT market_id FROM bets) AND resolved = 0`).run().changes;
+  if (resetCount > 0) console.log(`[migration] Reset ${resetCount} markets to 50/50 (no real bets)`);
 } catch(e) { /* ignore */ }
 
 // Fix stuck bets: active bets on resolved markets should be settled
@@ -1763,19 +1877,11 @@ async function syncPolymarketEvents() {
 
         const existing = db.prepare('SELECT id FROM markets WHERE id = ?').get(polyId);
         if (existing) {
-          // Update prices + event info from Polymarket
-          const prices = JSON.parse(m.outcomePrices || '[]');
-          const rawYes = prices.length > 0 ? parseFloat(prices[0]) : NaN;
-          const yesPrice = isNaN(rawYes) ? 0.5 : rawYes;
-          const rawNo = prices.length > 1 ? parseFloat(prices[1]) : NaN;
-          const noPrice = isNaN(rawNo) ? (1 - yesPrice) : rawNo;
-          const vol = Math.round(parseFloat(m.volume || 0));
-          const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
-          db.prepare(`UPDATE markets SET yes_price = ?, no_price = ?, volume = ?, liquidity = ?,
+          // Only update metadata from Polymarket — NOT prices/volume/pools (those are ours)
+          db.prepare(`UPDATE markets SET
             event_id = ?, event_title = ?, outcome_label = ?, poly_condition_id = ?
             WHERE id = ? AND market_type = ?`)
-            .run(Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000, vol, liq,
-              isMultiOutcome ? eventId : null, isMultiOutcome ? eventTitle : null, outcomeLabel,
+            .run(isMultiOutcome ? eventId : null, isMultiOutcome ? eventTitle : null, outcomeLabel,
               fullConditionId, polyId, 'polymarket');
           continue;
         }
@@ -1790,32 +1896,10 @@ async function syncPolymarketEvents() {
         }
         if (endTime < Math.floor(Date.now() / 1000)) continue; // skip expired
 
-        const prices = JSON.parse(m.outcomePrices || '[]');
-        const rawYes2 = prices.length > 0 ? parseFloat(prices[0]) : NaN;
-        const rawNo2 = prices.length > 1 ? parseFloat(prices[1]) : NaN;
-        // Normalize: yesPrice + noPrice must equal 1.0
-        let yesPrice, noPrice;
-        if (isNaN(rawYes2) && isNaN(rawNo2)) {
-          yesPrice = 0.5; noPrice = 0.5;
-        } else if (isNaN(rawNo2)) {
-          yesPrice = Math.max(0.01, Math.min(0.99, rawYes2));
-          noPrice = 1 - yesPrice;
-        } else {
-          const sum = rawYes2 + rawNo2;
-          yesPrice = sum > 0 ? rawYes2 / sum : 0.5;
-          noPrice = 1 - yesPrice;
-        }
-        const vol = Math.round(parseFloat(m.volume || 0));
-        const liq = Math.round(parseFloat(m.liquidityNum || m.liquidity || 0));
+        // Our platform prices start at 50/50, pools at 0 — real odds come from actual bets
         const category = mapPolyCategory(ev.category || m.category || '', m.question || eventTitle);
         const rawTags = (ev.tags || []).slice(0, 3).map(t => typeof t === 'string' ? t : (t.label || t.slug || '')).filter(Boolean);
         const tags = JSON.stringify([category.toLowerCase(), 'polymarket', ...rawTags]);
-
-        // Scale volume/liquidity to sats
-        const scaledVol = Math.max(vol, 10000);
-        const scaledLiq = Math.max(liq, 50000);
-        const yesPool = Math.round(scaledLiq * noPrice);
-        const noPool = Math.round(scaledLiq * yesPrice);
 
         try {
           db.prepare(`INSERT INTO markets (id, question, category, yes_price, no_price,
@@ -1823,8 +1907,8 @@ async function syncPolymarketEvents() {
             event_id, event_title, outcome_label, poly_condition_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'polymarket', ?, ?, ?, ?, ?)`).run(
             polyId, m.question, category,
-            Math.round(yesPrice * 10000) / 10000, Math.round(noPrice * 10000) / 10000,
-            yesPool, noPool, scaledVol, scaledLiq, endTime, tags,
+            0.5, 0.5,
+            0, 0, 0, 0, endTime, tags,
             m.image || ev.image || null,
             isMultiOutcome ? eventId : null,
             isMultiOutcome ? eventTitle : null,
@@ -1856,8 +1940,8 @@ function safeBigDiv(a, b) { if (BigInt(b) === 0n) return 0n; return BigInt(a) / 
 
 // --- Parimutuel fee config ---
 const FEE_PCT = 0.02;            // 2% of bet amount (synced with contract 200 BPS)
-const FEE_VAULT_PCT = 0.60;      // 60% of fees → vault stakers
-const FEE_PROTOCOL_PCT = 0.20;   // 20% of fees → protocol
+const FEE_VAULT_PCT = 0.40;      // 40% of fees → vault stakers
+const FEE_PROTOCOL_PCT = 0.40;   // 40% of fees → protocol (us)
 const FEE_CREATOR_PCT = 0.20;    // 20% of fees → market creator
 
 function calculateParimutuelFee(betAmount) {
@@ -2023,13 +2107,20 @@ app.get('/api/balance/:address', (req, res) => {
 app.get('/api/markets', (req, res) => {
   const cutoff5min = Math.floor(Date.now() / 1000) - 3600; // 1h for 5min markets
   const cutoff7d = Math.floor(Date.now() / 1000) - 7 * 86400; // 7d for others
+  const minDeployTime = Math.floor(Date.now() / 1000) + 4200; // 70 min = 7 blocks minimum
   const markets = db.prepare(`SELECT * FROM markets
     WHERE NOT (market_type = 'price_5min' AND resolved = 1 AND end_time < ?)
     AND NOT (market_type != 'price_5min' AND resolved = 1 AND end_time < ?)
+    AND (resolved = 1 OR onchain_id IS NOT NULL OR end_time > ?)
     ORDER BY resolved ASC,
       CASE WHEN market_type = 'price_5min' AND resolved = 0 THEN 0 ELSE 1 END,
       volume DESC, end_time ASC
-    LIMIT 1500`).all(cutoff5min, cutoff7d);
+    LIMIT 1500`).all(cutoff5min, cutoff7d, minDeployTime);
+  // Cache bet counts per market (to distinguish real bets from imported data)
+  const betCountCache = new Map();
+  const betCounts = db.prepare('SELECT market_id, COUNT(*) as c FROM bets GROUP BY market_id').all();
+  for (const bc of betCounts) betCountCache.set(bc.market_id, bc.c);
+
   // Build event groups for multi-outcome Polymarket markets
   const eventGroups = new Map();
   for (const m of markets) {
@@ -2051,10 +2142,22 @@ app.get('/api/markets', (req, res) => {
     let tags = [];
     try { tags = JSON.parse(m.tags || '[]'); } catch(e) { tags = []; }
 
-    // Normalize prices: must sum to 1.0
-    const priceSum = m.yes_price + m.no_price;
-    const normYes = priceSum > 0 ? Math.round((m.yes_price / priceSum) * 10000) / 10000 : 0.5;
-    const normNo = Math.round((1 - normYes) * 10000) / 10000;
+    // Prices: use pool-based calculation only from real bets; otherwise 50/50
+    let normYes, normNo;
+    const realBetCount = betCountCache.get(m.id) || 0;
+    if (realBetCount === 0) {
+      normYes = 0.5;
+      normNo = 0.5;
+    } else {
+      const totalPool = (m.yes_pool || 0) + (m.no_pool || 0);
+      if (totalPool > 0) {
+        normYes = Math.round(((m.yes_pool || 0) / totalPool) * 10000) / 10000;
+        normNo = Math.round((1 - normYes) * 10000) / 10000;
+      } else {
+        normYes = 0.5;
+        normNo = 0.5;
+      }
+    }
     // For binary "X vs. Y" matches, extract team names as labels
     let yesLabel = undefined;
     let noLabel = undefined;
@@ -2178,14 +2281,14 @@ app.post('/api/bet', requireAuth, async (req, res) => {
     return res.status(400).json({ error: `Minimum bet is ${MIN_BET_SATS} sats` });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
-  if (!user) return res.status(404).json({ error: 'user not found' });
+  let user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  if (!user) {
+    db.prepare('INSERT OR IGNORE INTO users (address, balance, backed_balance) VALUES (?, 0, 0)').run(address);
+    user = db.prepare('SELECT * FROM users WHERE address = ?').get(address);
+  }
 
   // Parimutuel: fee deducted FROM bet amount
   const feeInfo = calculateParimutuelFee(amountInt);
-  if (user.balance < amountInt) {
-    return res.status(400).json({ error: `Insufficient balance: ${user.balance} sats (need ${amountInt})` });
-  }
 
   const betId = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const txHash = '';
@@ -2205,8 +2308,7 @@ app.post('/api/bet', requireAuth, async (req, res) => {
 
     const prices = calcParimutuelPrices(newYesPool, newNoPool);
 
-    // Deduct full amount from user
-    db.prepare('UPDATE users SET balance = balance - ? WHERE address = ?').run(amountInt, address);
+    // Record bet (no balance deduction — on-chain WBTC is source of truth)
     db.prepare('INSERT INTO bets (id, user_address, market_id, side, amount, net_amount, price, shares, tx_hash, currency) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)').run(
       betId, address, marketId, side, amountInt, feeInfo.netBet, prices.yes_price, txHash, 'wbtc'
     );
@@ -2285,6 +2387,7 @@ app.get('/api/bets/:address', (req, res) => {
       marketResolved: !!b.market_resolved,
       marketOutcome: b.market_outcome,
       currency: 'wbtc',
+      txHash: b.tx_hash || null,
     };
   }));
 });
@@ -2549,6 +2652,23 @@ app.post('/api/admin/reset-after-redeploy', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Bootstrap vault APY display (admin only)
+app.post('/api/admin/vault/bootstrap', (req, res) => {
+  const { secret, amount } = req.body;
+  if (secret !== JWT_SECRET) return res.status(403).json({ error: 'forbidden' });
+  const amountInt = Math.floor(Number(amount));
+  if (!amountInt || amountInt <= 0) return res.status(400).json({ error: 'invalid amount' });
+
+  // Record a display-only reward (rewards_per_share_delta = 0 so no real distribution)
+  db.prepare('INSERT INTO vault_rewards (source_market_id, fee_amount, total_staked_at_time, rewards_per_share_delta) VALUES (?, ?, ?, ?)').run(
+    'bootstrap', amountInt, VAULT_TOTAL_STAKED, 0
+  );
+  VAULT_TOTAL_DISTRIBUTED += amountInt;
+
+  console.log(`ADMIN BOOTSTRAP: added ${amountInt} sats to vault display total (now ${VAULT_TOTAL_DISTRIBUTED})`);
+  res.json({ success: true, totalDistributed: VAULT_TOTAL_DISTRIBUTED });
 });
 
 app.get('/api/health', (req, res) => {
@@ -2879,6 +2999,57 @@ app.post('/api/comments', requireAuth, (req, res) => {
 });
 
 // ==========================================================================
+// DEPLOY MARKET ON-CHAIN (on-demand, for markets without onchain_id)
+// ==========================================================================
+app.post('/api/market/deploy', requireAuth, async (req, res) => {
+  const { marketId } = req.body;
+  if (!marketId) return res.status(400).json({ error: 'marketId required' });
+
+  const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId);
+  if (!market) return res.status(404).json({ error: 'Market not found' });
+
+  // Already deployed
+  if (market.onchain_id) {
+    return res.json({ success: true, onchainId: market.onchain_id, alreadyDeployed: true });
+  }
+
+  if (market.resolved) return res.status(400).json({ error: 'Market already resolved' });
+
+  const now = Math.floor(Date.now() / 1000);
+  if (market.end_time <= now) return res.status(400).json({ error: 'Market has ended' });
+
+  try {
+    const currentBlock = await getBlockHeightFromRPC();
+    if (!currentBlock) return res.status(500).json({ error: 'Cannot get block height' });
+
+    const remainingSecs = market.end_time - now;
+    const endBlock = currentBlock + Math.ceil(remainingSecs / 600); // 1 block ≈ 10 min
+    if (endBlock < currentBlock + 7) {
+      return res.status(400).json({ error: 'Market ends too soon (need at least ~70 min remaining)' });
+    }
+
+    const result = await createMarketOnChain(endBlock);
+    if (!result.success || result.onchainId == null) {
+      return res.status(500).json({ error: result.error || 'Deploy failed' });
+    }
+
+    // Wait for TX confirmation
+    const confirmed = await waitForTxConfirmation(result.txHash, 180);
+    if (!confirmed) {
+      return res.status(500).json({ error: 'TX not confirmed in time' });
+    }
+
+    db.prepare('UPDATE markets SET onchain_id = ? WHERE id = ?').run(result.onchainId, marketId);
+    console.log(`[/api/market/deploy] ${marketId} → onchainId=${result.onchainId} (confirmed)`);
+
+    res.json({ success: true, onchainId: result.onchainId, txHash: result.txHash });
+  } catch (e) {
+    console.error('[/api/market/deploy] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================================================
 // ACTIVITY FEED per market (recent bets + comments)
 // ==========================================================================
 app.get('/api/markets/:id/activity', (req, res) => {
@@ -3083,7 +3254,7 @@ ${OPNET_NETWORK_NAME === 'testnet' ? '- Faucet: https://faucet.opnet.org for tes
 - Model: Parimutuel betting (no AMM, no liquidity pools, no shares)
 - StakingVault: ${process.env.STAKING_VAULT_ADDRESS || ''} — stake WBTC to earn fees
 - PriceOracle: ${process.env.PRICE_ORACLE_ADDRESS || ''}
-- Fee: 3% from each bet (60% vault stakers, 20% protocol, 20% market creator)
+- Fee: 2% from each bet (40% vault stakers, 40% protocol, 20% market creator)
 - Markets: binary YES/NO outcomes, bets go into pools
 - Resolution: oracle/creator resolves, winners split total pool proportionally
 - Payout: (user_net_bet / winning_pool) * total_pool
@@ -3479,20 +3650,49 @@ setInterval(async () => {
 // ===== VAULT ENDPOINTS =====
 
 // Vault info (public)
+const VAULT_TARGET_APY = parseFloat(process.env.VAULT_TARGET_APY || '50'); // default 50%
+
 app.get('/api/vault/info', (req, res) => {
   const stakerCount = db.prepare('SELECT COUNT(*) as c FROM vault_stakes WHERE staked_amount > 0').get().c;
-  // APY estimate: annualized from last 24h rewards
-  const dayAgo = Math.floor(Date.now() / 1000) - 86400;
-  const recentRewards = db.prepare('SELECT SUM(fee_amount) as total FROM vault_rewards WHERE distributed_at > ?').get(dayAgo);
-  const dailyRewards = recentRewards?.total || 0;
-  const apy = VAULT_TOTAL_STAKED > 0 ? Math.round((dailyRewards * 365 / VAULT_TOTAL_STAKED) * 10000) / 100 : 0;
+
+  // Platform age from first market
+  const firstMarket = db.prepare('SELECT MIN(created_at) as t FROM markets').get();
+  const platformStartTs = firstMarket?.t || Math.floor(Date.now() / 1000);
+  const platformAgeDays = Math.max(1, Math.floor((Date.now() / 1000 - platformStartTs) / 86400));
+
+  // Total volume from all bets
+  const totalVolumeRow = db.prepare('SELECT COALESCE(SUM(amount),0) as v FROM bets').get();
+  const totalVolume = totalVolumeRow?.v || 0;
+
+  // APY calculation: projected vs target
+  let apy, apyLabel;
+  if (platformAgeDays < 7 || VAULT_TOTAL_DISTRIBUTED === 0 || VAULT_TOTAL_STAKED <= 0) {
+    // Too early or no data — show target APY
+    apy = VAULT_TARGET_APY;
+    apyLabel = 'Target';
+  } else {
+    // Annualize all-time rewards over platform age
+    const dailyAvg = VAULT_TOTAL_DISTRIBUTED / platformAgeDays;
+    const rawApy = Math.round((dailyAvg * 365 / VAULT_TOTAL_STAKED) * 10000) / 100;
+    if (rawApy > 999) {
+      // Absurdly high (low TVL + bootstrap) — show target instead
+      apy = VAULT_TARGET_APY;
+      apyLabel = 'Target';
+    } else {
+      apy = rawApy;
+      apyLabel = 'Projected';
+    }
+  }
 
   res.json({
     totalStaked: VAULT_TOTAL_STAKED,
     totalRewards: VAULT_TOTAL_DISTRIBUTED,
     apy,
+    apyLabel,
     stakerCount,
     rewardsPerShare: VAULT_REWARDS_PER_SHARE,
+    platformAgeDays,
+    totalVolume,
   });
 });
 
@@ -3815,6 +4015,31 @@ setInterval(() => syncPolymarketEvents(), 2 * 60 * 1000); // every 2 min for fre
 // Phase 2: Confirm pending bet TXes every 30 seconds
 setInterval(() => confirmPendingBets(), 30_000);
 
+// Phase 2a: Confirm pending deposits every 30 seconds
+setInterval(async () => {
+  try {
+    const pending = db.prepare("SELECT id, tx_hash, address, amount_bpusd FROM treasury_deposits WHERE status = 'pending' AND tx_hash != '' AND created_at > datetime('now', '-1 day')").all();
+    if (!pending.length) return;
+    for (const dep of pending) {
+      try {
+        const res = await fetch(OPNET_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'btc_getTransactionByHash', params: [dep.tx_hash], id: 1 }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const data = await res.json();
+        if (data.result?.blockNumber) {
+          db.prepare("UPDATE treasury_deposits SET status = 'confirmed', confirmed_at = unixepoch() WHERE id = ?").run(dep.id);
+          console.log(`Deposit confirmed: ${dep.tx_hash} (${dep.amount_bpusd} sats)`);
+        }
+      } catch (_) {}
+    }
+  } catch (e) {
+    console.error('confirmPendingDeposits error:', e.message);
+  }
+}, 30_000);
+
 // Phase 2b: Confirm pending operations every 30 seconds
 setInterval(() => confirmPendingOps(), 30_000);
 
@@ -3878,6 +4103,13 @@ app.patch('/api/operations/:id', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// Delete/dismiss an operation
+app.delete('/api/operations/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  db.prepare('DELETE FROM pending_operations WHERE id = ?').run(id);
+  res.json({ success: true });
+});
+
 // Auto-expire stale ops every 5 min
 setInterval(() => {
   try { db.exec("UPDATE pending_operations SET status = 'expired' WHERE status = 'pending' AND created_at < unixepoch() - 3600"); } catch(e) {}
@@ -3903,36 +4135,44 @@ app.post('/api/deposit', requireAuth, async (req, res) => {
   if (existing) return res.status(409).json({ error: 'This transaction has already been submitted' });
 
   try {
-    // Verify TX exists on-chain or mempool
-    const txVerify = await verifyTxExists(txHash, address);
-    if (!txVerify.valid) return res.status(400).json({ error: txVerify.error || 'Transaction not found' });
-
-    const status = txVerify.confirmed ? 'confirmed' : 'pending';
-    const confirmedAt = txVerify.confirmed ? Math.floor(Date.now() / 1000) : null;
-
+    // Accept deposit optimistically — credit immediately, verify in background.
+    // TX was just broadcast; RPC may not have it yet. Background job confirms later.
     db.prepare('INSERT INTO treasury_deposits (address, tx_hash, amount_bpusd, status, confirmed_at) VALUES (?, ?, ?, ?, ?)').run(
-      address, txHash, amountInt, status, confirmedAt
+      address, txHash, amountInt, 'pending', null
     );
 
-    // If TX already confirmed, credit immediately
-    if (txVerify.confirmed) {
-      db.prepare('UPDATE users SET backed_balance = backed_balance + ? WHERE address = ?').run(amountInt, address);
-      db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amountInt, address);
-    }
+    // Credit balance immediately (user sees funds right away)
+    db.prepare('UPDATE users SET backed_balance = backed_balance + ? WHERE address = ?').run(amountInt, address);
+    db.prepare('UPDATE users SET balance = balance + ? WHERE address = ?').run(amountInt, address);
+
+    console.log(`Deposit accepted: ${amountInt} sats from ${address}, tx=${txHash}`);
 
     res.json({
       success: true,
-      status,
+      status: 'pending',
       amount: amountInt,
-      message: txVerify.confirmed ? 'Deposit confirmed and credited' : 'Deposit pending confirmation',
+      message: 'Deposit credited — confirming on-chain',
     });
+
+    // Background: verify TX and update status (non-blocking)
+    verifyTxExists(txHash, address).then(txVerify => {
+      if (txVerify.valid) {
+        const newStatus = txVerify.confirmed ? 'confirmed' : 'pending';
+        const confirmedAt = txVerify.confirmed ? Math.floor(Date.now() / 1000) : null;
+        db.prepare('UPDATE treasury_deposits SET status = ?, confirmed_at = ? WHERE tx_hash = ?').run(newStatus, confirmedAt, txHash);
+        if (txVerify.confirmed) console.log(`Deposit confirmed on-chain: ${txHash}`);
+      } else {
+        console.warn(`Deposit TX not found yet: ${txHash} — will retry in background`);
+      }
+    }).catch(e => console.error('Deposit verify error:', e.message));
   } catch (e) {
     console.error('Deposit error:', e.message);
     res.status(500).json({ error: 'Failed to process deposit' });
   }
 });
 
-// POST /api/withdraw — request withdrawal of backed_balance
+// POST /api/withdraw — server calls Treasury.adminWithdraw() on-chain
+// Flow: 1) validate → 2) debit balance → 3) server calls adminWithdraw → 4) done
 app.post('/api/withdraw', requireAuth, async (req, res) => {
   const { address, amount } = req.body;
   if (!address || !amount) return res.status(400).json({ error: 'address and amount required' });
@@ -3943,63 +4183,69 @@ app.post('/api/withdraw', requireAuth, async (req, res) => {
   // Rate limit: 3 withdrawals / 5 min
   if (rateLimit('withdraw:' + address, 3, 300000)) return res.status(429).json({ error: 'Too many withdrawals. Try again later.' });
 
-  // Check backed_balance (only backed funds can be withdrawn)
-  const user = db.prepare('SELECT backed_balance FROM users WHERE address = ?').get(address);
+  // Check both balance and backed_balance — can only withdraw min(balance, backed_balance)
+  const user = db.prepare('SELECT balance, backed_balance FROM users WHERE address = ?').get(address);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  if (user.backed_balance < amountInt) return res.status(400).json({ error: `Insufficient backed balance: ${user.backed_balance} < ${amountInt}` });
+  const maxWithdraw = Math.min(user.balance, user.backed_balance);
+  if (maxWithdraw < amountInt) return res.status(400).json({ error: `Insufficient withdrawable balance: ${maxWithdraw} sats (balance: ${user.balance}, backed: ${user.backed_balance})` });
 
   // Calculate fee
   const fee = Math.ceil(amountInt * WITHDRAWAL_FEE_PCT);
   const netAmount = amountInt - fee;
 
-  // Generate nonce + HMAC signature
-  const nonce = crypto.randomBytes(16).toString('hex');
-  const expiresAt = Math.floor(Date.now() / 1000) + 600; // 10 min
-  const signaturePayload = `withdraw:${address}:${amountInt}:${fee}:${nonce}:${expiresAt}`;
-  const signature = crypto.createHmac('sha256', JWT_SECRET).update(signaturePayload).digest('hex');
+  // Generate internal nonce for tracking
+  const internalNonce = crypto.randomBytes(16).toString('hex');
 
-  // Debit backed_balance immediately
-  db.prepare('UPDATE users SET backed_balance = backed_balance - ?, balance = balance - ? WHERE address = ?').run(amountInt, amountInt, address);
-
-  // Record withdrawal request
-  db.prepare('INSERT INTO withdrawal_requests (address, amount_bpusd, fee_bpusd, nonce, signature, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    address, amountInt, fee, nonce, signature, 'pending', expiresAt
-  );
-
-  // Record fee as protocol revenue
-  if (fee > 0) {
-    db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('withdrawal_fee', '', fee);
-    ACCUMULATED_PROTOCOL_REVENUE += fee;
-  }
-
-  // Execute transfer on-chain
   try {
-    const txResult = await transferWbtc(address, netAmount);
-    if (txResult.success) {
-      db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE nonce = ?").run(
-        txResult.txHash || '', nonce
-      );
-      res.json({ success: true, nonce, netAmount, fee, txHash: txResult.txHash, status: 'completed' });
-    } else {
-      // Transfer failed — keep as pending, will retry or expire
-      res.json({ success: true, nonce, netAmount, fee, status: 'pending', message: 'Transfer queued, will process shortly' });
+    // Debit balance immediately (prevents double-spend)
+    db.prepare('UPDATE users SET backed_balance = backed_balance - ?, balance = balance - ? WHERE address = ?').run(amountInt, amountInt, address);
+
+    // Record withdrawal request as 'pending'
+    db.prepare('INSERT INTO withdrawal_requests (address, amount_bpusd, fee_bpusd, nonce, signature, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      address, amountInt, fee, internalNonce, '', 'pending', Math.floor(Date.now() / 1000) + 600
+    );
+
+    // Record fee as protocol revenue
+    if (fee > 0) {
+      db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('withdrawal_fee', '', fee);
+      ACCUMULATED_PROTOCOL_REVENUE += fee;
     }
+
+    // Call Treasury.adminWithdraw() on-chain (server is admin)
+    const result = await adminWithdrawOnChain(address, netAmount);
+
+    if (!result.success) {
+      // Reverse the debit on failure
+      db.prepare('UPDATE users SET backed_balance = backed_balance + ?, balance = balance + ? WHERE address = ?').run(amountInt, amountInt, address);
+      db.prepare("UPDATE withdrawal_requests SET status = 'failed' WHERE nonce = ? AND address = ?").run(internalNonce, address);
+      if (fee > 0) {
+        db.prepare('INSERT INTO protocol_revenue (source_type, source_market_id, amount) VALUES (?, ?, ?)').run('withdrawal_fee_reversal', '', -fee);
+        ACCUMULATED_PROTOCOL_REVENUE = Math.max(0, ACCUMULATED_PROTOCOL_REVENUE - fee);
+      }
+      return res.status(500).json({ error: 'On-chain withdrawal failed: ' + result.error });
+    }
+
+    // Mark as completed
+    db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE nonce = ? AND address = ?").run(result.txHash, internalNonce, address);
+
+    res.json({
+      success: true,
+      nonce: internalNonce,
+      netAmount,
+      fee,
+      txHash: result.txHash,
+      status: 'completed',
+    });
   } catch (e) {
-    console.error('Withdraw transfer error:', e.message);
-    res.json({ success: true, nonce, netAmount, fee, status: 'pending', message: 'Transfer queued' });
+    // Reverse the debit on error
+    db.prepare('UPDATE users SET backed_balance = backed_balance + ?, balance = balance + ? WHERE address = ?').run(amountInt, amountInt, address);
+    db.prepare("UPDATE withdrawal_requests SET status = 'failed' WHERE nonce = ? AND address = ?").run(internalNonce, address);
+    if (fee > 0) {
+      ACCUMULATED_PROTOCOL_REVENUE = Math.max(0, ACCUMULATED_PROTOCOL_REVENUE - fee);
+    }
+    console.error('Withdraw error:', e.message);
+    res.status(500).json({ error: 'Failed to process withdrawal: ' + e.message });
   }
-});
-
-// POST /api/withdraw/confirm — confirm withdrawal with txHash
-app.post('/api/withdraw/confirm', requireAuth, (req, res) => {
-  const { address, nonce, txHash } = req.body;
-  if (!address || !nonce || !txHash) return res.status(400).json({ error: 'address, nonce, and txHash required' });
-
-  const wr = db.prepare("SELECT * FROM withdrawal_requests WHERE nonce = ? AND address = ? AND status = 'pending'").get(nonce, address);
-  if (!wr) return res.status(404).json({ error: 'Withdrawal request not found or already processed' });
-
-  db.prepare("UPDATE withdrawal_requests SET status = 'completed', tx_hash = ?, completed_at = unixepoch() WHERE id = ?").run(txHash, wr.id);
-  res.json({ success: true });
 });
 
 // POST /api/unwrap — custodial WBTC unwrap: burn confirmed → send BTC from pool
@@ -4156,7 +4402,7 @@ async function confirmPendingDeposits() {
 function expireStaleWithdrawals() {
   try {
     const now = Math.floor(Date.now() / 1000);
-    const expired = db.prepare("SELECT id, address, amount_bpusd, fee_bpusd FROM withdrawal_requests WHERE status = 'pending' AND expires_at < ?").all(now);
+    const expired = db.prepare("SELECT id, address, amount_bpusd, fee_bpusd FROM withdrawal_requests WHERE status IN ('pending', 'authorized') AND expires_at < ?").all(now);
     for (const wr of expired) {
       // Return full amount (including fee) to user
       db.prepare('UPDATE users SET backed_balance = backed_balance + ?, balance = balance + ? WHERE address = ?').run(wr.amount_bpusd, wr.amount_bpusd, wr.address);

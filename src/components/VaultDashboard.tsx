@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, BarChart3, Zap, Clock, CheckCircle2 } from 'lucide-react';
+import { Wallet, Lock, Unlock, TrendingUp, RefreshCw, Loader2, BarChart3, Zap, Clock, CheckCircle2, Link } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../lib/api';
 import { getExplorerTxUrl, OPNET_CONFIG, MIN_BTC_FOR_TX, satsToBtc, formatBtc, stakeOnChain, unstakeOnChain, claimVaultOnChain, getOnChainVaultInfo, approveForVault, waitForTxConfirmation } from '../lib/opnet';
@@ -276,7 +276,7 @@ export function VaultDashboard({
             <div className={`bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover ${highApy ? 'vault-pulse' : ''}`}>
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">APY</div>
               <div className="text-lg font-black text-green-400">{vaultInfo?.apy || 0}%</div>
-              <div className="text-[9px] text-gray-500">Estimated</div>
+              <div className="text-[9px] text-gray-500">{vaultInfo?.apyLabel || 'Estimated'}</div>
             </div>
             <div className="bg-black/30 rounded-xl p-3 backdrop-blur-sm border border-white/5 stat-card-hover">
               <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Your Rewards</div>
@@ -379,6 +379,21 @@ export function VaultDashboard({
                 <span className="toggle-thumb" />
               </button>
             </div>
+
+            {/* Earnings calculator */}
+            {Number(amount) > 0 && (vaultInfo?.apy || 0) > 0 && (
+              <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-3 mb-4">
+                <div className="text-[10px] text-green-400 font-bold uppercase mb-1">Estimated Earnings ({vaultInfo?.apyLabel || 'APY'}: {vaultInfo.apy}%)</div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Weekly</span>
+                  <span className="text-green-400 font-bold">{formatBtc(Math.round(Number(amount) * 1e8 * (vaultInfo.apy / 100) / 52))}</span>
+                </div>
+                <div className="flex justify-between text-xs mt-1">
+                  <span className="text-gray-400">Monthly</span>
+                  <span className="text-green-400 font-bold">{formatBtc(Math.round(Number(amount) * 1e8 * (vaultInfo.apy / 100) / 12))}</span>
+                </div>
+              </div>
+            )}
 
             {/* Action buttons */}
             <div className="flex gap-2">
@@ -516,7 +531,7 @@ export function VaultDashboard({
             <div className="space-y-3">
               {[
                 { icon: <Lock size={14} className="text-purple-400" />, title: 'Stake WBTC', desc: 'Lock your WBTC in the vault' },
-                { icon: <TrendingUp size={14} className="text-green-400" />, title: 'Earn Fees', desc: '60% of 3% betting fee distributed to stakers' },
+                { icon: <TrendingUp size={14} className="text-green-400" />, title: 'Earn Fees', desc: '40% of 2% bet fee → 0.8% of volume to stakers' },
                 { icon: <Zap size={14} className="text-yellow-400" />, title: 'Auto-Compound', desc: 'Rewards automatically reinvested' },
               ].map((step, i) => (
                 <div key={i} className="flex items-start gap-3">
@@ -532,11 +547,37 @@ export function VaultDashboard({
             </div>
           </div>
 
-          {/* Total distributed */}
+          {/* Fee Flow */}
           <div className="vault-card rounded-2xl p-5 flex-1 flex flex-col justify-center">
-            <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Total Distributed</div>
-            <div className="text-2xl font-black text-btc">{formatNum(vaultInfo?.totalRewards || 0)}</div>
-            <div className="text-[10px] text-gray-500">sats from trading fees</div>
+            <div className="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-3">Fee Flow</div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-400">Total Volume</span>
+                <span className="text-xs font-bold text-white">{formatNum(vaultInfo?.totalVolume || 0)} sats</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-gray-700" />
+                <span className="text-[9px] text-gray-600">2% fee</span>
+                <div className="h-px flex-1 bg-gradient-to-r from-gray-700 to-transparent" />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-400">40% → Vault</span>
+                <span className="text-xs font-bold text-btc">{formatNum(vaultInfo?.totalRewards || 0)} sats</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-gray-700" />
+                <span className="text-[9px] text-gray-600">your share</span>
+                <div className="h-px flex-1 bg-gradient-to-r from-gray-700 to-transparent" />
+              </div>
+              {(userInfo?.staked ?? 0) > 0 && vaultInfo?.totalStaked ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400">Your Share</span>
+                  <span className="text-xs font-bold text-purple-400">{((userInfo!.staked / vaultInfo.totalStaked) * 100).toFixed(1)}%</span>
+                </div>
+              ) : (
+                <div className="text-[10px] text-gray-600 text-center">Stake to earn your share</div>
+              )}
+            </div>
           </div>
 
         </div>
