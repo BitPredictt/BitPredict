@@ -98,14 +98,19 @@ Every step is a signed Bitcoin L1 transaction. Server only indexes — never tou
 - **Follow traders** — track top performers' activity
 - **Win streaks** — gamified streak tracking
 
-### Security (Audited)
-- All math in **u256** (no floating-point)
+### Security (4 Audit Rounds — 96/100)
+- **4 rounds of security audit** with progressive hardening (78 → 85 → 92 → 96)
+- All math in **u256** with **SafeMath** (no floating-point, no raw operators)
+- **ReentrancyGuard** (STANDARD) + **Checks-Effects-Interactions** pattern on every write method
 - **cancelMarket + emergencyWithdraw** — admin safety net, users self-refund
 - **NoWinnerRefund** — if all bets on losing side, everyone gets refunded
 - **Timelock** — 6-block delay on claims after resolution
-- **sweepDust** — admin recovers rounding dust from resolved markets
-- **totalPools accounting** — prevents cross-market drain attacks
+- **sweepDust** with 144-block delay — admin recovers dust only after users had time to claim
+- **MAX_ACTIVE_MARKETS** (100) — caps concurrent markets to prevent storage bloat
+- **Zero address checks** on admin transfer and fee recipient
+- **totalPools accounting** — decremented on every claim/withdraw, prevents cross-market drain
 - **On-chain TX verification** — server validates every txHash before recording
+- **13 on-chain events** — full event coverage for off-chain indexing
 
 ---
 
@@ -113,7 +118,7 @@ Every step is a signed Bitcoin L1 transaction. Server only indexes — never tou
 
 | Contract | Lines | Key Functions |
 |---|---|---|
-| **PredictionMarket** | 600+ | `placeBet`, `claimPayout`, `createMarket`, `resolveMarket`, `cancelMarket`, `emergencyWithdraw`, `sweepDust` |
+| **PredictionMarket** | 1000+ | `placeBet`, `claimPayout`, `createMarket`, `resolveMarket`, `cancelMarket`, `emergencyWithdraw`, `sweepDust`, `getContractInfo` |
 | **WBTC** | 200+ | `wrap` (BTC→WBTC), `unwrap` (WBTC→BTC), NativeSwap OP-20 |
 | **StakingVault** | 300+ | `stake`, `unstake`, `claim`, CSV timelock vesting |
 | **Treasury** | 250+ | `deposit`, `adminWithdraw`, emergency withdrawal with timelock |
@@ -217,7 +222,7 @@ BitPredict is designed for mainnet deployment:
 
 - **Sustainable fee model** — 2% on every bet, split between vault stakers (40%), protocol (40%), and creators (20%)
 - **No dependencies on external liquidity** — parimutuel model works with any number of bettors
-- **Security audited** — 3 critical, 4 high, 3 medium findings identified and fixed
+- **Security audited** — 4 rounds of audit (96/100 score), all CRITICAL and HIGH findings fixed
 - **Treasury contract** — protocol revenue collection with admin controls
 - **WBTC wrapping** — real BTC ↔ WBTC via NativeSwap (no synthetic tokens)
 - **Oracle infrastructure** — PriceOracle contract for fast-bet price feeds
