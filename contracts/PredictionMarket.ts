@@ -46,6 +46,8 @@ const MIN_TRADE_AMOUNT: u256 = u256.fromU64(10_000); // 10,000 sats minimum
 const MIN_MARKET_DURATION: u64 = 6;      // 6 blocks ≈ 1 hour
 const EMERGENCY_TIMEOUT_BLOCKS: u64 = 1000; // ~7 days — users can self-withdraw if unresolved
 const TIMELOCK_BLOCKS: u64 = 6;            // ~1 hour grace period after resolution
+const SWEEP_DELAY_BLOCKS: u64 = 144;       // ~1 day — users must have time to claim before sweep
+const MAX_ACTIVE_MARKETS: u64 = 100;       // max concurrent active markets
 
 // Cross-contract call selectors (OP-20 standard)
 const TRANSFER_FROM_SELECTOR: u32 = 0x4b6685e7; // transferFrom — OPNet SHA-256 selector
@@ -291,6 +293,11 @@ export class PredictionMarket extends ReentrancyGuard {
     const minEndBlock: u256 = SafeMath.add(currentBlock, u256.fromU64(MIN_MARKET_DURATION));
     if (u256.lt(endBlock, minEndBlock)) {
       throw new Revert('Market duration too short (min 6 blocks)');
+    }
+
+    // Enforce max active markets
+    if (u256.ge(this.activeMarketCount.value, u256.fromU64(MAX_ACTIVE_MARKETS))) {
+      throw new Revert('Too many active markets');
     }
 
     const marketId: u256 = this.nextMarketId.value;
@@ -695,6 +702,15 @@ export class PredictionMarket extends ReentrancyGuard {
       throw new Revert('Market must be resolved or cancelled');
     }
 
+    // HIGH-001 fix: enforce delay on resolved markets so users have time to claim
+    if (isResolved) {
+      const resolvedBlock: u256 = this.resolvedAtBlock.get(marketKey);
+      const sweepableAfter: u256 = SafeMath.add(resolvedBlock, u256.fromU64(SWEEP_DELAY_BLOCKS));
+      if (u256.lt(u256.fromU64(Blockchain.block.number), sweepableAfter)) {
+        throw new Revert('Too early to sweep - users still claiming');
+      }
+    }
+
     const remaining: u256 = this.totalPools.get(marketKey);
     if (u256.eq(remaining, u256.Zero)) {
       throw new Revert('No dust to sweep');
@@ -782,6 +798,10 @@ export class PredictionMarket extends ReentrancyGuard {
   public setFeeRecipient(calldata: Calldata): BytesWriter {
     this.requireAdmin();
     const recipient: Address = calldata.readAddress();
+    const zeroAddr = new Address(new Array<u8>(32).fill(0));
+    if (recipient.equals(zeroAddr)) {
+      throw new Revert('Fee recipient cannot be zero address');
+    }
     this.feeRecipient.value = recipient;
     this.emitEvent(new FeeRecipientChangedEvent(recipient));
     return new BytesWriter(0);

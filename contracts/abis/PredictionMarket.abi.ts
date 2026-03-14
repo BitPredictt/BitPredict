@@ -1,6 +1,118 @@
 import { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } from 'opnet';
 
-export const PredictionMarketEvents = [];
+export const PredictionMarketEvents = [
+    {
+        name: 'MarketCreated',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'endBlock', type: ABIDataTypes.UINT256 },
+            { name: 'creator', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'BetPlaced',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'bettor', type: ABIDataTypes.ADDRESS },
+            { name: 'isYes', type: ABIDataTypes.BOOL },
+            { name: 'amount', type: ABIDataTypes.UINT256 },
+            { name: 'netAmount', type: ABIDataTypes.UINT256 },
+            { name: 'newYesPool', type: ABIDataTypes.UINT256 },
+            { name: 'newNoPool', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'MarketResolved',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'outcome', type: ABIDataTypes.BOOL },
+            { name: 'resolver', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'PayoutClaimed',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'claimer', type: ABIDataTypes.ADDRESS },
+            { name: 'amount', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'AdminChanged',
+        values: [
+            { name: 'oldAdmin', type: ABIDataTypes.ADDRESS },
+            { name: 'newAdmin', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'FeeChanged',
+        values: [
+            { name: 'oldFeeBps', type: ABIDataTypes.UINT256 },
+            { name: 'newFeeBps', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'FeeRecipientChanged',
+        values: [
+            { name: 'newRecipient', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'Paused',
+        values: [
+            { name: 'admin', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'Unpaused',
+        values: [
+            { name: 'admin', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'MarketCancelled',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'admin', type: ABIDataTypes.ADDRESS },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'EmergencyWithdraw',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'user', type: ABIDataTypes.ADDRESS },
+            { name: 'amount', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'NoWinnerRefund',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'recipient', type: ABIDataTypes.ADDRESS },
+            { name: 'amount', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+    {
+        name: 'DustSwept',
+        values: [
+            { name: 'marketId', type: ABIDataTypes.UINT256 },
+            { name: 'amount', type: ABIDataTypes.UINT256 },
+        ],
+        type: BitcoinAbiTypes.Event,
+    },
+];
 
 export const PredictionMarketAbi = [
     {

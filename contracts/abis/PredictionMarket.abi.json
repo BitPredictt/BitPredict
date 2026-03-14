@@ -6,16 +6,10 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "endBlock",
-                    "type": "UINT256"
-                }
+                { "name": "endBlock", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ]
         },
         {
@@ -24,24 +18,12 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                },
-                {
-                    "name": "isYes",
-                    "type": "BOOL"
-                },
-                {
-                    "name": "amount",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "isYes", "type": "BOOL" },
+                { "name": "amount", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "netAmount",
-                    "type": "UINT256"
-                }
+                { "name": "netAmount", "type": "UINT256" }
             ]
         },
         {
@@ -50,14 +32,8 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                },
-                {
-                    "name": "outcome",
-                    "type": "BOOL"
-                }
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "outcome", "type": "BOOL" }
             ],
             "outputs": []
         },
@@ -67,16 +43,10 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "payout",
-                    "type": "UINT256"
-                }
+                { "name": "payout", "type": "UINT256" }
             ]
         },
         {
@@ -85,10 +55,7 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ],
             "outputs": []
         },
@@ -98,16 +65,10 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "refund",
-                    "type": "UINT256"
-                }
+                { "name": "refund", "type": "UINT256" }
             ]
         },
         {
@@ -116,16 +77,10 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "marketId",
-                    "type": "UINT256"
-                }
+                { "name": "marketId", "type": "UINT256" }
             ],
             "outputs": [
-                {
-                    "name": "swept",
-                    "type": "UINT256"
-                }
+                { "name": "swept", "type": "UINT256" }
             ]
         },
         {
@@ -134,10 +89,7 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "newAdmin",
-                    "type": "ADDRESS"
-                }
+                { "name": "newAdmin", "type": "ADDRESS" }
             ],
             "outputs": []
         },
@@ -147,10 +99,7 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "newFeeBps",
-                    "type": "UINT256"
-                }
+                { "name": "newFeeBps", "type": "UINT256" }
             ],
             "outputs": []
         },
@@ -161,10 +110,7 @@
             "onlyOwner": false,
             "inputs": [],
             "outputs": [
-                {
-                    "name": "amount",
-                    "type": "UINT256"
-                }
+                { "name": "amount", "type": "UINT256" }
             ]
         },
         {
@@ -173,10 +119,7 @@
             "payable": false,
             "onlyOwner": false,
             "inputs": [
-                {
-                    "name": "recipient",
-                    "type": "ADDRESS"
-                }
+                { "name": "recipient", "type": "ADDRESS" }
             ],
             "outputs": []
         },
@@ -243,7 +186,6 @@
                 { "name": "yesPriceBps", "type": "UINT256" },
                 { "name": "noPriceBps", "type": "UINT256" }
             ]
-        }
         },
         {
             "name": "getContractInfo",
@@ -259,5 +201,117 @@
             ]
         }
     ],
-    "events": []
+    "events": [
+        {
+            "name": "MarketCreated",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "endBlock", "type": "UINT256" },
+                { "name": "creator", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "BetPlaced",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "bettor", "type": "ADDRESS" },
+                { "name": "isYes", "type": "BOOL" },
+                { "name": "amount", "type": "UINT256" },
+                { "name": "netAmount", "type": "UINT256" },
+                { "name": "newYesPool", "type": "UINT256" },
+                { "name": "newNoPool", "type": "UINT256" }
+            ]
+        },
+        {
+            "name": "MarketResolved",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "outcome", "type": "BOOL" },
+                { "name": "resolver", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "PayoutClaimed",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "claimer", "type": "ADDRESS" },
+                { "name": "amount", "type": "UINT256" }
+            ]
+        },
+        {
+            "name": "AdminChanged",
+            "type": "Event",
+            "values": [
+                { "name": "oldAdmin", "type": "ADDRESS" },
+                { "name": "newAdmin", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "FeeChanged",
+            "type": "Event",
+            "values": [
+                { "name": "oldFeeBps", "type": "UINT256" },
+                { "name": "newFeeBps", "type": "UINT256" }
+            ]
+        },
+        {
+            "name": "FeeRecipientChanged",
+            "type": "Event",
+            "values": [
+                { "name": "newRecipient", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "Paused",
+            "type": "Event",
+            "values": [
+                { "name": "admin", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "Unpaused",
+            "type": "Event",
+            "values": [
+                { "name": "admin", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "MarketCancelled",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "admin", "type": "ADDRESS" }
+            ]
+        },
+        {
+            "name": "EmergencyWithdraw",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "user", "type": "ADDRESS" },
+                { "name": "amount", "type": "UINT256" }
+            ]
+        },
+        {
+            "name": "NoWinnerRefund",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "recipient", "type": "ADDRESS" },
+                { "name": "amount", "type": "UINT256" }
+            ]
+        },
+        {
+            "name": "DustSwept",
+            "type": "Event",
+            "values": [
+                { "name": "marketId", "type": "UINT256" },
+                { "name": "amount", "type": "UINT256" }
+            ]
+        }
+    ]
 }
